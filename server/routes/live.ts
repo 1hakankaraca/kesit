@@ -91,12 +91,15 @@ export function liveRoutes({ workspaces, autopilot, publishing, kickChat, harves
         }),
       502,
     );
+    // Dinleme, sohbete düşen bağlantılarla birlikte kanala Kick'te eklenen yeni klipleri de kapsar.
+    await harvester.follow(req.user!.id, channel, req.body?.autoEdit === true);
     res.json({ status });
   });
 
   r.post('/live/unwatch', async (req, res) => {
     const ws = await workspaces.get(req.user!.id);
     ws.clipWatcher.unwatch();
+    await harvester.unfollow(req.user!.id);
     res.json({ status: ws.clipWatcher.getStatus() });
   });
 

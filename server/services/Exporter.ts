@@ -78,6 +78,19 @@ export class Exporter {
     return target;
   }
 
+  get snapshotDir() {
+    return path.join(this.dir, 'Ekran görüntüleri');
+  }
+
+  /** Ekran görüntüsü için hedef yol: "<tarih> <başlık> 01.23.jpg". Dışa aktarma kapalı olsa da kaydedilir. */
+  snapshotPath(title: string, sec: number) {
+    fs.mkdirSync(this.snapshotDir, { recursive: true });
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    const at = `${String(m).padStart(2, '0')}.${String(s).padStart(2, '0')}`;
+    return path.join(this.snapshotDir, `${stamp()} ${safeName(title)} ${at}.jpg`);
+  }
+
   /** Klasörü Finder/Explorer'da açar (yalnız bu bilgisayarda anlamlı). */
   reveal(target = this.dir) {
     fs.mkdirSync(target, { recursive: true });

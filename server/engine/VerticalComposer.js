@@ -168,7 +168,7 @@ class VerticalComposer {
         // Stüdyo Ayarları konumu üst-ortaya sabitleyebilir + ölçek çarpanı
         const hasLogo = logoPath && fs.existsSync(logoPath);
         if (hasLogo) {
-            const scale = Math.min(2, Math.max(0.5, Number(logoScale) || 1));
+            const scale = Math.min(2, Math.max(0.1, Number(logoScale) || 1));
             const logoW = even(LOGO_W * scale);
             const opacity = Math.min(1, Math.max(0.05, Number(logoOpacity) || 1));
 
@@ -299,7 +299,7 @@ class VerticalComposer {
         if (logoPath && fs.existsSync(logoPath) && logoPosition !== 'top-center') {
             const dims = await this._probeImage(logoPath).catch(() => null);
             if (dims && dims.w > 0) {
-                const scale = Math.min(2, Math.max(0.5, Number(logoScale) || 1));
+                const scale = Math.min(2, Math.max(0.1, Number(logoScale) || 1));
                 logoHalfH = Math.round((LOGO_W * scale * (dims.h / dims.w)) / 2);
             }
         }

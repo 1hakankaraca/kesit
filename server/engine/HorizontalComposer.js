@@ -145,7 +145,7 @@ class HorizontalComposer {
 
     /** Logo genişliği/opaklık/konum — VOD editöründeki sürükle-bırak değerleriyle aynı sınırlar. */
     static logoParams({ width, logoScale = 1, logoOpacity = 1, logoX = 0.92, logoY = 0.08 }) {
-        const scale = Math.min(2, Math.max(0.5, Number(logoScale) || 1));
+        const scale = Math.min(2, Math.max(0.1, Number(logoScale) || 1));
         return {
             logoW: Math.max(2, Math.round((width || 1920) / 3 * scale / 2) * 2),
             opacity: Math.min(1, Math.max(0.05, Number(logoOpacity) || 1)),

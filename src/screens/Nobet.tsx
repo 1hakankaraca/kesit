@@ -32,7 +32,7 @@ export function Nobet() {
 
   return (
     <>
-      <WorkspaceHead title="Nöbet" tape="otomatik" lead="Sen yokken kanalı izler: yayın açılınca kayda ve klip yakalamaya başlar, yayın bitince her şeyi toparlar." guide="nobet" />
+      <WorkspaceHead title="Otomatik" tape="takip" lead="Sen yokken kanalı izler: yayın açılınca kayda ve klip yakalamaya başlar, yayın bitince her şeyi toparlar." guide="nobet" />
       <ol className="flow">
         {STEPS.map((s, i) => (
           <li key={s.title} className="flow-step">
@@ -71,7 +71,7 @@ function AutopilotPanel({ live, fallbackChannel }: { live: LiveState; fallbackCh
       const res = await api.put<LiveState['autopilot']>('/api/autopilot', next);
       liveStore.set((s) => (s ? { ...s, autopilot: res } : s));
       setDraft(res.config);
-      toast(res.config.enabled ? 'Nöbetçi açık' : 'Nöbetçi kapatıldı', 'ok');
+      toast(res.config.enabled ? 'Otomatik takip açık' : 'Otomatik takip kapatıldı', 'ok');
     } catch (err) {
       toastError(err);
     } finally {
@@ -99,7 +99,7 @@ function AutopilotPanel({ live, fallbackChannel }: { live: LiveState; fallbackCh
       <header className="panel-head">
         <div>
           <h2 id="ap-title" className="panel-title">
-            <Icon name="shield" size={18} /> Nöbetçi
+            <Icon name="shield" size={18} /> Otomatik takip
           </h2>
           <p className="panel-sub">Bilgisayar başında değilken kanalı yoklar; yayın açılınca devreye girer, kapanınca toparlar.</p>
         </div>
@@ -124,7 +124,7 @@ function AutopilotPanel({ live, fallbackChannel }: { live: LiveState; fallbackCh
           hint="Kick yayın kaydını yayımlayınca indirilir ve Geçmiş yayınlar'a düşer; editörde sen düzenlersin, otomatik işlenmez"
         />
         <Switch checked={draft.clips} onChange={(v) => patch({ clips: v })} label="Chat kliplerini yakala" hint="Sohbete düşen kick.com ve kickbot.com klip bağlantıları" />
-        {draft.clips && <Switch checked={draft.autoEdit} onChange={(v) => patch({ autoEdit: v })} label="Yakalananları otomatik düzenle" hint="Dikey klip + altyazı, Kütüphane'ye düşer" />}
+        {draft.clips && <Switch checked={draft.autoEdit} onChange={(v) => patch({ autoEdit: v })} label="Yakalananları otomatik düzenle" hint="Dikey video + altyazı, Videolarım'a düşer" />}
         {draft.clips && draft.autoEdit && <Switch checked={draft.subtitles} onChange={(v) => patch({ subtitles: v })} label="Altyazı" />}
         {draft.clips && draft.autoEdit && (
           <Switch checked={draft.autoPublish} onChange={(v) => patch({ autoPublish: v })} label="Otomatik paylaş" hint="Hazır klipler saatte bir Zernio ile paylaşılır" />
@@ -160,13 +160,13 @@ function AutopilotPanel({ live, fallbackChannel }: { live: LiveState; fallbackCh
 
         <button type="button" className={on ? 'btn btn-secondary btn-large' : 'btn btn-accent btn-large'} disabled={busy || (!on && !draft.channel)} onClick={() => save({ ...draft, enabled: !on })}>
           {busy ? <Spinner /> : <Icon name={on ? 'stop' : 'shield'} size={16} />}
-          {on ? 'Nöbeti kapat' : 'Nöbeti başlat'}
+          {on ? 'Takibi kapat' : 'Takibi başlat'}
         </button>
         {on && status.nextCheckAt && <p className="field-help">Son yoklama {time(status.lastCheckAt)} · sonraki {time(status.nextCheckAt)}</p>}
       </div>
 
       {status.events.length > 0 && (
-        <ol className="event-log" aria-label="Nöbet günlüğü">
+        <ol className="event-log" aria-label="Takip günlüğü">
           {status.events.map((e, i) => (
             <li key={`${e.at}-${i}`} className={`event event-${e.kind}`}>
               <span className="event-time">{time(e.at)}</span>

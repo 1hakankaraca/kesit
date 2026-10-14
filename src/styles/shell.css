@@ -2,7 +2,8 @@
 
 .shell {
   display: grid;
-  grid-template-columns: 232px minmax(0, 1fr);
+  grid-template-columns: var(--rail-w, 232px) minmax(0, 1fr);
+  transition: grid-template-columns 0.2s var(--ease-out);
   grid-template-rows: auto minmax(0, 1fr);
   min-height: 100dvh;
 }

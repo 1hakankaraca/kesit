@@ -74,10 +74,21 @@ export class Retention {
       freed += sizeOf(p);
       fs.rmSync(p, { recursive: true, force: true });
     };
+    const hourAgo = Date.now() - 60 * 60_000;
     for (const user of list(config.clipDir).filter((n) => /^\d+$/.test(n))) {
       const base = path.join(config.clipDir, user);
       for (const job of list(path.join(base, 'vod-work'))) {
         const dir = path.join(base, 'vod-work', job);
+        // Başarısız / iptal edilmiş / silinmiş işlerin klasörü 1 saat sonra tamamen gider.
+        const row = this.store.get('SELECT status FROM vod_scan_jobs WHERE id = ?', [Number(job)]);
+        if (!row || ['failed', 'cancelled', 'expired'].includes(row.status)) {
+          try {
+            if (fs.statSync(dir).mtimeMs < hourAgo) drop(dir);
+          } catch {
+            /* yok */
+          }
+          continue;
+        }
         for (const f of list(dir)) if (!KEEP_IN_VOD.has(f) && old(path.join(dir, f))) drop(path.join(dir, f));
       }
       for (const sub of ['work', 'recording-work']) {

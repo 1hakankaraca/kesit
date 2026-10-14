@@ -39,15 +39,15 @@ export function Live() {
       <WorkspaceHead
         title="Canlı"
         tape="yayın"
-        lead="Şu an süren yayını kaydet, chat'e düşen klipleri yakala, yayının o ana kadarki kısmını kesmek için al."
+        lead="Şu an süren yayını kaydet, klipleri yakala, sohbete klip komutu at ya da yayının o ana kadarki kısmını kesmek için indir."
         guide="canli"
       />
       {channel && <ChannelBanner info={info.data} loading={info.loading} channel={channel} />}
       {live.autopilot.config.enabled && (
         <p className="notice-box live-note">
-          Nöbet açık: {live.autopilot.config.channel} yayına geçince klip yakalama başlar, yayın bitince yayın indirilir.{' '}
+          Otomatik takip açık: {live.autopilot.config.channel} yayına geçince klipler yakalanır, yayın bitince yayın indirilir.{' '}
           <button type="button" className="link" onClick={() => navigate(sectionPath('nobet'))}>
-            Nöbet'e git
+            Otomatik takibe git
           </button>
         </p>
       )}
@@ -58,7 +58,6 @@ export function Live() {
           <QuickClipPanel channel={channel} isLive={!!info.data?.isLive} chatAccess={live.chatAccess} />
         </div>
       </div>
-      <HarvestPanel channel={channel} />
     </>
   );
 }
@@ -112,7 +111,7 @@ function RecorderPanel({ live, channel, isLive }: { live: LiveState; channel: st
     setBusy(true);
     try {
       const res = await api.post<{ finishing?: boolean }>('/api/live/record/stop');
-      toast(res.finishing ? 'Son parçalar iniyor, kayıt birazdan hazır' : 'Kayıt durdu, çıktı hazırlanıyor', 'ok');
+      toast(res.finishing ? 'Son parçalar iniyor, kayıt birazdan hazır' : 'Kayıt durdu — Yayın kayıtları\'nda', 'ok');
       await refreshLive();
     } catch (err) {
       toastError(err);
@@ -124,7 +123,7 @@ function RecorderPanel({ live, channel, isLive }: { live: LiveState; channel: st
   const captureSoFar = async () => {
     try {
       await api.post('/api/vods/capture-live', { channel });
-      toast('Yayının şu ana kadarki bölümü indiriliyor — Geçmiş yayınlar\'da kesebilirsin', 'ok');
+      toast('Yayının şu ana kadarki kısmı indiriliyor — Geçmiş yayınlar\'da düzenleyebilirsin', 'ok');
     } catch (err) {
       toastError(err);
     }
@@ -137,7 +136,7 @@ function RecorderPanel({ live, channel, isLive }: { live: LiveState; channel: st
           <h2 id="rec-title" className="panel-title">
             <Icon name="record" size={18} /> Canlı kayıt
           </h2>
-          <p className="panel-sub">Yayının tamamını dosyaya alır. Bitince Kayıtlar'da işlenmeye hazır olur.</p>
+          <p className="panel-sub">Yayının tamamını dosyaya alır. Durdurunca Yayın kayıtları'nda düzenlemeye hazır olur.</p>
         </div>
         {rec.recording && <Pill tone="live">{rec.finishing ? 'Bitiriliyor' : 'Kayıtta'}</Pill>}
       </header>
@@ -183,7 +182,7 @@ function RecorderPanel({ live, channel, isLive }: { live: LiveState; channel: st
         <Empty icon="record" title="Önce bir kanal seç" />
       ) : (
         <div className="stack">
-          <Field label="Başlangıç" help={isLive ? 'Geçmişten başlarsan yayının o kadar öncesi de kayda girer.' : 'Kanal şu an yayında değil; yayın açılınca başlatabilir ya da Nöbetçi\'ye bırakabilirsin.'}>
+          <Field label="Başlangıç" help={isLive ? 'Geçmişten başlarsan yayının o kadar öncesi de kayda girer.' : 'Kanal şu an yayında değil; yayın açılınca başlatabilir ya da Otomatik takip\'i açabilirsin.'}>
             <Segmented
               label="Geçmişten başla"
               value={backfill}
@@ -243,7 +242,7 @@ function WatcherPanel({ live, channel }: { live: LiveState; channel: string }) {
           <h2 id="watch-title" className="panel-title">
             <Icon name="live" size={18} /> Chat klipleri
           </h2>
-          <p className="panel-sub">{w.watching ? `${w.channel} sohbeti dinleniyor${w.chatConnected ? '' : ' (bağlanıyor)'}` : 'Sohbete düşen klip bağlantılarını anında yakalar.'}</p>
+          <p className="panel-sub">{w.watching ? `${w.channel} dinleniyor: sohbet${w.chatConnected ? '' : ' (bağlanıyor)'} ve Kick'e eklenen yeni klipler` : "Sohbete atılan klipleri ve kanala Kick'te eklenen yeni klipleri yakalar."}</p>
         </div>
         {w.watching && <Pill tone="ok">{w.detectedCount} klip</Pill>}
       </header>
@@ -257,7 +256,9 @@ function WatcherPanel({ live, channel }: { live: LiveState; channel: string }) {
           </button>
         </div>
       )}
-      {managedByAutopilot && <p className="field-help">Nöbet açıkken klip yakalamayı nöbet yönetir.</p>}
+      {managedByAutopilot && <p className="field-help">Otomatik takip açıkken klip yakalamayı o yönetir.</p>}
+
+      <HarvestList />
 
       {w.feed.length > 0 ? (
         <ul className="feed">
@@ -356,25 +357,14 @@ interface HarvestState {
   pollSeconds: number;
 }
 
-/** Kanal klip takibi: Kick'e eklenen yeni klipleri arka planda indirir. */
-function HarvestPanel({ channel }: { channel: string }) {
+/**
+ * Dinleme sırasında kanala Kick'te eklenen yeni klipler (arka planda indirilir).
+ * Dinleme başlayınca takip kendiliğinden açılır, bitince kapanır.
+ */
+function HarvestList() {
   const state = useResource(() => api.get<HarvestState>('/api/harvest'));
-  const [busy, setBusy] = useState(false);
   const [playing, setPlaying] = useState<HarvestClip | null>(null);
   useSocketEvent<{ clips: HarvestClip[] }>('harvest:update', (e) => state.setData((d) => d && { ...d, clips: e.clips }));
-
-  const cfg = state.data?.config;
-  const update = async (patch: Partial<HarvestState['config']>) => {
-    if (!cfg) return;
-    setBusy(true);
-    try {
-      state.setData(await api.put<HarvestState>('/api/harvest', { ...cfg, channel: cfg.channel || channel, ...patch }));
-    } catch (err) {
-      toastError(err);
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const remove = (clip: HarvestClip) =>
     deleteWithUndo({
@@ -387,7 +377,7 @@ function HarvestPanel({ channel }: { channel: string }) {
   const edit = async (clip: HarvestClip) => {
     try {
       await api.post(`/api/harvest/${clip.id}/edit`);
-      toast('Dikey video üretimine gönderildi — Kütüphane\'de', 'ok');
+      toast('Dikey videoya çevriliyor — Videolarım\'da görünecek', 'ok');
       void refreshJobs();
       void state.reload();
     } catch (err) {
@@ -395,32 +385,10 @@ function HarvestPanel({ channel }: { channel: string }) {
     }
   };
 
+  if (!state.data?.clips.length) return null;
   return (
-    <section className="panel pad-top-section" aria-labelledby="harvest-title">
-      <span className="panel-tape" aria-hidden="true" />
-      <header className="panel-head">
-        <div>
-          <h2 id="harvest-title" className="panel-title">
-            <Icon name="download" size={18} /> Kanal klip takibi
-          </h2>
-          <p className="panel-sub">
-            Arka planda {cfg?.channel || channel || 'kanalın'} Kick kliplerini {state.data ? `${Math.round(state.data.pollSeconds / 60)} dakikada bir` : 'düzenli'} kontrol eder; yeni bir klip eklenince bu bilgisayara indirir. Takipten önceki klipler indirilmez.
-          </p>
-        </div>
-        {cfg?.enabled && <Pill tone="on">Takipte: {cfg.channel}</Pill>}
-      </header>
-      {!cfg ? (
-        <Spinner />
-      ) : (
-        <div className="row-gap">
-          <button type="button" className={cfg.enabled ? 'btn btn-secondary' : 'btn btn-accent'} disabled={busy || (!cfg.enabled && !channel)} onClick={() => void update({ enabled: !cfg.enabled, channel: cfg.enabled ? cfg.channel : channel })}>
-            {busy ? <Spinner /> : null}
-            {cfg.enabled ? 'Takibi durdur' : `${channel || 'Kanalı'} takip et`}
-          </button>
-          <Switch checked={cfg.autoEdit} onChange={(v) => void update({ autoEdit: v })} label="İnen klibi dikey videoya da çevir" />
-        </div>
-      )}
-
+    <div className="harvest-wrap">
+      <h3 className="eyebrow pad-top">Kick'e eklenen yeni klipler</h3>
       {state.data && state.data.clips.length > 0 ? (
         <ul className="harvest-list">
           {state.data.clips.map((c) => (
@@ -448,11 +416,11 @@ function HarvestPanel({ channel }: { channel: string }) {
                 {c.status === 'ready' &&
                   (c.jobId ? (
                     <button type="button" className="btn btn-quiet btn-small" onClick={() => navigate(sectionPath('kutuphane', c.jobId))}>
-                      Kütüphane'de
+                      Videolarım'da
                     </button>
                   ) : (
                     <button type="button" className="btn btn-secondary btn-small" onClick={() => void edit(c)}>
-                      Dikey yap
+                      Dikey videoya çevir
                     </button>
                   ))}
                 <button type="button" className="btn btn-quiet btn-icon" onClick={() => remove(c)} aria-label="Sil">
@@ -462,9 +430,7 @@ function HarvestPanel({ channel }: { channel: string }) {
             </li>
           ))}
         </ul>
-      ) : (
-        cfg?.enabled && <p className="muted pad-top">Henüz yeni klip yok. Kanala klip eklendiğinde burada görünecek.</p>
-      )}
+      ) : null}
 
       <Modal open={!!playing} onClose={() => setPlaying(null)} title={playing?.title || 'Klip'} wide>
         {playing?.videoUrl && (
@@ -473,6 +439,6 @@ function HarvestPanel({ channel }: { channel: string }) {
           </div>
         )}
       </Modal>
-    </section>
+    </div>
   );
 }

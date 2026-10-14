@@ -7,6 +7,8 @@ import { bytes, dateTime, day, dayKey, duration, time } from '../lib/format.ts';
 import { navigate, sectionPath } from '../lib/router.ts';
 import type { ArchiveDay, ArchiveEntry } from '../lib/types.ts';
 import { useResource } from '../lib/useResource.ts';
+import { ChannelScopeToggle } from '../components/ChannelScopeToggle.tsx';
+import { useChannelScope } from '../lib/channelScope.ts';
 
 type Kind = 'all' | ArchiveEntry['kind'];
 
@@ -38,28 +40,30 @@ export function Archive() {
     [kind, q, onlyDay],
   );
 
+  const { inScope } = useChannelScope();
+  const entries = (data.data?.entries ?? []).filter((e) => inScope(e.channelSlug));
+
   const groups = useMemo(() => {
     const map = new Map<string, ArchiveEntry[]>();
-    for (const e of data.data?.entries ?? []) {
+    for (const e of entries) {
       const k = dayKey(e.producedAt);
       map.set(k, [...(map.get(k) ?? []), e]);
     }
     return [...map.entries()];
-  }, [data.data]);
+  }, [entries]);
 
   const totals = useMemo(() => {
-    const entries = data.data?.entries ?? [];
     return {
       produced: entries.length,
       shared: entries.filter((e) => ['published', 'partial', 'scheduled'].includes(e.publishStatus ?? '')).length,
       deleted: entries.filter((e) => e.deletedAt).length,
       size: entries.filter((e) => e.fileAvailable).reduce((s, e) => s + (e.sizeBytes ?? 0), 0),
     };
-  }, [data.data]);
+  }, [entries]);
 
   return (
     <>
-      <WorkspaceHead guide="arsiv" title="Arşiv" tape="defter" lead="Her gün ne üretildi, ne paylaşıldı, ne silindi. Dosyası silinmiş içeriklerin izi de burada durur." />
+      <WorkspaceHead guide="arsiv" actions={<ChannelScopeToggle />} title="Arşiv" tape="defter" lead="Her gün ne üretildi, ne paylaşıldı, ne silindi. Dosyası silinmiş içeriklerin izi de burada durur." />
 
       <section className="panel heat-panel">
         <Heatmap days={data.data?.days ?? []} selected={onlyDay} onSelect={setOnlyDay} />

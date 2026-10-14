@@ -18,6 +18,7 @@ import { liveRoutes } from './routes/live.ts';
 import { recordingRoutes } from './routes/recordings.ts';
 import { publicKickRoutes, settingsRoutes } from './routes/settings.ts';
 import { studioRoutes } from './routes/studio.ts';
+import { taskRoutes } from './routes/tasks.ts';
 import { vodRoutes } from './routes/vods.ts';
 import { ArchiveLedger } from './services/ArchiveLedger.ts';
 import { Autopilot } from './services/Autopilot.ts';
@@ -41,6 +42,7 @@ const archive = new ArchiveLedger(store, exporter);
 store.setArchiveHooks(archive);
 const vodScanner = new VodScanManager({ db: store, io });
 const workspaces = new Workspaces(store, io, vodScanner);
+const harvester = new ClipHarvester(store, io, workspaces);
 const ctx: AppContext = {
   store,
   io,
@@ -48,12 +50,12 @@ const ctx: AppContext = {
   vodScanner,
   archive,
   publishing: new Publishing(store),
-  autopilot: new Autopilot(store, io, workspaces, vodScanner),
+  autopilot: new Autopilot(store, io, workspaces, vodScanner, harvester),
   captions: new Captions(store, io),
   exporter,
   storage: new Storage(store, workspaces, vodScanner, exporter),
   kickChat: new KickChat(store),
-  harvester: new ClipHarvester(store, io, workspaces),
+  harvester,
 };
 ctx.captions.apply();
 const lan = new LanAccess(store);
@@ -142,7 +144,7 @@ app.delete('/api/lan/devices', requireLocal, (_req, res) => res.json(lan.revokeA
 app.use('/api', publicKickRoutes());
 
 app.use('/api', requireUser);
-for (const routes of [accountRoutes, settingsRoutes, clipRoutes, studioRoutes, vodRoutes, liveRoutes, recordingRoutes]) {
+for (const routes of [accountRoutes, settingsRoutes, taskRoutes, clipRoutes, studioRoutes, vodRoutes, liveRoutes, recordingRoutes]) {
   app.use('/api', routes(ctx));
 }
 

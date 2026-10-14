@@ -134,7 +134,7 @@ export function Clips() {
 
   return (
     <>
-      <WorkspaceHead guide="klipler" title="Klipler" tape="tara" lead="Kanalın kliplerini getir, beğendiklerini seç. Yüz kamerası, altyazı ve dikey kompozisyon otomatik yapılır." />
+      <WorkspaceHead guide="klipler" title="Kick" tape="klipleri" lead="Kanalın Kick kliplerini getir, beğendiklerini seç; dikey videoya kendiliğinden çevrilsin. Küçük resme tıklayınca izlersin." />
 
       <div className="toolbar panel">
         <form
@@ -257,7 +257,7 @@ export function Clips() {
             <div className="stack">
               <Switch checked={subtitles} onChange={setSubtitles} label="Altyazı" hint="Konuşma yazıya dökülür, önemli anlar vurgulanır" />
               <Segmented
-                label="Kompozisyon"
+                label="Yerleşim"
                 value={composition}
                 onChange={setComposition}
                 options={[

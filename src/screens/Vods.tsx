@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Icon } from '../components/Icon.tsx';
 import { Timeline, CutList, newCut, type Cut } from '../components/Timeline.tsx';
-import { Empty, Progress, Segmented, Spinner, Switch, WorkspaceHead } from '../components/basics.tsx';
+import { Empty, Segmented, Spinner, Switch, WorkspaceHead } from '../components/basics.tsx';
 import { api, query } from '../lib/api.ts';
 import { bytes, count, dateTime, duration, relative } from '../lib/format.ts';
 import { jobsStore, refreshJobs } from '../lib/jobs.ts';
@@ -10,20 +10,15 @@ import { useSession } from '../lib/session.ts';
 import { useSocketEvent } from '../lib/socket.ts';
 import { deleteWithUndo, toast, toastError } from '../lib/toast.ts';
 import { useResource } from '../lib/useResource.ts';
+import { useChannelScope } from '../lib/channelScope.ts';
+import { tasksStore } from '../lib/tasks.ts';
+import { takeSnapshot } from '../lib/snapshot.ts';
+import { speedLabel } from '../lib/words.ts';
+import { ChannelScopeToggle } from '../components/ChannelScopeToggle.tsx';
 import type { Frame, Highlight, Job, VodJob, VodVideo } from '../lib/types.ts';
 import { JobStatusLine, jobTitle } from './Library.tsx';
 
 const QUALITIES = ['1080p', '720p', '480p'] as const;
-
-const STATUS_TEXT: Record<VodJob['status'], string> = {
-  queued: 'Sırada',
-  processing: 'İndiriliyor',
-  paused: 'Duraklatıldı',
-  downloaded: 'Hazır',
-  failed: 'Başarısız',
-  cancelled: 'İptal edildi',
-  expired: 'Süresi doldu',
-};
 
 /** Geçmiş yayınlar: listeden indir, zaman çizelgesinde kes. */
 export function Vods({ openId }: { openId: number | null }) {
@@ -32,6 +27,7 @@ export function Vods({ openId }: { openId: number | null }) {
 
 function VodList() {
   const { user } = useSession();
+  const { inScope, showAll } = useChannelScope();
   const [channel, setChannel] = useState(user?.channelSlug ?? '');
   const [quality, setQuality] = useState<(typeof QUALITIES)[number]>('720p');
   useEffect(() => {
@@ -39,19 +35,23 @@ function VodList() {
   }, [user?.channelSlug]);
   const videos = useResource(() => (channel ? api.get<{ videos: VodVideo[] }>(`/api/vods${query({ channel })}`).then((r) => r.videos) : Promise.resolve([])), [channel]);
   const jobs = useResource(() => api.get<{ jobs: VodJob[] }>('/api/vod-jobs').then((r) => r.jobs));
+  const { live } = tasksStore.use();
   const [busy, setBusy] = useState<string | null>(null);
 
-  useSocketEvent<{ vodJobId: number; status: VodJob['status']; step: string; progress: number }>('vodscan:update', (e) => {
-    if (!jobs.data?.some((j) => j.id === e.vodJobId)) return void jobs.reload();
-    jobs.setData((list) => list?.map((j) => (j.id === e.vodJobId && STATUS_TEXT[e.status] ? { ...j, status: e.status, step: e.step, progress: e.progress ?? j.progress } : j)) ?? list);
-    if (e.status === 'downloaded' || e.status === 'failed') void jobs.reload();
+  useSocketEvent<{ vodJobId: number; status: string }>('vodscan:update', (e) => {
+    if (e.status !== 'processing') void jobs.reload();
   });
+
+  const all = jobs.data ?? [];
+  const ready = all.filter((j) => j.status === 'downloaded' && inScope(j.channel_slug));
+  const downloading = all.filter((j) => ['queued', 'processing', 'paused'].includes(j.status) && inScope(j.channel_slug));
+  const jobFor = (v: VodVideo) => all.find((j) => String(j.source_video_id) === String(v.id) && j.status !== 'cancelled' && j.status !== 'failed' && j.status !== 'expired');
 
   const download = async (v: VodVideo) => {
     setBusy(String(v.id));
     try {
       await api.post(v.isLive ? '/api/vods/capture-live' : '/api/vods/download', { channel, videoId: v.id, quality });
-      toast(v.isLive ? 'Yayının şu ana kadarki bölümü indiriliyor' : 'Yayın indirme sırasına alındı', 'ok');
+      toast('İndirme başladı — Görev yöneticisi\'nden izleyebilirsin', 'ok', { label: 'Görevlere git', run: () => navigate(sectionPath('gorevler')) }, 5000);
       await jobs.reload();
     } catch (err) {
       toastError(err);
@@ -60,153 +60,152 @@ function VodList() {
     }
   };
 
-  const act = async (job: VodJob, action: 'pause' | 'resume' | 'cancel' | 'delete') => {
-    if (action === 'delete') {
-      deleteWithUndo({
-        label: 'İndirilen yayın silindi',
-        hide: () => jobs.setData((list) => list?.filter((j) => j.id !== job.id) ?? list),
-        restore: () => void jobs.reload(),
-        commit: () => api.del(`/api/vod-jobs/${job.id}`),
-      });
-      return;
-    }
-    try {
-      await api.post(`/api/vod-jobs/${job.id}/${action}`);
-      await jobs.reload();
-    } catch (err) {
-      toastError(err);
-    }
-  };
+  const remove = (job: VodJob) =>
+    deleteWithUndo({
+      label: 'İndirilen yayın silindi',
+      hide: () => jobs.setData((list) => list?.filter((j) => j.id !== job.id) ?? list),
+      restore: () => void jobs.reload(),
+      commit: () => api.del(`/api/vod-jobs/${job.id}`),
+    });
 
   return (
     <>
-      <WorkspaceHead guide="yayinlar" title="Geçmiş" tape="yayınlar" lead="Kick'in sakladığı yayınları indir; zaman çizelgesinde istediğin anı kes ya da en iyi anları otomatik buldur." />
+      <WorkspaceHead guide="yayinlar" title="Geçmiş" tape="yayınlar" lead="Kick'in sakladığı yayınları bilgisayarına indir, sonra editörde istediğin anları kes." actions={<ChannelScopeToggle />} />
 
-      <div className="ws-grid">
-        <section className="ws-stack" aria-labelledby="vod-list-title">
-          <div className="toolbar panel">
-            <form
-              className="toolbar-search"
-              onSubmit={(e) => {
-                e.preventDefault();
-                const v = new FormData(e.currentTarget).get('channel');
-                setChannel(String(v || '').trim());
-              }}
-            >
-              <div className="search search-large">
-                <Icon name="search" size={18} />
-                <input key={channel} name="channel" className="search-input" defaultValue={channel} placeholder="Kanal adı" aria-label="Kanal" />
-              </div>
-              <button type="submit" className="btn btn-primary">
-                Yayınları getir
-              </button>
-            </form>
-            <div className="toolbar-filters">
-              <span className="eyebrow">İndirme kalitesi</span>
-              <Segmented size="small" label="Kalite" value={quality} onChange={setQuality} options={QUALITIES.map((q) => ({ value: q, label: q }))} />
+      {downloading.length > 0 && (
+        <button type="button" className="notice-box notice-link live-note" onClick={() => navigate(sectionPath('gorevler'))}>
+          <Spinner size={14} /> {downloading.length} yayın iniyor — ilerlemesini Görev yöneticisi'nde görebilirsin
+          <Icon name="chevron" size={14} />
+        </button>
+      )}
+
+      <section className="ws-stack" aria-labelledby="ready-title">
+        <h2 id="ready-title" className="section-title">
+          Düzenlemeye hazır {showAll ? '' : channel ? `· ${channel}` : ''}
+        </h2>
+        {!ready.length ? (
+          <p className="muted">Henüz indirilmiş yayın yok. Aşağıdan bir yayın seçip indir; inince burada görünür.</p>
+        ) : (
+          <ul className="vod-grid">
+            {ready.map((j) => (
+              <li key={j.id} className="vod-card">
+                <button type="button" className="clip-thumb clip-thumb-play" onClick={() => navigate(sectionPath('yayinlar', j.id))} aria-label={`${j.title || 'Yayın'} — düzenle`}>
+                  {j.thumbnail_url ? <img src={j.thumbnail_url} alt="" loading="lazy" /> : <Icon name="film" size={26} />}
+                  <span className="clip-play" aria-hidden="true">
+                    <Icon name="scissors" size={18} />
+                  </span>
+                  <span className="clip-badge clip-badge-dur">{duration(j.duration_sec)}</span>
+                </button>
+                <div className="vod-card-body">
+                  <h3 className="clip-card-title">{j.title || `Yayın #${j.source_video_id}`}</h3>
+                  <p className="clip-card-meta">
+                    {j.channel_slug} · {j.vod_file_size_bytes ? bytes(j.vod_file_size_bytes) : ''}
+                    {j.vod_expires_at ? ` · ${relative(j.vod_expires_at)} silinecek` : ''}
+                  </p>
+                  <div className="row-gap">
+                    <button type="button" className="btn btn-accent btn-small" onClick={() => navigate(sectionPath('yayinlar', j.id))}>
+                      <Icon name="scissors" size={14} /> Düzenle
+                    </button>
+                    <button type="button" className="btn btn-quiet btn-icon" onClick={() => remove(j)} aria-label="Sil">
+                      <Icon name="trash" size={14} />
+                    </button>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="ws-stack pad-top-section" aria-labelledby="vod-list-title">
+        <div className="toolbar panel">
+          <form
+            className="toolbar-search"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const v = new FormData(e.currentTarget).get('channel');
+              setChannel(String(v || '').trim());
+            }}
+          >
+            <div className="search search-large">
+              <Icon name="search" size={18} />
+              <input key={channel} name="channel" className="search-input" defaultValue={channel} placeholder="Kanal adı" aria-label="Kanal" />
             </div>
+            <button type="submit" className="btn btn-primary">
+              Yayınları getir
+            </button>
+          </form>
+          <div className="toolbar-filters">
+            <span className="eyebrow">İndirme kalitesi</span>
+            <Segmented size="small" label="Kalite" value={quality} onChange={setQuality} options={QUALITIES.map((q) => ({ value: q, label: q }))} />
           </div>
+        </div>
 
-          <h2 id="vod-list-title" className="eyebrow">
-            {channel ? `${channel} — kayıtlı yayınlar` : 'Kayıtlı yayınlar'}
-          </h2>
-          {!channel ? (
-            <div className="panel">
-              <Empty icon="film" title="Önce bir kanal seç">
-                Üst ortadaki kanal sekmelerinden birini seç ya da buraya bir kanal adı yaz.
-              </Empty>
-            </div>
-          ) : videos.loading && !videos.data ? (
-            <div className="center-pad">
-              <Spinner size={22} />
-            </div>
-          ) : videos.error ? (
-            <p className="field-error">{videos.error}</p>
-          ) : !videos.data?.length ? (
-            <div className="panel">
-              <Empty icon="film" title="Bu kanalın kayıtlı yayını yok">
-                Kick yayınları bir süre saklar; yayıncı kaydı kapatmış da olabilir.
-              </Empty>
-            </div>
-          ) : (
-            <ul className="vod-grid">
-              {videos.data.map((v) => (
+        <h2 id="vod-list-title" className="section-title">
+          {channel ? `${channel} — Kick'teki yayınlar` : "Kick'teki yayınlar"}
+        </h2>
+        {!channel ? (
+          <div className="panel">
+            <Empty icon="film" title="Önce bir kanal seç">
+              Üst ortadaki kanal sekmelerinden birini seç ya da buraya bir kanal adı yaz.
+            </Empty>
+          </div>
+        ) : videos.loading && !videos.data ? (
+          <div className="center-pad">
+            <Spinner size={22} />
+          </div>
+        ) : videos.error ? (
+          <p className="field-error">{videos.error}</p>
+        ) : !videos.data?.length ? (
+          <div className="panel">
+            <Empty icon="film" title="Bu kanalın kayıtlı yayını yok">
+              Kick yayınları bir süre saklar; yayıncı kaydı kapatmış da olabilir.
+            </Empty>
+          </div>
+        ) : (
+          <ul className="vod-grid">
+            {videos.data.map((v) => {
+              const job = jobFor(v);
+              const lv = job ? live[job.id] : undefined;
+              const pct = lv?.progress ?? job?.progress ?? 0;
+              return (
                 <li key={v.id} className="vod-card">
                   <span className="clip-thumb">
                     {v.thumbnailUrl ? <img src={v.thumbnailUrl} alt="" loading="lazy" /> : <Icon name="film" size={26} />}
                     {v.isLive ? <span className="clip-badge clip-badge-live">CANLI</span> : <span className="clip-badge clip-badge-dur">{duration(v.durationSec)}</span>}
+                    {job && job.status !== 'downloaded' && (
+                      <span className="thumb-progress" aria-hidden="true">
+                        <span style={{ width: `${pct}%` }} />
+                      </span>
+                    )}
                   </span>
                   <div className="vod-card-body">
                     <h3 className="clip-card-title">{v.title || 'Başlıksız yayın'}</h3>
                     <p className="clip-card-meta">
                       {dateTime(v.startedAt)} · {count(v.viewCount)} izlenme
                     </p>
-                    <button type="button" className="btn btn-secondary btn-small" onClick={() => download(v)} disabled={busy === String(v.id)}>
-                      {busy === String(v.id) ? <Spinner size={12} /> : <Icon name="download" size={14} />}
-                      {v.isLive ? 'Şu ana kadarını al' : 'İndir'}
-                    </button>
+                    {job?.status === 'downloaded' ? (
+                      <button type="button" className="btn btn-accent btn-small" onClick={() => navigate(sectionPath('yayinlar', job.id))}>
+                        <Icon name="scissors" size={14} /> Düzenle
+                      </button>
+                    ) : job ? (
+                      <button type="button" className="btn btn-secondary btn-small" onClick={() => navigate(sectionPath('gorevler'))}>
+                        <Spinner size={12} /> {job.status === 'queued' ? 'Sırada' : job.status === 'paused' ? 'Duraklatıldı' : `İniyor %${Math.round(pct)}`}
+                        {lv?.speedBps ? ` · ${speedLabel(lv.speedBps)}` : ''}
+                      </button>
+                    ) : (
+                      <button type="button" className="btn btn-secondary btn-small" onClick={() => download(v)} disabled={busy === String(v.id)}>
+                        {busy === String(v.id) ? <Spinner size={12} /> : <Icon name="download" size={14} />}
+                        {v.isLive ? 'Şu ana kadarını indir' : 'İndir'}
+                      </button>
+                    )}
                   </div>
                 </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <aside className="ws-stack">
-          <section className="panel">
-            <span className="panel-tape" aria-hidden="true" />
-            <h2 className="panel-title">İndirilenler</h2>
-            <p className="panel-sub">İnen yayınlar 7 gün saklanır; bu sürede kesit alabilirsin.</p>
-            {!jobs.data?.length ? (
-              <p className="muted pad-top">Henüz indirilen yayın yok.</p>
-            ) : (
-              <ul className="vodjob-list">
-                {jobs.data.map((j) => (
-                  <li key={j.id} className="vodjob">
-                    <div className="vodjob-top">
-                      <span className="vodjob-title">{j.title || `Yayın #${j.source_video_id}`}</span>
-                      <span className={`status status-${j.status === 'downloaded' ? 'ready' : j.status === 'failed' ? 'failed' : 'busy'}`}>{STATUS_TEXT[j.status]}</span>
-                    </div>
-                    {(j.status === 'processing' || j.status === 'queued' || j.status === 'paused') && <Progress value={j.status === 'queued' ? 0 : j.progress} />}
-                    <p className="vodjob-meta">
-                      {duration(j.duration_sec)}
-                      {j.vod_file_size_bytes ? ` · ${bytes(j.vod_file_size_bytes)}` : ''}
-                      {j.status === 'downloaded' && j.vod_expires_at ? ` · ${relative(j.vod_expires_at)} silinecek` : ''}
-                    </p>
-                    {j.error && <p className="field-error">{j.error}</p>}
-                    <div className="row-gap">
-                      {j.status === 'downloaded' && (
-                        <button type="button" className="btn btn-accent btn-small" onClick={() => navigate(sectionPath('yayinlar', j.id))}>
-                          <Icon name="scissors" size={14} /> Editörde aç
-                        </button>
-                      )}
-                      {j.status === 'processing' && (
-                        <button type="button" className="btn btn-quiet btn-small" onClick={() => act(j, 'pause')}>
-                          Duraklat
-                        </button>
-                      )}
-                      {j.status === 'paused' && (
-                        <button type="button" className="btn btn-quiet btn-small" onClick={() => act(j, 'resume')}>
-                          Sürdür
-                        </button>
-                      )}
-                      {['queued', 'processing', 'paused'].includes(j.status) ? (
-                        <button type="button" className="btn btn-quiet btn-small" onClick={() => act(j, 'cancel')}>
-                          İptal
-                        </button>
-                      ) : (
-                        <button type="button" className="btn btn-quiet btn-small" onClick={() => act(j, 'delete')}>
-                          Sil
-                        </button>
-                      )}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        </aside>
-      </div>
+              );
+            })}
+          </ul>
+        )}
+      </section>
     </>
   );
 }
@@ -305,7 +304,15 @@ function VodEditor({ id }: { id: number }) {
         <div className="ws-stack">
           <section className="panel">
             {vodUrl ? (
-              <Timeline src={vodUrl} duration={job.duration_sec} frames={frames} markers={highlights.map((h) => ({ start: h.start_sec, end: h.end_sec, label: h.reason, score: h.score }))} cuts={cuts} onCutsChange={setCuts} />
+              <Timeline
+                src={vodUrl}
+                duration={job.duration_sec}
+                frames={frames}
+                markers={highlights.map((h) => ({ start: h.start_sec, end: h.end_sec, label: h.reason, score: h.score }))}
+                cuts={cuts}
+                onCutsChange={setCuts}
+                onSnapshot={(t) => void takeSnapshot('vod', id, t)}
+              />
             ) : (
               <Empty icon="film" title="Yayın dosyası artık yok">
                 Saklama süresi dolmuş olabilir. Yayını yeniden indirebilirsin.
@@ -340,7 +347,7 @@ function VodEditor({ id }: { id: number }) {
             <CutList cuts={cuts} onChange={setCuts} />
             <div className="stack pad-top">
               <Segmented
-                label="Çıktı biçimi"
+                label="Video biçimi"
                 value={format}
                 onChange={setFormat}
                 options={[
@@ -349,7 +356,7 @@ function VodEditor({ id }: { id: number }) {
                 ]}
               />
               <Switch checked={subtitles} onChange={setSubtitles} label="Altyazı" />
-              {format === 'horizontal' && <Switch checked={intro} onChange={setIntro} label="Intro ve outro ekle" hint="Marka bölümünde yüklediysen" />}
+              {format === 'horizontal' && <Switch checked={intro} onChange={setIntro} label="Açılış ve kapanış videosu ekle" hint="Marka bölümünde yüklediysen" />}
               <button type="button" className="btn btn-accent" disabled={!cuts.length || busy} onClick={submitCuts}>
                 {busy ? <Spinner /> : <Icon name="scissors" size={16} />}
                 {cuts.length ? `${cuts.length} kesiti üret` : 'Kesit işaretle'}

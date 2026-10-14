@@ -189,7 +189,7 @@ export function Toasts() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, x: 40 }}
           >
-            <Icon name={t.tone === 'error' ? 'x' : t.action ? 'trash' : 'check'} size={16} />
+            <Icon name={t.tone === 'error' ? 'x' : t.action?.label === 'Geri al' ? 'trash' : 'check'} size={16} />
             <span>{t.text}</span>
             {t.action ? (
               <button type="button" className="toast-action" onClick={t.action.run}>
@@ -207,7 +207,7 @@ export function Toasts() {
   );
 }
 
-const guideSeenKey = (k: GuideKey) => `kesit.rehber.v3.${k}`;
+const guideSeenKey = (k: GuideKey) => `kesit.rehber.v4.${k}`;
 
 function guideSeen(k: GuideKey) {
   try {

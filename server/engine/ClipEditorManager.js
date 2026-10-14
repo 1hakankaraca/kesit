@@ -128,7 +128,7 @@ class ClipEditorManager {
         subtitleFollowsTheme: false, // true → altyazı vurgusu tema renginden
         logo: true,
         logoPosition: 'seam',       // seam | top-center | custom (serbest X/Y — VOD editör popup'ından)
-        logoScale: 1,               // 0.5 - 2.0
+        logoScale: 1,               // 0.1 - 2.0
         logoOpacity: 1,             // 0.05 - 1 (VOD editör logo sürükle-bırak paneli)
         logoX: null,                // 0-1, logoPosition==='custom' iken kullanılır (logo merkezinin video genişliğine oranı)
         logoY: null,                // 0-1, logoPosition==='custom' iken kullanılır
@@ -154,7 +154,7 @@ class ClipEditorManager {
             subtitleFollowsTheme: raw.subtitleFollowsTheme === true,
             logo: raw.logo !== false,
             logoPosition: pick(raw.logoPosition, ['seam', 'top-center', 'custom'], d.logoPosition),
-            logoScale: Math.min(2, Math.max(0.5, Number(raw.logoScale) || 1)),
+            logoScale: Math.min(2, Math.max(0.1, Number(raw.logoScale) || 1)),
             logoOpacity: Math.min(1, Math.max(0.05, raw.logoOpacity === undefined || raw.logoOpacity === null ? d.logoOpacity : Number(raw.logoOpacity))),
             logoX: raw.logoX !== undefined && raw.logoX !== null && !Number.isNaN(Number(raw.logoX)) ? Math.min(1, Math.max(0, Number(raw.logoX))) : null,
             logoY: raw.logoY !== undefined && raw.logoY !== null && !Number.isNaN(Number(raw.logoY)) ? Math.min(1, Math.max(0, Number(raw.logoY))) : null,

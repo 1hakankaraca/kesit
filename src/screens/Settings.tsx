@@ -50,8 +50,8 @@ export function Settings() {
   usePhoneUrl();
   return (
     <>
-      <WorkspaceHead title="Ayarlar" tape="sistem" lead="Kick uygulaması, altyazı motoru, çıktıların yeri, disk kullanımı ve telefondan erişim." guide="ayarlar" />
-      {!local && <p className="notice-box live-note">Telefondan açtın. Bilgisayar geneli ayarlar (altyazı, çıktı klasörü, disk, telefon erişimi) yalnız Kesit'in kurulu olduğu bilgisayardan değiştirilebilir.</p>}
+      <WorkspaceHead title="Ayarlar" tape="sistem" lead="Sohbete klip atma, otomatik altyazı, videoların kaydedileceği klasör, kapladığı yer ve telefondan erişim." guide="ayarlar" />
+      {!local && <p className="notice-box live-note">Telefondan açtın. Bilgisayar geneli ayarlar (altyazı, kayıt klasörü, disk, telefon erişimi) yalnız Kesit'in kurulu olduğu bilgisayardan değiştirilebilir.</p>}
       <div className="ws-grid">
         <div className="ws-stack">
           <KickAppPanel />
@@ -193,21 +193,21 @@ function CaptionsPanel() {
       <span className="panel-tape" aria-hidden="true" />
       <header className="panel-head">
         <div>
-          <h2 className="panel-title">Altyazı motoru</h2>
-          <p className="panel-sub">Kliplerdeki konuşma yazıya dökülür. Anahtar bağlıysa önce ElevenLabs, yoksa yerel model kullanılır.</p>
+          <h2 className="panel-title">Otomatik altyazı</h2>
+          <p className="panel-sub">Videolardaki konuşma yazıya dökülüp altyazı olarak eklenir. ElevenLabs bağlıysa o, değilse bu bilgisayardaki ücretsiz model kullanılır.</p>
         </div>
-        <Pill tone={s.engine ? 'ok' : 'neutral'}>{s.engine === 'elevenlabs' ? 'ElevenLabs etkin' : s.engine === 'whisper' ? 'Yerel model etkin' : 'Altyazı kapalı'}</Pill>
+        <Pill tone={s.engine ? 'ok' : 'neutral'}>{s.engine === 'elevenlabs' ? 'ElevenLabs açık' : s.engine === 'whisper' ? 'Ücretsiz model açık' : 'Altyazı kapalı'}</Pill>
       </header>
 
       <div className="engine-grid">
         <div className="engine">
           <h3>
-            <Icon name="folder" size={16} /> Yerel model <span className="tag">ücretsiz</span>
+            <Icon name="folder" size={16} /> Bu bilgisayarda <span className="tag">ücretsiz</span>
           </h3>
-          <p className="muted">Bu bilgisayarda çalışır, internet gerektirmez. Model bir kez indirilir.</p>
+          <p className="muted">İnternet olmadan çalışır. Bir kez indirilir.</p>
           {!s.whisper.binary ? (
             <p className="notice-box">
-              whisper.cpp kurulu değil. Terminalde <code>brew install whisper-cpp</code> çalıştırıp bu sayfayı yenile.
+              Gerekli program (whisper) bu bilgisayarda kurulu değil. Terminalde <code>brew install whisper-cpp</code> çalıştırıp bu sayfayı yenile.
             </p>
           ) : (
             <ul className="model-list">
@@ -354,9 +354,9 @@ function ExportPanel() {
   return (
     <section className="panel">
       <h2 className="panel-title">
-        <Icon name="download" size={18} /> Çıktılar nereye kaydedilsin
+        <Icon name="download" size={18} /> Videolar nereye kaydedilsin
       </h2>
-      <p className="panel-sub">Hazır olan her dikey video, yatay kesit ve kayıt çıktısı bu klasöre kopyalanır: Dikey/, Yatay/ ve Kayıtlar/ alt klasörlerine.</p>
+      <p className="panel-sub">Hazır olan her dikey video, yatay kesit ve paylaşıma hazır kayıt bu klasöre kopyalanır: Dikey, Yatay ve Kayıtlar klasörlerine ayrılır.</p>
       {!d ? (
         <Spinner />
       ) : (
@@ -400,7 +400,7 @@ function StoragePanel() {
   const max = Math.max(1, ...(r?.categories.map((c) => c.bytes) ?? [1]));
 
   const clean = (id: 'cache' | 'videos') => {
-    const label = id === 'cache' ? 'Önbellek temizleniyor' : 'Üretilen videolar siliniyor';
+    const label = id === 'cache' ? 'Geçici dosyalar temizleniyor' : 'Üretilen videolar siliniyor';
     deleteWithUndo({
       label,
       hide: () => setPending(id),
@@ -448,7 +448,7 @@ function StoragePanel() {
           </ul>
           <div className="row-gap pad-top">
             <button type="button" className="btn btn-secondary btn-small" disabled={!!pending} onClick={() => clean('cache')}>
-              <Icon name="refresh" size={14} /> Önbelleği temizle
+              <Icon name="refresh" size={14} /> Geçici dosyaları temizle
             </button>
             <button type="button" className="btn btn-quiet btn-small stage-delete" disabled={!!pending} onClick={() => clean('videos')}>
               <Icon name="trash" size={14} /> Üretilen videoları sil
@@ -524,7 +524,7 @@ function KickAppPanel() {
       <header className="panel-head">
         <div>
           <h2 id="kickapp-title" className="panel-title">
-            <Icon name="bolt" size={18} /> Kick uygulaması (sohbete klip atma)
+            <Icon name="bolt" size={18} /> Sohbete klip atma (Kick bağlantısı)
           </h2>
           <p className="panel-sub">Canlı'daki anlık klip düğmeleri sohbete "!clip" yazar. Bunun için kendi Kick geliştirici uygulamanı oluşturup bağlarsın; anahtarlar yalnız bu bilgisayarda, şifreli durur.</p>
         </div>

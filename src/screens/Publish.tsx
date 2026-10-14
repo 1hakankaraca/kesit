@@ -55,7 +55,7 @@ export function Publish() {
                 title="Henüz paylaşım yok"
                 action={
                   <button type="button" className="btn btn-secondary" onClick={() => navigate(sectionPath('kutuphane'))}>
-                    Kütüphane'den paylaş
+                    Videolarım'dan paylaş
                   </button>
                 }
               />
@@ -89,7 +89,7 @@ const HOWTO = [
   },
   {
     title: 'Paylaş',
-    text: 'Kütüphane\'de bir klip seç, "Paylaş"a bas, hesapları işaretle. "Hemen" ya da "Planla" ile tarih/saat seç. Nöbet\'te otomatik paylaşımı da açabilirsin.',
+    text: 'Videolarım\'da bir video seç, "Paylaş"a bas, hesapları işaretle. "Hemen" ya da "Planla" ile tarih/saat seç. Otomatik takipte otomatik paylaşımı da açabilirsin.',
   },
 ];
 

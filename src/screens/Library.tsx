@@ -1,5 +1,9 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import { ChannelScopeToggle } from '../components/ChannelScopeToggle.tsx';
+import { useChannelScope } from '../lib/channelScope.ts';
+import { takeSnapshot } from '../lib/snapshot.ts';
+import { stepLabel } from '../lib/words.ts';
 import { Icon } from '../components/Icon.tsx';
 import { PublishDialog, platformLabel } from '../components/PublishDialog.tsx';
 import { Empty, Progress, Segmented, Spinner, WorkspaceHead } from '../components/basics.tsx';
@@ -47,7 +51,9 @@ export const jobTitle = (j: Job) => j.gen_title || j.title || `Klip #${j.id}`;
  * ortada önizleme sahnesi, sağda üretilen metinler ve paylaşım denetçisi.
  */
 export function Library({ focusId }: { focusId: number | null }) {
-  const { jobs, loaded, queue, progress } = jobsStore.use();
+  const { jobs: allJobs, loaded, queue, progress } = jobsStore.use();
+  const { inScope } = useChannelScope();
+  const jobs = useMemo(() => allJobs.filter((j) => inScope(j.channel_slug)), [allJobs, inScope]);
   const [format, setFormat] = useState<FormatFilter>('all');
   const [status, setStatus] = useState<StatusFilter>('all');
   const [q, setQ] = useState('');
@@ -66,18 +72,19 @@ export function Library({ focusId }: { focusId: number | null }) {
     [jobs, format, status, q],
   );
 
-  const selected = jobs.find((j) => j.id === focusId) ?? visible[0] ?? null;
+  const selected = allJobs.find((j) => j.id === focusId) ?? visible[0] ?? null;
   const select = (id: number) => navigate(sectionPath('kutuphane', id), true);
 
   return (
     <>
       <WorkspaceHead
         guide="kutuphane"
-        title="Kütüphane"
-        tape="stüdyo"
+        title="Videolarım"
+        tape="hepsi"
         lead="Ürettiğin tüm dikey klipler ve yatay kesitler. Önizle, metni düzenle, indir ya da paylaş."
         actions={
           <>
+            <ChannelScopeToggle />
             {queue && (queue.running > 0 || queue.waiting > 0) && (
               <span className="pill">
                 <Spinner size={12} /> {queue.running} işleniyor · {queue.waiting} sırada
@@ -98,7 +105,7 @@ export function Library({ focusId }: { focusId: number | null }) {
         <div className="panel">
           <Empty
             icon="library"
-            title="Kütüphane henüz boş"
+            title="Henüz video yok"
             action={
               <div className="row-gap">
                 <button type="button" className="btn btn-accent" onClick={() => navigate(sectionPath('klipler'))}>
@@ -110,7 +117,7 @@ export function Library({ focusId }: { focusId: number | null }) {
               </div>
             }
           >
-            Kick kliplerini tara ya da geçmiş bir yayından kesit al; üretilen her şey burada toplanır.
+            Kick kliplerinden seç ya da geçmiş bir yayından kesit al; hazırlanan her video burada toplanır.
           </Empty>
         </div>
       ) : (
@@ -193,7 +200,7 @@ export function JobStatusLine({ job, progress }: { job: Job; progress?: number }
   if (job.status === 'failed') return <span className="status status-failed">Başarısız</span>;
   return (
     <span className="clip-row-progress">
-      <span className="status status-busy">{job.status === 'queued' ? 'Sırada' : job.step || 'İşleniyor'}</span>
+      <span className="status status-busy">{job.status === 'queued' ? 'Sırada' : stepLabel(job.step)}</span>
       <Progress value={job.status === 'queued' ? 0 : (progress ?? null)} />
     </span>
   );
@@ -203,6 +210,7 @@ export function JobStatusLine({ job, progress }: { job: Job; progress?: number }
 function Stage({ job, progress, onPublish }: { job: Job; progress?: number; onPublish: () => void }) {
   const horizontal = isHorizontal(job);
   const [busy, setBusy] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   const remove = () =>
     deleteWithUndo({
@@ -244,7 +252,7 @@ function Stage({ job, progress, onPublish }: { job: Job; progress?: number; onPu
     <section className="editor-stage panel" aria-label="Önizleme">
       <div className={horizontal ? 'stage stage-h' : 'stage stage-v'}>
         {job.status === 'ready' && job.video_url ? (
-          <video key={job.video_url} className="stage-video" src={job.video_url} poster={job.thumbnail_url ?? undefined} controls playsInline preload="metadata" />
+          <video ref={videoRef} key={job.video_url} className="stage-video" src={job.video_url} poster={job.thumbnail_url ?? undefined} controls playsInline preload="metadata" />
         ) : (
           <div className="stage-placeholder">
             {job.status === 'failed' ? (
@@ -255,7 +263,7 @@ function Stage({ job, progress, onPublish }: { job: Job; progress?: number; onPu
             ) : (
               <>
                 <Spinner size={26} />
-                <p>{job.status === 'queued' ? 'Sırada bekliyor' : job.step || 'İşleniyor'}</p>
+                <p>{job.status === 'queued' ? 'Sırada bekliyor' : stepLabel(job.step)}</p>
                 <div className="stage-progress">
                   <Progress value={job.status === 'queued' ? 0 : (progress ?? null)} />
                 </div>
@@ -274,6 +282,9 @@ function Stage({ job, progress, onPublish }: { job: Job; progress?: number; onPu
             <a className="btn btn-secondary" href={`/api/jobs/${job.id}/download`}>
               <Icon name="download" size={16} /> İndir
             </a>
+            <button type="button" className="btn btn-secondary" onClick={() => void takeSnapshot('clip', job.id, videoRef.current?.currentTime ?? 0)} title="Videonun o anki karesini kaydet">
+              <Icon name="image" size={16} /> Ekran görüntüsü
+            </button>
             <div className="btn-group" role="group" aria-label="Küçültülmüş indir">
               {COMPRESS_PROFILES.map((p) => (
                 <button key={p.value} type="button" className="btn btn-quiet btn-small" disabled={!!busy} onClick={() => compress(p.value)}>
@@ -323,7 +334,7 @@ function Inspector({ job }: { job: Job }) {
         </div>
         {job.viral_score != null && (
           <div>
-            <dt>Viral skor</dt>
+            <dt>Beğenilme tahmini</dt>
             <dd>
               <span className="score">{job.viral_score}</span>
             </dd>
@@ -347,8 +358,8 @@ function Inspector({ job }: { job: Job }) {
         </div>
       </dl>
 
-      {job.viral_reason && <p className="inspector-note">{job.viral_reason}</p>}
-      {job.qc_verdict === 'broken' && <p className="notice-box">Kalite kontrolü sorun buldu{issues.length ? `: ${issues.join(', ')}` : ''}. Paylaşmadan önce izle.</p>}
+      {job.viral_reason && !/LLM/i.test(job.viral_reason) && <p className="inspector-note">{job.viral_reason}</p>}
+      {job.qc_verdict === 'broken' && <p className="notice-box">Otomatik kontrol bir sorun buldu{issues.length ? `: ${issues.join(', ')}` : ''}. Paylaşmadan önce izle.</p>}
 
       {job.gen_description && (
         <section className="copy-block">

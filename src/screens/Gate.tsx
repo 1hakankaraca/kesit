@@ -8,9 +8,9 @@ import { useTheme } from '../lib/theme.ts';
 import { toastError } from '../lib/toast.ts';
 
 const FEATURES: { icon: IconName; title: string; text: string }[] = [
-  { icon: 'scissors', title: 'Kliplerden dikey video', text: 'Kanalın kliplerini tara, seç; yüz kamerası, altyazı ve 9:16 kompozisyon otomatik.' },
+  { icon: 'scissors', title: 'Kliplerden dikey video', text: 'Kanalın kliplerini seç; yüz kamerası, altyazı ve dikey yerleşim kendiliğinden yapılır.' },
   { icon: 'film', title: 'Geçmiş yayından kesit', text: 'Yayını indir, zaman çizelgesinde işaretle ya da en iyi anları otomatik buldur.' },
-  { icon: 'shield', title: 'Sen yokken nöbet', text: 'Yayın açılınca chat klipleri yakalanır; yayın bitince yayının tamamı indirilir, editörde seni bekler.' },
+  { icon: 'shield', title: 'Sen yokken otomatik takip', text: 'Yayın açılınca chat klipleri yakalanır; yayın bitince yayının tamamı indirilir, editörde seni bekler.' },
   { icon: 'share', title: 'Zernio ile paylaşım', text: 'Hesabını bağla; TikTok, YouTube, Instagram için tek tıkla ya da planlı paylaş.' },
 ];
 

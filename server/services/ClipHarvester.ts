@@ -78,6 +78,19 @@ export class ClipHarvester {
     return this.state(userId);
   }
 
+  /** Dinleme başlayınca çağrılır: kanalı takibe alır (zaten takipteyse dokunmaz). */
+  async follow(userId: number, channel: string, autoEdit: boolean) {
+    const cfg = await this.getConfig(userId);
+    if (cfg.enabled && cfg.channel === channel && cfg.autoEdit === autoEdit) return;
+    await this.update(userId, { ...cfg, enabled: true, channel, autoEdit });
+  }
+
+  /** Dinleme bitince takibi kapatır; indirilenler yerinde kalır. */
+  async unfollow(userId: number) {
+    const cfg = await this.getConfig(userId);
+    if (cfg.enabled) await this.update(userId, { ...cfg, enabled: false });
+  }
+
   async state(userId: number) {
     return {
       config: await this.getConfig(userId),

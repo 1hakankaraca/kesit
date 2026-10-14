@@ -20,7 +20,9 @@ export interface Marker {
 
 const COLORS = ['#f43f5e', '#f59e0b', '#22c55e', '#3b82f6', '#a855f7', '#ec4899', '#14b8a6', '#eab308'];
 const MIN_CUT = 1;
-const ZOOMS = [1, 2, 4, 8, 16, 32];
+/** Yakınlaştırma: 1 = tüm yayın şeride sığar; 1'in altı şeridi daraltır. */
+const ZOOMS = [0.2, 0.35, 0.5, 0.75, 1, 1.5, 2, 4, 8, 16, 32];
+const FIT_ZOOM = ZOOMS.indexOf(1);
 
 let seq = 0;
 export const newCut = (start: number, end: number, index: number, label?: string): Cut => ({
@@ -33,14 +35,18 @@ export const newCut = (start: number, end: number, index: number, label?: string
 
 type Drag =
   | { kind: 'create'; anchor: number; id: string }
+  | { kind: 'scrub' }
   | { kind: 'move'; id: string; offset: number; length: number }
   | { kind: 'start' | 'end'; id: string }
   | { kind: 'seek' };
 
 /**
  * Zaman çizelgesi editörü. Üstte oynatıcı, altta film şeridi + öne çıkan
- * anlar + kesitler. Boş alanda sürükle → yeni kesit; kesiti sürükle → taşı;
- * kenarlardan çek → uzat/kısalt. Klavye: Boşluk oynat, I/O giriş/çıkış, Enter ekle.
+ * anlar + kesitler. İki mod vardır:
+ *  - İzle (varsayılan): şeride tıkla/sürükle → oynatma çizgisi oraya gider.
+ *  - Kesit seç: şeritte sürükle → yeni kesit.
+ * Kesitler her iki modda taşınır/uzatılır; oynatma çizgisi her zaman tutulup sürüklenir.
+ * Klavye: Boşluk oynat, C mod değiştir, I/O giriş/çıkış, Enter ekle, S ekran görüntüsü.
  */
 export function Timeline({
   src,
@@ -50,6 +56,7 @@ export function Timeline({
   cuts,
   onCutsChange,
   aspect = 'h',
+  onSnapshot,
 }: {
   src: string;
   duration: number;
@@ -58,6 +65,8 @@ export function Timeline({
   cuts: Cut[];
   onCutsChange: (cuts: Cut[]) => void;
   aspect?: 'h' | 'v';
+  /** Verilirse "Ekran görüntüsü" düğmesi görünür; o anki saniyeyle çağrılır. */
+  onSnapshot?: (t: number) => void;
 }) {
   const video = useRef<HTMLVideoElement>(null);
   const track = useRef<HTMLDivElement>(null);
@@ -65,7 +74,8 @@ export function Timeline({
   const drag = useRef<Drag | null>(null);
   const [now, setNow] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const [zoomIndex, setZoomIndex] = useState(0);
+  const [zoomIndex, setZoomIndex] = useState(FIT_ZOOM);
+  const [mode, setMode] = useState<'izle' | 'kes'>('izle');
   const [mark, setMark] = useState<{ in: number | null; out: number | null }>({ in: null, out: null });
   const [active, setActive] = useState<string | null>(null);
   const total = Math.max(1, duration);
@@ -112,8 +122,8 @@ export function Timeline({
     if (e.button !== 0) return;
     const t = toSec(e.clientX);
     (e.target as Element).setPointerCapture?.(e.pointerId);
-    if (e.altKey || e.shiftKey) {
-      drag.current = { kind: 'seek' };
+    if (mode === 'izle' || e.altKey || e.shiftKey) {
+      drag.current = { kind: 'scrub' };
       seek(t);
       return;
     }
@@ -135,7 +145,7 @@ export function Timeline({
     const d = drag.current;
     if (!d) return;
     const t = toSec(e.clientX);
-    if (d.kind === 'seek') return seek(t);
+    if (d.kind === 'seek' || d.kind === 'scrub') return seek(t);
     if (d.kind === 'create') return update(d.id, { start: Math.min(d.anchor, t), end: Math.max(d.anchor, t) });
     const cut = cuts.find((c) => c.id === d.id);
     if (!cut) return;
@@ -172,7 +182,9 @@ export function Timeline({
         e.preventDefault();
         if (v.paused) void v.play();
         else v.pause();
-      } else if (e.key === 'i' || e.key === 'I') setMark((m) => ({ ...m, in: v.currentTime }));
+      } else if (e.key === 'c' || e.key === 'C') setMode((m) => (m === 'izle' ? 'kes' : 'izle'));
+      else if ((e.key === 's' || e.key === 'S') && onSnapshot) onSnapshot(v.currentTime);
+      else if (e.key === 'i' || e.key === 'I') setMark((m) => ({ ...m, in: v.currentTime }));
       else if (e.key === 'o' || e.key === 'O') setMark((m) => ({ ...m, out: v.currentTime }));
       else if (e.key === 'Enter' && mark.in !== null && mark.out !== null) {
         addCut(mark.in, mark.out);
@@ -226,12 +238,25 @@ export function Timeline({
         <span className="timecode">
           {stamp(now)} <span className="muted">/ {fmtDuration(total)}</span>
         </span>
-        <div className="transport-marks">
-          <button type="button" className="btn btn-secondary btn-small" onClick={() => setMark((m) => ({ ...m, in: now }))} title="Giriş (I)">
-            Giriş {mark.in !== null && <b>{fmtDuration(mark.in)}</b>}
+        <div className="mode-switch" role="radiogroup" aria-label="Şerit modu">
+          <button type="button" role="radio" aria-checked={mode === 'izle'} className={mode === 'izle' ? 'mode-on' : ''} onClick={() => setMode('izle')} title="Şeride tıklayınca oraya gider (C)">
+            <Icon name="play" size={12} /> İzle
           </button>
-          <button type="button" className="btn btn-secondary btn-small" onClick={() => setMark((m) => ({ ...m, out: now }))} title="Çıkış (O)">
-            Çıkış {mark.out !== null && <b>{fmtDuration(mark.out)}</b>}
+          <button type="button" role="radio" aria-checked={mode === 'kes'} className={mode === 'kes' ? 'mode-on' : ''} onClick={() => setMode('kes')} title="Şeritte sürükleyince kesit seçer (C)">
+            <Icon name="scissors" size={12} /> Kesit seç
+          </button>
+        </div>
+        {onSnapshot && (
+          <button type="button" className="btn btn-secondary btn-small" onClick={() => onSnapshot(video.current?.currentTime ?? now)} title="Bu saniyenin ekran görüntüsünü al (S)">
+            <Icon name="image" size={14} /> Ekran görüntüsü
+          </button>
+        )}
+        <div className="transport-marks">
+          <button type="button" className="btn btn-secondary btn-small" onClick={() => setMark((m) => ({ ...m, in: now }))} title="Kesitin başlangıcı (I)">
+            Başlangıç {mark.in !== null && <b>{fmtDuration(mark.in)}</b>}
+          </button>
+          <button type="button" className="btn btn-secondary btn-small" onClick={() => setMark((m) => ({ ...m, out: now }))} title="Kesitin bitişi (O)">
+            Bitiş {mark.out !== null && <b>{fmtDuration(mark.out)}</b>}
           </button>
           <button
             type="button"
@@ -250,7 +275,7 @@ export function Timeline({
           <button type="button" className="btn btn-quiet btn-icon" onClick={() => setZoomIndex((z) => Math.max(0, z - 1))} disabled={zoomIndex === 0} aria-label="Uzaklaştır">
             −
           </button>
-          <span className="muted">{ZOOMS[zoomIndex]}x</span>
+          <span className="muted">{ZOOMS[zoomIndex].toLocaleString('tr-TR')}x</span>
           <button type="button" className="btn btn-quiet btn-icon" onClick={() => setZoomIndex((z) => Math.min(ZOOMS.length - 1, z + 1))} disabled={zoomIndex === ZOOMS.length - 1} aria-label="Yakınlaştır">
             +
           </button>
@@ -258,7 +283,7 @@ export function Timeline({
       </div>
 
       <div className="track-scroller" ref={scroller}>
-        <div className="track" ref={track} style={{ width: trackWidth }} onPointerDown={onTrackDown} onPointerMove={onMove} onPointerUp={onUp}>
+        <div className={mode === 'kes' ? 'track track-cut-mode' : 'track'} ref={track} style={{ width: trackWidth }} onPointerDown={onTrackDown} onPointerMove={onMove} onPointerUp={onUp}>
           <div className="track-ruler" aria-hidden="true">
             {ruler.map((t) => (
               <span key={t} style={{ left: t * pxPerSec }}>
@@ -289,11 +314,21 @@ export function Timeline({
               <span className="track-cut-handle track-cut-handle-r" onPointerDown={(e) => onCutDown(e, c, 'end')} />
             </div>
           ))}
-          <span className="track-playhead" style={{ left: now * pxPerSec }} aria-hidden="true" />
+          <span
+            className="track-playhead"
+            style={{ left: now * pxPerSec }}
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              (e.target as Element).setPointerCapture?.(e.pointerId);
+              drag.current = { kind: 'scrub' };
+            }}
+            aria-hidden="true"
+          />
         </div>
       </div>
       <p className="timeline-hint">
-        Şeritte sürükleyerek kesit çiz · kesiti taşı ya da kenarından uzat · Shift ile tıkla: oynatma başını taşı · <kbd>Boşluk</kbd> oynat · <kbd>I</kbd>/<kbd>O</kbd> giriş/çıkış · <kbd>Enter</kbd> ekle · <kbd>Sil</kbd> kaldır
+        {mode === 'izle' ? 'İzle modu: şeride tıkla ya da çizgiyi tutup sürükle' : 'Kesit seç modu: şeritte sürükleyerek kesit çiz'} · kesiti taşı ya da kenarından uzat · <kbd>C</kbd> mod değiştir · <kbd>Boşluk</kbd> oynat · <kbd>I</kbd>/<kbd>O</kbd> başlangıç/bitiş · <kbd>Enter</kbd> kesit ekle
+        {onSnapshot ? <> · <kbd>S</kbd> ekran görüntüsü</> : null} · <kbd>Sil</kbd> kesiti kaldır
       </p>
     </div>
   );
@@ -301,7 +336,7 @@ export function Timeline({
 
 /** Kesit listesi: her kesidin süresi, oynatma ve silme. */
 export function CutList({ cuts, onChange, onPlay }: { cuts: Cut[]; onChange: (cuts: Cut[]) => void; onPlay?: (c: Cut) => void }) {
-  if (!cuts.length) return <p className="muted">Henüz kesit yok. Şeritte sürükleyerek ya da Giriş/Çıkış ile ekle.</p>;
+  if (!cuts.length) return <p className="muted">Henüz kesit yok. "Kesit seç" moduna geçip şeritte sürükle ya da Başlangıç/Bitiş ile ekle.</p>;
   return (
     <ol className="cut-list">
       {[...cuts]

@@ -10,6 +10,9 @@ import { useSocketEvent } from '../lib/socket.ts';
 import { deleteWithUndo, toast, toastError } from '../lib/toast.ts';
 import type { Recording, RecorderStatus, ZernioSummary } from '../lib/types.ts';
 import { useResource } from '../lib/useResource.ts';
+import { ChannelScopeToggle } from '../components/ChannelScopeToggle.tsx';
+import { useChannelScope } from '../lib/channelScope.ts';
+import { takeSnapshot } from '../lib/snapshot.ts';
 
 const STATUS: Record<Recording['status'], string> = {
   recording: 'Kayıtta',
@@ -19,16 +22,17 @@ const STATUS: Record<Recording['status'], string> = {
 };
 
 const FINAL: Record<string, string> = {
-  processing: 'Çıktı hazırlanıyor',
-  ready: 'Çıktı hazır',
-  failed: 'Çıktı üretilemedi',
-  cancelled: 'Çıktı iptal edildi',
+  processing: 'Hazırlanıyor',
+  ready: 'Hazır',
+  failed: 'Hazırlanamadı',
+  cancelled: 'İptal edildi',
 };
 
 /** Kayıtlar: canlıdan alınan yayınlar ve onların işlenmesi. */
 export function Recordings({ openId }: { openId: number | null }) {
   const list = useResource(() => api.get<{ recordings: Recording[]; recorder: RecorderStatus }>('/api/recordings'));
-  const recordings = list.data?.recordings ?? [];
+  const { inScope } = useChannelScope();
+  const recordings = (list.data?.recordings ?? []).filter((r) => inScope(r.channel_slug));
   const selected = recordings.find((r) => r.id === openId) ?? recordings.find((r) => r.status === 'ready') ?? recordings[0] ?? null;
 
   const reload = () => void list.reload();
@@ -42,7 +46,7 @@ export function Recordings({ openId }: { openId: number | null }) {
 
   return (
     <>
-      <WorkspaceHead guide="kayitlar" title="Kayıtlar" tape="işle" lead="Canlıdan aldığın kayıtlar. Yayına hazır çıktı üret, istediğin kesitleri ayır, gereksiz kısımları at ya da YouTube'a gönder." />
+      <WorkspaceHead guide="kayitlar" actions={<ChannelScopeToggle />} title="Yayın" tape="kayıtları" lead="Canlıdan aldığın kayıtlar. Paylaşıma hazırla, istediğin anları ayrı video yap, gereksiz kısımları at ya da YouTube'a gönder." />
       {list.loading && !list.data ? (
         <div className="center-pad">
           <Spinner size={24} />
@@ -58,7 +62,7 @@ export function Recordings({ openId }: { openId: number | null }) {
               </button>
             }
           >
-            Canlı bölümünden kayıt başlat ya da Nöbetçi'yi aç; yayın bitince kayıt buraya düşer.
+            Canlı yayın bölümünden kayıt başlat; durdurduğunda kayıt buraya düşer.
           </Empty>
         </div>
       ) : (
@@ -138,7 +142,7 @@ function RecordingDetail({ rec, onChange, onDelete }: { rec: Recording; onChange
           });
           setCuts([]);
           await refreshJobs();
-        }, `${cuts.length} kesit üretime gönderildi — Kütüphane'de görünecek`)
+        }, `${cuts.length} kesit hazırlanıyor — Videolarım'da görünecek`)
       : run(async () => {
           await api.post(`/api/recordings/${rec.id}/edit`, { trimStart: 0, trimEnd: rec.duration_sec, cuts: cuts.map((c) => ({ start: c.start, end: c.end })), replace: false });
           setCuts([]);
@@ -156,7 +160,7 @@ function RecordingDetail({ rec, onChange, onDelete }: { rec: Recording; onChange
       </div>
       <section className="panel">
         {rec.available ? (
-          <Timeline src={`/api/recordings/${rec.id}/stream`} duration={rec.duration_sec} cuts={cuts} onCutsChange={setCuts} />
+          <Timeline src={`/api/recordings/${rec.id}/stream`} duration={rec.duration_sec} cuts={cuts} onCutsChange={setCuts} onSnapshot={(t) => void takeSnapshot('recording', rec.id, t)} />
         ) : (
           <Empty icon="record" title={rec.status === 'recording' ? 'Kayıt sürüyor' : rec.status === 'processing' ? 'Düzenleme sürüyor' : 'Kayıt dosyası yok'}>
             {rec.error || (rec.status === 'recording' ? 'Kayıt bitince burada düzenleyebilirsin.' : 'Dosya silinmiş ya da saklama süresi dolmuş olabilir.')}
@@ -191,7 +195,7 @@ function RecordingDetail({ rec, onChange, onDelete }: { rec: Recording; onChange
                   { value: 'vertical', label: 'Dikey klip' },
                 ]}
               />
-              {format === 'horizontal' && <Switch checked={intro} onChange={setIntro} label="Intro ve outro ekle" />}
+              {format === 'horizontal' && <Switch checked={intro} onChange={setIntro} label="Açılış ve kapanış videosu ekle" />}
             </div>
           ) : (
             <p className="field-help pad-top">İşaretlediğin kısımlar atılır, geri kalanı yeni bir kayıt olarak birleştirilir. Asıl kayıt yerinde kalır.</p>
@@ -229,8 +233,8 @@ function OutputPanel({ rec, onChange }: { rec: Recording; onChange: () => void }
 
   return (
     <section className="panel">
-      <h2 className="panel-title">Yayına hazır çıktı</h2>
-      <p className="panel-sub">Marka bölümündeki kayıt ayarlarıyla: intro, outro, logo ve hedef bit hızı.</p>
+      <h2 className="panel-title">Paylaşıma hazır video</h2>
+      <p className="panel-sub">Kaydın açılış/kapanış videosu ve logo eklenmiş, boyutu küçültülmüş hali. Ayarları "Logo ve görünüm" bölümünde.</p>
       <dl className="facts">
         <div>
           <dt>Ham kayıt</dt>
@@ -239,11 +243,11 @@ function OutputPanel({ rec, onChange }: { rec: Recording; onChange: () => void }
           </dd>
         </div>
         <div>
-          <dt>Çıktı</dt>
-          <dd>{rec.final_status ? `${FINAL[rec.final_status] ?? rec.final_status}${rec.final_size ? ` · ${bytes(rec.final_size)}` : ''}` : 'Henüz üretilmedi'}</dd>
+          <dt>Paylaşıma hazır</dt>
+          <dd>{rec.final_status ? `${FINAL[rec.final_status] ?? rec.final_status}${rec.final_size ? ` · ${bytes(rec.final_size)}` : ''}` : 'Henüz hazırlanmadı'}</dd>
         </div>
       </dl>
-      {finalBusy && <Progress value={rec.final_percent} label="Çıktı ilerlemesi" />}
+      {finalBusy && <Progress value={rec.final_percent} label="Hazırlanıyor" />}
       {rec.final_error && <p className="field-error">{rec.final_error}</p>}
       <div className="row-gap pad-top">
         {finalBusy ? (
@@ -252,12 +256,12 @@ function OutputPanel({ rec, onChange }: { rec: Recording; onChange: () => void }
           </button>
         ) : (
           <button type="button" className="btn btn-secondary" disabled={!rec.available} onClick={() => api.post(`/api/recordings/${rec.id}/final`).then(onChange, toastError)}>
-            <Icon name="refresh" size={14} /> {rec.final_status ? 'Yeniden üret' : 'Çıktıyı üret'}
+            <Icon name="refresh" size={14} /> {rec.final_status ? 'Yeniden hazırla' : 'Paylaşıma hazırla'}
           </button>
         )}
         {rec.final_available && (
           <a className="btn btn-accent" href={`/api/recordings/${rec.id}/download?final=1`}>
-            <Icon name="download" size={14} /> Çıktıyı indir
+            <Icon name="download" size={14} /> Hazır videoyu indir
           </a>
         )}
         {rec.available && (
@@ -409,7 +413,7 @@ function YoutubePanel({ rec, onChange }: { rec: Recording; onChange: () => void 
             type="button"
             className="btn btn-secondary"
             disabled={busy || !rec.final_available || !title.trim()}
-            title={rec.final_available ? undefined : 'Önce yayına hazır çıktıyı üret'}
+            title={rec.final_available ? undefined : 'Önce kaydı paylaşıma hazırla'}
             onClick={() => call(() => api.post(`/api/recordings/${rec.id}/youtube/draft`, { accountId, title, content: description, visibility }), 'Taslak yükleniyor')}
           >
             <Icon name="upload" size={14} /> Taslak olarak yükle

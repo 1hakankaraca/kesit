@@ -180,11 +180,15 @@ class VodScanManager {
             thumbnailUrl: video.thumbnailUrl,
             fromLive: video.isLive === true,
         });
-        const bullJob = await this.queue.add('download', {
+        // Takip girişi işten ÖNCE açılır: süreç içi kuyruk (LocalQueue) işi add()
+        // dönmeden başlatabilir; giriş sonradan yazılsaydı indirme kendi girişini
+        // açar, burada üzerine yazılır ve iptal sinyali indirmeye hiç ulaşmazdı.
+        const state = { bullJob: null, controller: null, cancelled: false };
+        this._active.set(jobRow.id, state);
+        state.bullJob = await this.queue.add('download', {
             vodJobId: jobRow.id, userId, channelSlug, videoId, source,
             quality: GECERLI_KALITELER.includes(quality) ? quality : '720p',
         });
-        this._active.set(jobRow.id, { bullJob, controller: null, cancelled: false });
         return jobRow;
     }
 
@@ -412,6 +416,10 @@ class VodScanManager {
             this._emit(userId, vodJobId, 'downloaded', 'indirildi', 100, { vodExpiresAt: expiresAt });
             console.log(`[VodScan] ✅ İş ${vodJobId} indirildi (${Math.round(st.size / 1024 / 1024)}MB)`);
         } catch (err) {
+            // İndirme tamamlanmadıysa yarım dosya işe yaramaz; disk dolmasın diye silinir.
+            if (!downloadSucceeded) {
+                try { fs.rmSync(vodPath, { force: true }); } catch { /* yok */ }
+            }
             if (state.cancelled) {
                 // DB durumu + emit zaten cancel()/remove() tarafından yapıldı — sadece logla.
                 console.log(`[VodScan] ⏹️ İş ${vodJobId} iptal edildi`);

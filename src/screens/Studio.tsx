@@ -61,7 +61,7 @@ function StudioEditor({ data, reload }: { data: StudioData; reload: () => void }
 
   return (
     <div style={style}>
-      <WorkspaceHead guide="marka" title="Marka ve" tape="şablon" lead="Logo, renk ve altyazı kimliğini bir kez ayarla. Dikey ve yatay videoların ayarları ayrı; önizleme gerçek yerleşimi gösterir." />
+      <WorkspaceHead guide="marka" title="Logo ve" tape="görünüm" lead="Logo, renk ve altyazı kimliğini bir kez ayarla. Dikey ve yatay videoların ayarları ayrı; önizleme gerçek yerleşimi gösterir." />
 
       <div className="studio-grid">
         <section className="panel studio-defaults" aria-label="Üretim varsayılanları">
@@ -94,11 +94,11 @@ function StudioEditor({ data, reload }: { data: StudioData; reload: () => void }
 
             <div className="proto-settings">
               <h3 className="eyebrow">Logo</h3>
-              <Switch checked={opts.logo} onChange={(v) => setOpt({ logo: v })} label="Logoyu bindir" hint={data.logo.exists ? 'Önizlemede sürükle ya da aşağıdan hizala' : 'Sağdaki Kimlik bölümünden logo yükle'} />
-              <Field label={`Boyut · ${Math.round(opts.logoScale * 100)}%`}>
+              <Switch checked={opts.logo} onChange={(v) => setOpt({ logo: v })} label="Logoyu ekle" hint={data.logo.exists ? 'Önizlemede sürükle ya da aşağıdan hizala' : 'Sağdaki "Kimlik" bölümünden logo yükle'} />
+              <Field label={`Boyut · %${Math.round(opts.logoScale * 100)}`}>
                 <input type="range" className="range" min={0.5} max={2} step={0.05} value={opts.logoScale} disabled={!opts.logo} onChange={(e) => setOpt({ logoScale: Number(e.target.value) })} />
               </Field>
-              <Field label={`Opaklık · ${Math.round(opts.logoOpacity * 100)}%`}>
+              <Field label={`Görünürlük · %${Math.round(opts.logoOpacity * 100)}`}>
                 <input type="range" className="range" min={0.05} max={1} step={0.05} value={opts.logoOpacity} disabled={!opts.logo} onChange={(e) => setOpt({ logoOpacity: Number(e.target.value) })} />
               </Field>
               {vertical && (
@@ -109,7 +109,7 @@ function StudioEditor({ data, reload }: { data: StudioData; reload: () => void }
                     value={opts.logoPosition}
                     onChange={(v) => setOpt(v === 'custom' ? { logoPosition: 'custom', logoX: opts.logoX ?? 0.5, logoY: opts.logoY ?? 0.1 } : { logoPosition: v })}
                     options={[
-                      { value: 'seam', label: 'Dikiş' },
+                      { value: 'seam', label: 'Kamera altı' },
                       { value: 'top-center', label: 'Üst orta' },
                       { value: 'custom', label: 'Serbest' },
                     ]}
@@ -132,15 +132,15 @@ function StudioEditor({ data, reload }: { data: StudioData; reload: () => void }
                 checked={opts.subtitles}
                 onChange={(v) => setOpt({ subtitles: v })}
                 label="Altyazı"
-                hint={vertical ? 'Konuşma yazıya dökülür (Ayarlar\'da altyazı motoru gerekir)' : 'Yatayda varsayılan kapalı; açarsan kesite basılır'}
+                hint={vertical ? 'Konuşma yazıya dökülür (Ayarlar\'da otomatik altyazı açık olmalı)' : 'Yatayda varsayılan kapalı; açarsan kesite basılır'}
               />
               <Switch checked={opts.subtitleFollowsTheme} onChange={(v) => setOpt({ subtitleFollowsTheme: v })} label="Vurgu rengi altyazıda" hint="Kapalıyken marka rengi" />
               <Switch checked={opts.censor} onChange={(v) => setOpt({ censor: v })} label="Küfür sansürü" hint="Geçen anlar biplenir" />
               {vertical ? (
-                <Field label="Kompozisyon">
+                <Field label="Yerleşim">
                   <Segmented
                     size="small"
-                    label="Kompozisyon"
+                    label="Yerleşim"
                     value={opts.composition}
                     onChange={(v) => setOpt({ composition: v })}
                     options={[
@@ -152,12 +152,12 @@ function StudioEditor({ data, reload }: { data: StudioData; reload: () => void }
                 </Field>
               ) : (
                 <>
-                  <Switch checked={opts.intro} onChange={(v) => setOpt({ intro: v })} label="Intro ekle" hint={data.intro.exists ? `${duration(data.intro.durationSec)} başa eklenir` : 'Yüklenmedi'} disabled={!data.intro.exists} />
-                  <Switch checked={opts.outro} onChange={(v) => setOpt({ outro: v })} label="Outro ekle" hint={data.outro.exists ? `${duration(data.outro.durationSec)} sona eklenir` : 'Yüklenmedi'} disabled={!data.outro.exists} />
+                  <Switch checked={opts.intro} onChange={(v) => setOpt({ intro: v })} label="Açılış videosu ekle" hint={data.intro.exists ? `${duration(data.intro.durationSec)} başa eklenir` : 'Yüklenmedi'} disabled={!data.intro.exists} />
+                  <Switch checked={opts.outro} onChange={(v) => setOpt({ outro: v })} label="Kapanış videosu ekle" hint={data.outro.exists ? `${duration(data.outro.durationSec)} sona eklenir` : 'Yüklenmedi'} disabled={!data.outro.exists} />
                 </>
               )}
               {vertical && (
-                <Field label={`Otomatik paylaşım eşiği · ${opts.autoPublishMinScore || 'yok'}`} help="Nöbet'te otomatik paylaşılan kliplerde viral skoru bunun altındakiler paylaşılmaz">
+                <Field label={`Otomatik paylaşım eşiği · ${opts.autoPublishMinScore || 'yok'}`} help="Otomatik takipte paylaşılan kliplerde beğenilme tahmini bunun altında kalanlar paylaşılmaz">
                   <input type="range" className="range" min={0} max={100} step={5} value={opts.autoPublishMinScore} onChange={(e) => setOpt({ autoPublishMinScore: Number(e.target.value) })} />
                 </Field>
               )}
@@ -202,9 +202,9 @@ function StudioEditor({ data, reload }: { data: StudioData; reload: () => void }
           </section>
 
           <section className="panel">
-            <h2 className="panel-title">Intro ve outro</h2>
+            <h2 className="panel-title">Açılış ve kapanış videosu</h2>
             <p className="panel-sub">
-              Yalnız yatay videolara ve çıktılara eklenir; dikey videolara eklenmez. En fazla {data.limits.mediaMaxSeconds} sn, {bytes(data.limits.mediaMaxBytes)}.
+              Yatay videoların ve paylaşıma hazır kayıtların başına ve sonuna eklenir; dikey videolara eklenmez. En fazla {data.limits.mediaMaxSeconds} sn, {bytes(data.limits.mediaMaxBytes)}.
             </p>
             <div className="stack">
               <MediaUpload kind="intro" media={data.intro} onChange={reload} />
@@ -213,13 +213,13 @@ function StudioEditor({ data, reload }: { data: StudioData; reload: () => void }
           </section>
 
           <section className="panel">
-            <h2 className="panel-title">Çıktı ayarları</h2>
-            <p className="panel-sub">Kayıtlar bölümünde "Çıktıyı üret" dediğinde kullanılır. Hiçbir çıktı kendiliğinden üretilmez.</p>
+            <h2 className="panel-title">Paylaşıma hazır kayıt ayarları</h2>
+            <p className="panel-sub">Yayın kayıtlarında "Paylaşıma hazırla" dediğinde kullanılır. Kendiliğinden hiçbir şey hazırlanmaz.</p>
             <div className="stack">
-              <Switch checked={output.intro} onChange={(v) => setOutput({ ...output, intro: v })} label="Intro" />
-              <Switch checked={output.outro} onChange={(v) => setOutput({ ...output, outro: v })} label="Outro" />
-              <Switch checked={output.logo} onChange={(v) => setOutput({ ...output, logo: v })} label="Logo (alt orta)" />
-              <Field label={`Bit hızı · ${output.bitrateMbps} Mbps`}>
+              <Switch checked={output.intro} onChange={(v) => setOutput({ ...output, intro: v })} label="Açılış videosu" />
+              <Switch checked={output.outro} onChange={(v) => setOutput({ ...output, outro: v })} label="Kapanış videosu" />
+              <Switch checked={output.logo} onChange={(v) => setOutput({ ...output, logo: v })} label="Logo (alt ortada)" />
+              <Field label={`Kalite · ${output.bitrateMbps} Mbps (yüksek = daha net, daha büyük dosya)`}>
                 <input type="range" className="range" min={1} max={8} step={0.5} value={output.bitrateMbps} onChange={(e) => setOutput({ ...output, bitrateMbps: Number(e.target.value) })} />
               </Field>
               <Segmented
@@ -235,12 +235,12 @@ function StudioEditor({ data, reload }: { data: StudioData; reload: () => void }
               />
               <Segmented
                 size="small"
-                label="Kodlayıcı"
+                label="Dosya türü"
                 value={output.codec}
                 onChange={(v) => setOutput({ ...output, codec: v })}
                 options={[
-                  { value: 'h264', label: 'H.264' },
-                  { value: 'hevc', label: 'H.265', disabled: !data.hevcAvailable },
+                  { value: 'h264', label: 'Her yerde açılır' },
+                  { value: 'hevc', label: 'Daha küçük dosya', disabled: !data.hevcAvailable },
                 ]}
               />
               <Segmented
@@ -260,7 +260,7 @@ function StudioEditor({ data, reload }: { data: StudioData; reload: () => void }
                 disabled={saving === 'output'}
                 onClick={() => save('output', async () => setOutput((await api.put<{ options: RecordingOutput }>('/api/studio/recording-output', { options: output })).options))}
               >
-                {saving === 'output' ? <Spinner /> : null} Çıktı ayarlarını kaydet
+                {saving === 'output' ? <Spinner /> : null} Ayarları kaydet
               </button>
             </div>
           </section>
@@ -329,12 +329,12 @@ function useSampleFrame(format: 'vertical' | 'horizontal') {
 
 function SequenceStrip({ intro, outro, withIntro, withOutro }: { intro: BrandMedia; outro: BrandMedia; withIntro: boolean; withOutro: boolean }) {
   const parts = [
-    intro.exists && withIntro && { key: 'intro', label: 'Intro', sec: intro.durationSec ?? 0 },
-    { key: 'main', label: 'Kesit', sec: 0 },
-    outro.exists && withOutro && { key: 'outro', label: 'Outro', sec: outro.durationSec ?? 0 },
+    intro.exists && withIntro && { key: 'intro', label: 'Açılış', sec: intro.durationSec ?? 0 },
+    { key: 'main', label: 'Video', sec: 0 },
+    outro.exists && withOutro && { key: 'outro', label: 'Kapanış', sec: outro.durationSec ?? 0 },
   ].filter(Boolean) as { key: string; label: string; sec: number }[];
   return (
-    <div className="sequence" aria-label="Çıktı sırası">
+    <div className="sequence" aria-label="Videonun sırası">
       {parts.map((p) => (
         <span key={p.key} className={`seq seq-${p.key}`}>
           <b>{p.label}</b>
@@ -406,7 +406,7 @@ function MediaUpload({ kind, media: loaded, onChange }: { kind: 'intro' | 'outro
   const [busy, setBusy] = useState(false);
   const [removed, setRemoved] = useState(false);
   const media = removed ? { ...loaded, exists: false, url: null } : loaded;
-  const label = kind === 'intro' ? 'Intro' : 'Outro';
+  const label = kind === 'intro' ? 'Açılış videosu' : 'Kapanış videosu';
   const pick = async (file: File | undefined) => {
     if (!file) return;
     setBusy(true);

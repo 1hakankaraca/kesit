@@ -50,7 +50,7 @@ export function logoBox(
   aspect: number,
   split: boolean,
 ): LogoBox {
-  const scale = Math.min(2, Math.max(0.5, o.logoScale || 1));
+  const scale = Math.min(2, Math.max(0.1, o.logoScale || 1));
   const w = (1 / 3) * scale;
   if (format === 'horizontal') {
     const h = w * aspect * (16 / 9);

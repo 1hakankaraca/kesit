@@ -9,6 +9,7 @@ import {
 import { config } from '../config.ts';
 import type { Store } from '../db/Store.ts';
 import { fetchChannel } from '../lib/kick.ts';
+import type { ClipHarvester } from './ClipHarvester.ts';
 import type { Workspaces } from './Workspaces.ts';
 
 /** Kick API anlık "çevrimdışı" dönebiliyor; yayın ancak art arda bu kadar yoklamada kapalı görülürse bitmiş sayılır. */
@@ -50,6 +51,7 @@ export class Autopilot {
     private io: IOServer,
     private workspaces: Workspaces,
     private vodScanner: any,
+    private harvester: ClipHarvester,
   ) {}
 
   /** Sunucu açılışında kalıcı nöbetleri geri kurar. */
@@ -136,7 +138,10 @@ export class Autopilot {
     this.watches.delete(userId);
     const ws = await this.workspaces.get(userId);
     // Nöbetin açtığı klip takibi kapanır.
-    if (w.config.clips && ws.clipWatcher.isWatching) ws.clipWatcher.unwatch();
+    if (w.config.clips && ws.clipWatcher.isWatching) {
+      ws.clipWatcher.unwatch();
+      await this.harvester.unfollow(userId);
+    }
     if (announce) {
       w.events.unshift({ at: new Date().toISOString(), kind: 'disarmed', text: 'Nöbet kapatıldı' });
       this.io.to(`user:${userId}`).emit('autopilot:status', await this.status(userId, { ...w.config, enabled: false }));
@@ -191,9 +196,13 @@ export class Autopilot {
     const ws = await this.workspaces.get(userId);
     if (!w.config.clips) {
       // Yayın sürerken klip yakalama kapatıldıysa nöbetin açtığı takip bırakılır.
-      if (ws.clipWatcher.isWatching && ws.clipWatcher.channelSlug === w.config.channel) ws.clipWatcher.unwatch();
+      if (ws.clipWatcher.isWatching && ws.clipWatcher.channelSlug === w.config.channel) {
+        ws.clipWatcher.unwatch();
+        await this.harvester.unfollow(userId);
+      }
       return;
     }
+    await this.harvester.follow(userId, w.config.channel!, w.config.autoEdit);
     await ws.clipWatcher.watch(w.config.channel!, {
       autoEdit: w.config.autoEdit,
       autoPublish: w.config.autoPublish,
@@ -205,7 +214,10 @@ export class Autopilot {
   /** Yayın bitti: klip takibini bırakır, istenirse yayın kaydını indirmeye başlar. */
   private async wrapUp(userId: number, w: Watch) {
     const ws = await this.workspaces.get(userId);
-    if (w.config.clips && ws.clipWatcher.isWatching) ws.clipWatcher.unwatch();
+    if (w.config.clips && ws.clipWatcher.isWatching) {
+      ws.clipWatcher.unwatch();
+      await this.harvester.unfollow(userId);
+    }
     if (w.config.downloadVod) {
       this.log(userId, w, 'vod-wait', 'Kick yayın kaydını yayımlayınca indirilecek');
       this.findVod(userId, w, w.config.channel!, w.liveSince, 1);
