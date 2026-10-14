@@ -291,7 +291,6 @@ const QUICK_SECONDS = [30, 60, 90, 120, 180] as const;
 
 /** Anlık klip: sohbete "!clip <sn>" yazar; kanalda klip botu varsa klip alınır ve yukarıda yakalanır. */
 function QuickClipPanel({ channel, isLive, chatAccess }: { channel: string; isLive: boolean; chatAccess: boolean }) {
-  const { kickOAuth } = useSession();
   const [sending, setSending] = useState<number | null>(null);
   const send = async (seconds: number) => {
     setSending(seconds);
@@ -324,7 +323,10 @@ function QuickClipPanel({ channel, isLive, chatAccess }: { channel: string; isLi
       </div>
       {!chatAccess ? (
         <p className="field-help pad-top">
-          {kickOAuth ? 'Sohbete yazmak için Kick ile giriş yapman gerekiyor (çıkış yapıp "Kick ile giriş yap").' : 'Sohbete yazabilmek için Kick girişi gerekli; Kick uygulama bağlantısı henüz kurulmadı.'}
+          Sohbete yazabilmek için kendi Kick uygulamanı bağlaman gerekiyor.{' '}
+          <button type="button" className="link" onClick={() => navigate(sectionPath('ayarlar'))}>
+            Ayarlar'da kur
+          </button>
         </p>
       ) : (
         !isLive && <p className="field-help pad-top">Kanal şu an yayında değil; klip botları yalnız yayında klip alır.</p>

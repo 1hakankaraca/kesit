@@ -23,7 +23,7 @@ npm install
 npm run dev            # arayüz http://localhost:5174, API 3002
 ```
 
-Kick girişi için `.env`'e Kick uygulamasının `KICK_CLIENT_ID/SECRET` ve `KICK_REDIRECT_URI` değerleri yazılır (bu kurulumda LivoBot'un uygulaması kullanılıyor). Kick geliştirici panelinde uygulamaya `http://localhost:3002/auth/kick/callback` dönüş adresi eklenmiş olmalıdır. OAuth tanımlı değilse "Kick ile giriş" kanal adıyla bağlar; bu durumda anlık klip (sohbete yazma) kullanılamaz. Aynı Wi-Fi'daki telefondan açma adresi uygulamanın sol alt köşesinde ve Ayarlar'da yazar.
+"Kick ile giriş" Kick'te kanalı arayıp hesabı bağlar; anahtar ya da `.env` gerekmez. Sohbete klip atma (anlık klip) için her kullanıcı Ayarlar'da kendi Kick geliştirici uygulamasını kurar: Kick'te uygulama oluşturur, Ayarlar'da gösterilen dönüş adresini (ör. `http://localhost:3002/auth/kick/callback`) kaydeder, Client ID ve Secret'ı girer ve "Kick hesabını bağla" der. Anahtarlar şifreli olarak yalnız o bilgisayarda durur; Kesit hiçbir sunucuya bağlı değildir. Aynı Wi-Fi'daki telefondan açma adresi uygulamanın sol alt köşesinde ve Ayarlar'da yazar.
 
 Yayın için tek süreç yeterlidir. Sunucu derlenmiş arayüzü de kendisi sunar:
 
@@ -78,8 +78,8 @@ Motor `server/engine.ts` üzerinden içe aktarılır. Bu dosya ortam yapılandı
 
 ## Güvenlik notları
 
-- Kick hesabı kanal adıyla bağlanır (ya da OAuth tanımlıysa yalnız `user:read channel:read` izniyle). Erişim belirteci saklanmaz.
-- Zernio ve ElevenLabs anahtarları AES-GCM ile şifreli, yalnız bu bilgisayarda tutulur.
+- Kick hesabı kanal adıyla bağlanır. Sohbete yazma için kullanıcının kendi Kick uygulamasıyla alınan belirteç şifreli saklanır ve otomatik yenilenir; dönüş yalnız `localhost`/yerel ağ adreslerine yapılır.
+- Zernio, ElevenLabs ve Kick uygulaması anahtarları AES-GCM ile şifreli, yalnız bu bilgisayarda tutulur.
 - Üretilen dosyalar `/clips/<kullanıcı>/...` altında sunulur ve yalnız sahibine açıktır.
 - Durum değiştiren isteklerde köken denetimi yapılır ve çerezler `SameSite=Lax` ile gönderilir.
 - Misafir hesabı tarayıcıdaki oturum çerezine bağlıdır. Sonradan Kick ile giriş yapılırsa misafirin işleri taşınmaz.

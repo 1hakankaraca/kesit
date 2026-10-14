@@ -269,4 +269,12 @@ export const MIGRATIONS: { id: string; sql: string }[] = [
       UPDATE users SET own_channel = substr(kick_user_id, 7) WHERE kick_user_id LIKE 'kanal:%';
     `,
   },
+  {
+    id: '006-kullanici-kick-uygulamasi',
+    sql: `
+      -- Kullanıcının kendi Kick geliştirici uygulaması (şifreli JSON: clientId, clientSecret).
+      -- Sohbete "!clip" yazabilmek için; her kullanıcı kendi anahtarını kullanır.
+      ALTER TABLE user_settings ADD COLUMN kick_app_enc TEXT;
+    `,
+  },
 ];

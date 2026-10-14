@@ -12,12 +12,10 @@ export interface User {
 interface SessionState {
   ready: boolean;
   user: User | null;
-  /** Sunucuda Kick geliştirici uygulaması tanımlıysa OAuth, değilse kanal adıyla bağlama. */
-  kickOAuth: boolean;
   tabs: string[];
 }
 
-let state: SessionState = { ready: false, user: null, kickOAuth: false, tabs: [] };
+let state: SessionState = { ready: false, user: null, tabs: [] };
 const listeners = new Set<() => void>();
 
 function set(next: Partial<SessionState>) {
@@ -26,12 +24,12 @@ function set(next: Partial<SessionState>) {
 }
 
 export async function loadSession() {
-  const res = await api.get<{ user: User | null; kickOAuth: boolean }>('/api/session').catch(() => ({ user: null, kickOAuth: false }));
-  set({ ready: true, user: res.user, kickOAuth: res.kickOAuth });
+  const res = await api.get<{ user: User | null }>('/api/session').catch(() => ({ user: null }));
+  set({ ready: true, user: res.user });
   if (res.user) await loadChannels();
 }
 
-/** Kick hesabını kanal adıyla bağlar (geliştirici uygulaması gerekmez). */
+/** Kick hesabıyla giriş: kanal Kick'te bulunup hesaba bağlanır. */
 export async function linkKick(channel: string) {
   const res = await api.post<{ user: User }>('/auth/kick/link', { channel });
   set({ user: res.user });

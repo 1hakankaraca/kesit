@@ -21,20 +21,15 @@ function secret(): string {
 export const config = {
   production,
   port: Number(process.env.PORT) || 3002,
-  baseUrl: (process.env.BASE_URL || 'http://localhost:5174').replace(/\/$/, ''),
+  // Tarayıcının açtığı adres: geliştirmede Vite (5174), üretimde sunucunun kendisi.
+  baseUrl: (process.env.BASE_URL || (production ? `http://localhost:${Number(process.env.PORT) || 3002}` : 'http://localhost:5174')).replace(/\/$/, ''),
   dataDir,
   dbPath: path.join(dataDir, 'kesit.db'),
   clipDir: path.resolve(process.env.CLIP_OUTPUT_DIR),
   archiveDir: path.join(dataDir, 'archive'),
   secret: secret(),
   sessionDays: 30,
-  kick: {
-    clientId: process.env.KICK_CLIENT_ID || '',
-    clientSecret: process.env.KICK_CLIENT_SECRET || '',
-    redirectUri: process.env.KICK_REDIRECT_URI || '',
-  },
   /** Nöbetçi (yayın takibi) kanal yoklama aralığı. */
   autopilotPollMs: Math.max(20_000, Number(process.env.AUTOPILOT_POLL_SECONDS) * 1000 || 45_000),
 } as const;
 
-export const kickLoginEnabled = () => !!(config.kick.clientId && config.kick.clientSecret);

@@ -66,3 +66,13 @@ test('nöbetçi ayarı: bilinmeyen alanlar atılır, hesaplar süzülür', () =>
   assert.equal(cfg.publishAccounts.length, 1);
   assert.equal('hack' in cfg, false);
 });
+
+test('Kick dönüşü yalnız bu bilgisayara ya da yerel ağa yönlenir', async () => {
+  const { localOrigin } = await import('../server/auth.ts');
+  assert.equal(localOrigin('http://localhost:5174/ayarlar'), 'http://localhost:5174');
+  assert.equal(localOrigin('http://192.168.1.20:3002'), 'http://192.168.1.20:3002');
+  assert.equal(localOrigin('http://172.20.0.5:3002'), 'http://172.20.0.5:3002');
+  assert.equal(localOrigin('https://kotu-site.com'), null);
+  assert.equal(localOrigin('http://172.40.0.1'), null);
+  assert.equal(localOrigin('javascript:alert(1)'), null);
+});

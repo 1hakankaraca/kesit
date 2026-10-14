@@ -39,7 +39,7 @@ export function publicKickRoutes() {
 }
 
 /** Kanal sekmeleri, sistem bilgisi ve altyazı motoru ayarları. */
-export function settingsRoutes({ store, captions, exporter, storage }: AppContext) {
+export function settingsRoutes({ store, captions, exporter, storage, kickChat }: AppContext) {
   const r = express.Router();
 
   r.get('/me/channels', async (req, res) => {
@@ -63,6 +63,24 @@ export function settingsRoutes({ store, captions, exporter, storage }: AppContex
 
   r.get('/system', (_req, res) => {
     res.json({ lan: lanAddresses(), dataDir: config.dataDir, hostname: os.hostname(), platform: process.platform });
+  });
+
+  /* ── Kendi Kick uygulaması (sohbete klip atma) ───────────────────── */
+
+  r.get('/kick-app', (req, res) => {
+    res.json(kickChat.status(req.user!.id));
+  });
+
+  r.put('/kick-app', (req, res) => {
+    res.json(kickChat.saveApp(req.user!.id, String(req.body?.clientId || ''), String(req.body?.clientSecret || '')));
+  });
+
+  r.delete('/kick-app', (req, res) => {
+    res.json(kickChat.removeApp(req.user!.id));
+  });
+
+  r.delete('/kick-app/connection', (req, res) => {
+    res.json(kickChat.disconnect(req.user!.id));
   });
 
   /* ── Çıktıların kopyalandığı klasör ───────────────────────────────── */

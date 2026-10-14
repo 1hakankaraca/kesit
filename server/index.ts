@@ -1,4 +1,4 @@
-import { config, kickLoginEnabled } from './config.ts';
+import { config } from './config.ts';
 
 import cookieParser from 'cookie-parser';
 import express, { type NextFunction, type Request, type Response } from 'express';
@@ -79,7 +79,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 app.use('/auth', authRouter(store));
 
 app.get('/api/session', (req, res) => {
-  res.json({ user: req.user ?? null, kickOAuth: kickLoginEnabled() });
+  res.json({ user: req.user ?? null });
 });
 app.use('/api', publicKickRoutes());
 
@@ -148,7 +148,6 @@ purge.unref();
 
 server.listen(config.port, () => {
   console.log(`[Kesit] Sunucu hazır → http://localhost:${config.port}`);
-  if (!kickLoginEnabled()) console.log('[Kesit] Kick OAuth tanımlı değil — Kick hesabı kanal adıyla bağlanır');
 });
 
 let closing = false;

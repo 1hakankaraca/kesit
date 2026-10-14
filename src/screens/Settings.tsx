@@ -50,6 +50,7 @@ export function Settings() {
       <WorkspaceHead title="Ayarlar" tape="sistem" lead="Altyazı motorunu kur, telefondan nasıl açılacağını gör, verilerin nerede durduğunu öğren." guide="ayarlar" />
       <div className="ws-grid">
         <div className="ws-stack">
+          <KickAppPanel />
           <CaptionsPanel />
           <ExportPanel />
           <StoragePanel />
@@ -400,6 +401,177 @@ function StoragePanel() {
             Silinen videoların kaydı Arşiv'de kalır. İndirilenler klasörüne kopyalananlar ({bytes(r.exportDir.bytes)}) senin dosyalarındır; Kesit onlara dokunmaz.
           </p>
         </>
+      )}
+    </section>
+  );
+}
+
+interface KickAppStatus {
+  configured: boolean;
+  clientIdHint: string | null;
+  connected: boolean;
+  account: string | null;
+}
+
+const KICK_RESULT: Record<string, { text: string; tone: 'ok' | 'error' }> = {
+  baglandi: { text: 'Kick hesabın bağlandı — anlık klip hazır', tone: 'ok' },
+  reddedildi: { text: 'Kick izni reddedildi', tone: 'error' },
+  gecersiz: { text: 'Bağlantı isteği geçersiz ya da süresi doldu, tekrar dene', tone: 'error' },
+  hata: { text: 'Kick bağlantısı tamamlanamadı — Client ID, Secret ve dönüş adresini kontrol et', tone: 'error' },
+  kurulmadi: { text: 'Önce Kick uygulamanın bilgilerini kaydet', tone: 'error' },
+  adres: { text: 'Bağlantıyı bu bilgisayarın kendi adresinden başlat', tone: 'error' },
+};
+
+/**
+ * Kullanıcının kendi Kick geliştirici uygulaması: sohbete "!clip" yazmak
+ * (anlık klip) için. Anahtarlar şifreli olarak yalnız bu bilgisayarda durur.
+ */
+function KickAppPanel() {
+  const data = useResource(() => api.get<KickAppStatus>('/api/kick-app'));
+  const [clientId, setClientId] = useState('');
+  const [secret, setSecret] = useState('');
+  const [busy, setBusy] = useState(false);
+  const redirectUri = `${location.origin}/auth/kick/callback`;
+  const onLocalhost = ['localhost', '127.0.0.1'].includes(location.hostname);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const result = params.get('kick');
+    if (!result) return;
+    const msg = KICK_RESULT[result];
+    if (msg) toast(msg.text, msg.tone);
+    history.replaceState(null, '', location.pathname);
+  }, []);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      data.setData(await api.put<KickAppStatus>('/api/kick-app', { clientId, clientSecret: secret }));
+      setClientId('');
+      setSecret('');
+      toast('Kick uygulaması kaydedildi — şimdi hesabını bağla', 'ok');
+    } catch (err) {
+      toastError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const connect = () => location.assign(`/auth/kick/connect?origin=${encodeURIComponent(location.origin)}`);
+  const copy = (text: string) => navigator.clipboard.writeText(text).then(() => toast('Kopyalandı', 'ok'), () => toast('Kopyalanamadı', 'error'));
+  const d = data.data;
+
+  return (
+    <section className="panel" aria-labelledby="kickapp-title">
+      <span className="panel-tape" aria-hidden="true" />
+      <header className="panel-head">
+        <div>
+          <h2 id="kickapp-title" className="panel-title">
+            <Icon name="bolt" size={18} /> Kick uygulaması (sohbete klip atma)
+          </h2>
+          <p className="panel-sub">Canlı'daki anlık klip düğmeleri sohbete "!clip" yazar. Bunun için kendi Kick geliştirici uygulamanı oluşturup bağlarsın; anahtarlar yalnız bu bilgisayarda, şifreli durur.</p>
+        </div>
+        {d && <Pill tone={d.connected ? 'ok' : 'neutral'}>{d.connected ? `Bağlı${d.account ? `: ${d.account}` : ''}` : d.configured ? 'Hesap bağlanmadı' : 'Kurulmadı'}</Pill>}
+      </header>
+
+      {!d ? (
+        <Spinner />
+      ) : (
+        <div className="stack">
+          {!onLocalhost && (
+            <p className="notice-box">
+              Şu an {location.host} adresinden açtın. Kurulumu bu bilgisayarda <b>localhost</b> adresinden yap; Kick'e kaydettiğin dönüş adresi açtığın adresle birebir aynı olmalı.
+            </p>
+          )}
+          <ol className="howto-steps">
+            <li>
+              <span className="guide-num">1</span>
+              <div>
+                <b>Kick'te uygulama oluştur</b>
+                <p>
+                  <a className="link" href="https://kick.com/settings/developer" target="_blank" rel="noreferrer">
+                    kick.com → Ayarlar → Geliştirici
+                  </a>{' '}
+                  sayfasında yeni bir uygulama oluştur. Adı serbest (ör. "Kesit").
+                </p>
+              </div>
+            </li>
+            <li>
+              <span className="guide-num">2</span>
+              <div>
+                <b>Dönüş adresini (Redirect URL) yapıştır</b>
+                <p className="copy-line">
+                  <code>{redirectUri}</code>
+                  <button type="button" className="btn btn-quiet btn-small" onClick={() => void copy(redirectUri)}>
+                    Kopyala
+                  </button>
+                </p>
+                <p>İzinlerden kullanıcı bilgisini okuma ve sohbete yazma (chat:write) seçili olsun.</p>
+              </div>
+            </li>
+            <li>
+              <span className="guide-num">3</span>
+              <div>
+                <b>Client ID ve Client Secret'ı buraya gir</b>
+                {d.configured ? (
+                  <p>
+                    Kayıtlı: <code>{d.clientIdHint}</code>{' '}
+                    <button
+                      type="button"
+                      className="link"
+                      onClick={() =>
+                        deleteWithUndo({
+                          label: 'Kick uygulaması kaldırıldı',
+                          hide: () => data.setData((x) => x && { ...x, configured: false, connected: false, account: null, clientIdHint: null }),
+                          restore: () => void data.reload(),
+                          commit: () => api.del<KickAppStatus>('/api/kick-app').then(data.setData),
+                        })
+                      }
+                    >
+                      Kaldır
+                    </button>
+                  </p>
+                ) : (
+                  <div className="stack-s pad-top-s">
+                    <input className="input mono" placeholder="Client ID" value={clientId} onChange={(e) => setClientId(e.target.value)} autoComplete="off" spellCheck={false} aria-label="Client ID" />
+                    <input className="input mono" type="password" placeholder="Client Secret" value={secret} onChange={(e) => setSecret(e.target.value)} autoComplete="off" aria-label="Client Secret" />
+                    <button type="button" className="btn btn-primary btn-small" disabled={busy || !clientId.trim() || !secret.trim()} onClick={() => void save()}>
+                      {busy ? <Spinner size={12} /> : null} Kaydet
+                    </button>
+                  </div>
+                )}
+              </div>
+            </li>
+            <li>
+              <span className="guide-num">4</span>
+              <div>
+                <b>Kick hesabını bağla</b>
+                <p>Kick'e gidip izin verirsin, sonra buraya dönersin.</p>
+                <div className="row-gap pad-top-s">
+                  <button type="button" className="btn btn-accent btn-small" disabled={!d.configured} onClick={connect}>
+                    <Icon name="link" size={14} /> {d.connected ? 'Yeniden bağla' : 'Kick hesabını bağla'}
+                  </button>
+                  {d.connected && (
+                    <button
+                      type="button"
+                      className="btn btn-quiet btn-small"
+                      onClick={() =>
+                        deleteWithUndo({
+                          label: 'Kick hesap bağlantısı kaldırıldı',
+                          hide: () => data.setData((x) => x && { ...x, connected: false, account: null }),
+                          restore: () => void data.reload(),
+                          commit: () => api.del<KickAppStatus>('/api/kick-app/connection').then(data.setData),
+                        })
+                      }
+                    >
+                      Bağlantıyı kaldır
+                    </button>
+                  )}
+                </div>
+              </div>
+            </li>
+          </ol>
+        </div>
       )}
     </section>
   );

@@ -3,14 +3,9 @@ import { useEffect, useState } from 'react';
 import { ChannelSearch } from '../components/ChannelSearch.tsx';
 import { Icon, type IconName } from '../components/Icon.tsx';
 import { Ticks, Wordmark } from '../components/basics.tsx';
-import { enterAsGuest, linkKick, useSession } from '../lib/session.ts';
+import { enterAsGuest, linkKick } from '../lib/session.ts';
 import { useTheme } from '../lib/theme.ts';
 import { toastError } from '../lib/toast.ts';
-
-const LOGIN_ERRORS: Record<string, string> = {
-  gecersiz: 'Giriş isteğinin süresi doldu ya da yarıda kaldı. Tekrar dene.',
-  hata: 'Kick girişi tamamlanamadı. Biraz sonra tekrar dene.',
-};
 
 const FEATURES: { icon: IconName; title: string; text: string }[] = [
   { icon: 'scissors', title: 'Kliplerden dikey video', text: 'Kanalın kliplerini tara, seç; yüz kamerası, altyazı ve 9:16 kompozisyon otomatik.' },
@@ -22,10 +17,8 @@ const FEATURES: { icon: IconName; title: string; text: string }[] = [
 /** Giriş kapısı: Kick hesabıyla ya da kayıtsız misafir olarak. */
 export function Gate() {
   useTheme('gate');
-  const { kickOAuth } = useSession();
   const [busy, setBusy] = useState(false);
   const [kickOpen, setKickOpen] = useState(false);
-  const reason = new URLSearchParams(location.search).get('giris');
 
   useEffect(() => {
     document.title = 'Kesit — giriş';
@@ -93,28 +86,10 @@ export function Gate() {
           <h2 id="gate-start" className="start-title">
             Stüdyoya gir
           </h2>
-          {reason && LOGIN_ERRORS[reason] && (
-            <p className="notice-box" role="alert">
-              {LOGIN_ERRORS[reason]}
-            </p>
-          )}
-          {kickOAuth && !kickOpen ? (
-            <>
-              <a className="btn btn-accent btn-large" href="/auth/kick">
-                <KickGlyph />
-                Kick ile giriş yap
-              </a>
-              <p className="start-note">
-                Kick hesabınla onaylarsın. Kesit yalnız kimliğini okur ve sen "anlık klip" düğmesine bastığında sohbete <code>!clip</code> yazar.{' '}
-                <button type="button" className="link" onClick={() => setKickOpen(true)}>
-                  Kanal adıyla bağla
-                </button>
-              </p>
-            </>
-          ) : kickOpen ? (
+          {kickOpen ? (
             <div className="stack-s">
               <ChannelSearch large autoFocus placeholder="Kick kullanıcı adını yaz" onPick={(h) => void link(h.slug)} />
-              <p className="start-note">{busy ? 'Hesap bağlanıyor…' : 'Kanal adıyla bağlanınca anlık klip (sohbete yazma) kullanılamaz.'}</p>
+              <p className="start-note">{busy ? 'Hesap bağlanıyor…' : 'Kanalını listeden seç. Sohbete klip atmak istersen sonra Ayarlar\'dan kendi Kick uygulamanı bağlarsın.'}</p>
             </div>
           ) : (
             <>
@@ -122,7 +97,7 @@ export function Gate() {
                 <KickGlyph />
                 Kick ile giriş yap
               </button>
-              <p className="start-note">Kick kanalını seç, hesabın bağlansın. Kesit senin adına yazmaz, yayın yapmaz.</p>
+              <p className="start-note">Kick kanalını seç, hesabın bağlansın. Şifre istenmez; Kesit senin adına yazmaz, yayın yapmaz.</p>
             </>
           )}
           <div className="start-or">ya da</div>

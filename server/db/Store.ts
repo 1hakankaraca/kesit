@@ -6,6 +6,14 @@ import { MIGRATIONS } from './schema.ts';
 
 export type Row = Record<string, any>;
 
+export interface KickTokens {
+  accessToken: string;
+  refreshToken: string | null;
+  expiresAt: number;
+  /** Bağlanan Kick hesabının adı (gösterim için). */
+  account?: string | null;
+}
+
 /** Okurken boolean'a çevrilecek kolonlar (SQLite 0/1 tutar, motor true/false bekler). */
 const BOOLEAN_COLUMNS = new Set(['subtitles', 'from_live', 'auto_edit_clips']);
 /** Okurken Date'e çevrilecek zaman kolonları — motor bazılarında getTime() çağırır. */
@@ -218,7 +226,7 @@ export class Store {
     this.run('INSERT OR IGNORE INTO user_settings (user_id) VALUES (?)', [userId]);
     const row = this.get('SELECT * FROM user_settings WHERE user_id = ?', [userId])!;
     // Motor açık anahtarı `zernio_api_key` adıyla okur; şifreli kolon dışarı verilmez.
-    const { zernio_api_key_enc, kick_tokens_enc: _tokens, ...rest } = row;
+    const { zernio_api_key_enc, kick_tokens_enc: _tokens, kick_app_enc: _app, ...rest } = row;
     return { ...rest, zernio_api_key: unseal(zernio_api_key_enc) };
   }
 
@@ -237,7 +245,7 @@ export class Store {
   }
 
   /** Kick OAuth belirteçleri (şifreli). null siler. */
-  getKickTokens(userId: number): { accessToken: string; refreshToken: string | null; expiresAt: number } | null {
+  getKickTokens(userId: number): KickTokens | null {
     const row = this.get('SELECT kick_tokens_enc FROM user_settings WHERE user_id = ?', [userId]);
     const raw = unseal(row?.kick_tokens_enc);
     try {
@@ -247,9 +255,25 @@ export class Store {
     }
   }
 
-  setKickTokens(userId: number, tokens: { accessToken: string; refreshToken: string | null; expiresAt: number } | null) {
+  setKickTokens(userId: number, tokens: KickTokens | null) {
     this.run('INSERT OR IGNORE INTO user_settings (user_id) VALUES (?)', [userId]);
     this.run('UPDATE user_settings SET kick_tokens_enc = ? WHERE user_id = ?', [tokens ? seal(JSON.stringify(tokens)) : null, userId]);
+  }
+
+  /** Kullanıcının kendi Kick uygulaması (şifreli). null siler. */
+  getKickApp(userId: number): { clientId: string; clientSecret: string } | null {
+    const row = this.get('SELECT kick_app_enc FROM user_settings WHERE user_id = ?', [userId]);
+    const raw = unseal(row?.kick_app_enc);
+    try {
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  setKickApp(userId: number, app: { clientId: string; clientSecret: string } | null) {
+    this.run('INSERT OR IGNORE INTO user_settings (user_id) VALUES (?)', [userId]);
+    this.run('UPDATE user_settings SET kick_app_enc = ? WHERE user_id = ?', [app ? seal(JSON.stringify(app)) : null, userId]);
   }
 
   /** Klip takibi açık kullanıcılar (sunucu açılışında takipçi kurulur). */

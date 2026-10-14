@@ -47,7 +47,7 @@ export const GUIDES = {
     steps: [
       { title: 'Kaydı başlat', text: '"Şimdiden" ya da geçmişten bir başlangıç seç ve "Kaydı başlat"a bas. Durdurduğunda kayıt Kayıtlar\'a düşer; çıktıyı oradan sen üretirsin.' },
       { title: 'Chat kliplerini dinle', text: '"Dinlemeye başla" ile sohbete düşen klip bağlantıları yakalanır; otomatik düzenleme açıksa dikey videoya çevrilir.' },
-      { title: 'Anlık klip al', text: 'Yayın sırasında 30–180 sn düğmelerinden birine bas: sohbete "!clip" komutu gider. Kanalda klip botu varsa klip alınır ve yukarıda yakalanır. Kick ile giriş gerekir.' },
+      { title: 'Anlık klip al', text: 'Yayın sırasında 30–180 sn düğmelerinden birine bas: sohbete "!clip" komutu gider. Kanalda klip botu varsa klip alınır ve yukarıda yakalanır. Önce Ayarlar\'dan kendi Kick uygulamanı bağlaman gerekir.' },
       { title: 'Kanal kliplerini takip et', text: '"Takip et" dediğinde Kick\'e eklenen her yeni klip birkaç dakika içinde bu bilgisayara indirilir. İzle, indir ya da "Dikey yap".' },
     ],
     tips: ['Sen yokken otomatik çalışsın istiyorsan Nöbet\'i kullan.'],
@@ -106,13 +106,14 @@ export const GUIDES = {
   },
   ayarlar: {
     title: 'Ayarlar',
-    intro: 'Altyazı motoru, çıktıların kaydedileceği klasör, disk kullanımı ve telefondan erişim.',
+    intro: 'Kick uygulaması, altyazı motoru, çıktıların kaydedileceği klasör, disk kullanımı ve telefondan erişim.',
     steps: [
+      { title: 'Sohbete klip atma', text: 'Kick\'te kendi geliştirici uygulamanı oluştur, gösterilen dönüş adresini kaydet, Client ID ve Secret\'ı gir, "Kick hesabını bağla". Anahtarlar yalnız bu bilgisayarda kalır.' },
       { title: 'Altyazıyı aç', text: 'Önerilen yerel modeli bir kez indir (ücretsiz, internet olmadan çalışır) ya da ElevenLabs anahtarını bağla. Anahtar varsa önce o kullanılır.' },
       { title: 'Çıktı klasörü', text: 'Hazır videolar varsayılan olarak İndirilenler/Kesit klasörüne kopyalanır. Klasörü değiştirebilir ya da kopyalamayı kapatabilirsin.' },
       { title: 'Yer aç', text: 'Disk kullanımında neyin ne kadar yer kapladığını gör. Önbelleği temizlemek güvenlidir; üretilen videoları silersen Arşiv\'deki kayıtları kalır.' },
-      { title: 'Telefondan aç', text: 'Telefon ve bu bilgisayar aynı Wi-Fi\'daysa gösterilen adresi telefonun tarayıcısına yaz.' },
     ],
+    tips: ['Telefon ve bu bilgisayar aynı Wi-Fi\'daysa sağdaki adresi telefonun tarayıcısına yazarak açabilirsin.'],
   },
 } satisfies Record<string, Guide>;
 

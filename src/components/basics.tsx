@@ -207,7 +207,7 @@ export function Toasts() {
   );
 }
 
-const guideSeenKey = (k: GuideKey) => `kesit.rehber.v2.${k}`;
+const guideSeenKey = (k: GuideKey) => `kesit.rehber.v3.${k}`;
 
 function guideSeen(k: GuideKey) {
   try {
