@@ -43,5 +43,8 @@ test('dışa aktarma kapalıyken kopyalanmaz; yazılamayan klasör reddedilir', 
   const exporter = new Exporter(store);
   exporter.update({ enabled: false });
   assert.equal(exporter.copy(new URL(import.meta.url).pathname, 'vertical', 'x', 1), null);
-  assert.throws(() => exporter.update({ dir: '/dev/null/olamaz' }), /yazılamıyor/);
+  // Bir DOSYANIN altı hiçbir sistemde klasör olamaz (Windows'ta /dev/null geçerli bir yol olurdu).
+  const file = path.join(dataDir, 'dosya.txt');
+  fs.writeFileSync(file, 'x');
+  assert.throws(() => exporter.update({ dir: path.join(file, 'olamaz') }), /yazılamıyor/);
 });

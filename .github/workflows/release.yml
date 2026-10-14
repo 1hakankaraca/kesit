@@ -12,7 +12,22 @@ permissions:
   contents: write
 
 jobs:
+  # Release'i tek bir iş önceden açar; iki platform aynı anda yükleyince
+  # electron-builder aynı etikete iki Release açıyordu.
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Release'i aç (yoksa)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          case "$TAG" in v*) ;; *) echo "Etiket değil ($TAG), Release açılmadı"; exit 0;; esac
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "Kesit App ${TAG#v}" --notes "Kurulum dosyaları: Windows için .exe, macOS için .dmg (Apple Silicon: arm64, Intel: x64). Paketler imzasız; ilk açılış notları README'de."
+
   build:
+    needs: prepare
     strategy:
       fail-fast: false
       matrix:
