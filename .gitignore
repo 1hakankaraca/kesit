@@ -6,3 +6,9 @@ dist
 .DS_Store
 *.log
 data/
+
+# Masaüstü uygulaması (Kesit App) derleme çıktıları
+desktop/node_modules
+desktop/dist-server
+desktop/bin
+desktop/release

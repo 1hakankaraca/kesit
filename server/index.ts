@@ -172,7 +172,8 @@ app.use('/api', (_req, res) => {
 });
 
 // Üretimde derlenmiş arayüz bu süreçten sunulur; diğer yollar SPA'ya düşer.
-const dist = path.resolve('dist');
+// Masaüstü uygulaması derlenmiş arayüzü STATIC_DIR ile gösterir; aksi hâlde çalışma dizinindeki dist/.
+const dist = path.resolve(process.env.STATIC_DIR || 'dist');
 if (config.production && fs.existsSync(dist)) {
   app.use(express.static(dist, { index: false, maxAge: '1h' }));
   app.get(/^\/(?!api|auth|clips|socket\.io).*/, (_req, res) => res.sendFile(path.join(dist, 'index.html')));

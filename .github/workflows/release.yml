@@ -1,0 +1,62 @@
+# Kesit App kurulum dosyaları: `v*` etiketi atılınca macOS (DMG, arm64 + Intel)
+# ve Windows (NSIS .exe) paketleri derlenir ve GitHub Release'e yüklenir.
+# Uygulama içindeki "Güncelleme ara" bu Release'i okur.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            args: --mac
+          - os: windows-latest
+            args: --win
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            desktop/package-lock.json
+
+      - name: Kök bağımlılıklar
+        run: npm ci
+
+      - name: Masaüstü bağımlılıklar
+        run: npm ci
+        working-directory: desktop
+
+      - name: Testler ve tip denetimi
+        run: npm test && npm run typecheck
+
+      - name: Paketle ve yayınla
+        run: npm run prepare:all && npx electron-builder ${{ matrix.args }} --publish always
+        working-directory: desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # İmza sertifikası yok: macOS'ta imzasız paket üretilir.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kesit-app-${{ matrix.os }}
+          path: |
+            desktop/release/*.dmg
+            desktop/release/*.exe
+            desktop/release/*.zip
+            desktop/release/*.yml
+          if-no-files-found: ignore

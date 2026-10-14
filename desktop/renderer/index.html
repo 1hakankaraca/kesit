@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'" />
+    <title>Kesit App</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <div>
+          <h1>Kesit <span class="tape">App</span></h1>
+          <p class="sub">Kick klip stüdyosu · yerel sunucu</p>
+        </div>
+      </div>
+      <span class="ver" id="version">v—</span>
+    </header>
+
+    <main>
+      <section class="card status" id="status-card" aria-live="polite">
+        <div class="status-row">
+          <span class="dot" id="dot"></span>
+          <div class="status-text">
+            <b id="status-title">Sunucu kapalı</b>
+            <span id="status-sub" class="muted">Başlat'a bas; arayüz tarayıcıda açılır.</span>
+          </div>
+        </div>
+        <div class="actions">
+          <button id="btn-start" class="btn btn-accent">Başlat</button>
+          <button id="btn-stop" class="btn btn-secondary" hidden>Durdur</button>
+          <button id="btn-restart" class="btn btn-secondary" hidden>Yeniden başlat</button>
+          <button id="btn-open" class="btn btn-primary" hidden>Tarayıcıda aç</button>
+        </div>
+        <p class="err" id="status-error" hidden></p>
+      </section>
+
+      <section class="card update" id="update-card">
+        <div class="card-head">
+          <h2>Güncelleme</h2>
+          <button id="btn-check" class="btn btn-quiet btn-small">Güncelleme ara</button>
+        </div>
+        <p id="update-text" class="muted">Henüz bakılmadı.</p>
+        <div class="progress" id="update-progress" hidden><i></i></div>
+        <div class="actions" id="update-actions" hidden>
+          <button id="btn-update" class="btn btn-accent">Güncelle</button>
+          <button id="btn-notes" class="btn btn-quiet btn-small" hidden>Sürüm notları</button>
+        </div>
+      </section>
+
+      <section class="card logs">
+        <div class="card-head">
+          <h2>Günlük</h2>
+          <div class="row">
+            <label class="chk"><input type="checkbox" id="log-follow" checked /> Takip et</label>
+            <button id="btn-logfile" class="btn btn-quiet btn-small">Dosyayı aç</button>
+            <button id="btn-clear" class="btn btn-quiet btn-small">Temizle</button>
+          </div>
+        </div>
+        <pre id="log" class="log" tabindex="0" aria-label="Sunucu günlüğü"></pre>
+      </section>
+
+      <section class="card settings">
+        <div class="card-head">
+          <h2>Ayarlar</h2>
+        </div>
+        <div class="grid">
+          <label class="field">
+            <span>Port</span>
+            <input id="set-port" type="number" min="1024" max="65535" />
+          </label>
+          <label class="field field-wide">
+            <span>Veri klasörü</span>
+            <div class="row">
+              <input id="set-data" type="text" readonly />
+              <button id="btn-data-choose" class="btn btn-secondary btn-small">Seç</button>
+              <button id="btn-data-open" class="btn btn-quiet btn-small">Aç</button>
+            </div>
+          </label>
+          <label class="chk"><input type="checkbox" id="set-autostart" /> Uygulama açılınca sunucuyu başlat</label>
+          <label class="chk"><input type="checkbox" id="set-login" /> Bilgisayar açılınca Kesit App'i başlat</label>
+          <label class="chk"><input type="checkbox" id="set-tray" /> Pencere kapanınca tepside kal</label>
+        </div>
+        <p class="muted small" id="settings-note">Port ve veri klasörü değişikliği sunucu yeniden başlatılınca geçerli olur.</p>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <span id="foot-info" class="muted small"></span>
+      <a href="#" id="link-site" class="muted small">GitHub</a>
+    </footer>
+
+    <script src="app.js"></script>
+  </body>
+</html>

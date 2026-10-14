@@ -14,7 +14,25 @@ Kick yayıncıları için klip stüdyosu. Kurulduğu bilgisayarda çalışır; b
 - **Silme**: Hiçbir silme onay sormaz; bildirimdeki "Geri al" ile 6 saniye içinde geri alınır.
 - **Marka ve şablon**: Logo, marka/vurgu rengi ve altyazı stili. Üretim varsayılanları Dikey ve Yatay olarak ayrıdır; önizleme motorun gerçek oranlarıyla çizilir. Logo sürüklenir; merkeze, üçte birlere ve güvenli kenarlara yapışır, 3x3 hizalama vardır. Yatayda altyazı varsayılan kapalıdır. Intro/outro yalnız yatay videolara eklenir. Çıktı ayarları Kayıtlar'daki "Çıktıyı üret" içindir; hiçbir çıktı kendiliğinden üretilmez.
 
-## Çalıştırma
+## Kurulum (Kesit App)
+
+Node ya da ffmpeg kurmadan kullanmak için **Kesit App** indir: Windows'ta `.exe`, macOS'ta `.dmg`. [Releases](https://github.com/1hakankaraca/kesit/releases) sayfasındaki son sürümden:
+
+| Sistem | Dosya |
+|---|---|
+| Windows 10/11 (64 bit) | `Kesit App-<sürüm>-win-x64.exe` |
+| macOS Apple Silicon (M1 ve sonrası) | `Kesit App-<sürüm>-mac-arm64.dmg` |
+| macOS Intel | `Kesit App-<sürüm>-mac-x64.dmg` |
+
+Kesit App küçük bir araçtır: sunucuyu başlatır/durdurur, günlüğü gösterir, güncellemeleri kontrol eder ve tepside bekler. Sunucu çalışınca "Tarayıcıda aç" ile arayüz açılır (`http://localhost:3002`). ffmpeg/ffprobe paketle gelir; veriler kullanıcı klasöründe tutulur (Ayarlar'dan değiştirilebilir).
+
+- **Windows**: kurulum dosyası imzalı olmadığı için SmartScreen "tanınmayan uygulama" uyarısı verebilir; "Ek bilgi → Yine de çalıştır" ile kurulur. Güncellemeler uygulama içinden indirilip kurulur.
+- **macOS**: uygulama notarize edilmemiştir; ilk açılışta Finder'da sağ tık → "Aç" gerekir (ya da `xattr -dr com.apple.quarantine "/Applications/Kesit App.app"`). Güncellemede uygulama yeni DMG'yi indirir, sen Applications'a sürüklersin.
+- Yerel altyazı için `whisper-cli` ayrıca kurulmalıdır (`brew install whisper-cpp`); yoksa Ayarlar'da ElevenLabs anahtarı kullanılabilir.
+
+Geliştirici tarafı `desktop/` altındadır (Electron). `npm run desktop:dev` uygulamayı kaynak koddan açar; `npm run desktop:dist` bu bilgisayarın paketini `desktop/release/` altına üretir. `v*` etiketi atılınca GitHub Actions (`.github/workflows/release.yml`) macOS ve Windows paketlerini derleyip Release'e yükler; uygulamadaki "Güncelleme ara" bu Release'i okur.
+
+## Çalıştırma (kaynak koddan)
 
 Gerekenler: Node 22.5+ (yerleşik `node:sqlite`) ve `ffmpeg`/`ffprobe`. Yerel altyazı için `whisper-cli` (`brew install whisper-cpp`); model Ayarlar sayfasından indirilir.
 

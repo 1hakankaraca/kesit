@@ -1,0 +1,92 @@
+{
+  "name": "kesit-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Kesit App — Kesit sunucusunu kurar, başlatır, günceller",
+  "main": "main.cjs",
+  "license": "UNLICENSED",
+  "author": "Hakan Karaca",
+  "homepage": "https://github.com/1hakankaraca/kesit",
+  "scripts": {
+    "prepare:server": "node ../scripts/build-server.mjs",
+    "prepare:web": "cd .. && npx vite build",
+    "prepare:bin": "node scripts/prepare-bin.mjs",
+    "prepare:all": "npm run prepare:web && npm run prepare:server && npm run prepare:bin",
+    "dev": "npm run prepare:all && electron .",
+    "start": "electron .",
+    "dist": "npm run prepare:all && electron-builder --publish never",
+    "dist:mac": "npm run prepare:all && electron-builder --mac --publish never",
+    "dist:win": "npm run prepare:all && electron-builder --win --publish never",
+    "release": "npm run prepare:all && electron-builder --publish always"
+  },
+  "dependencies": {
+    "axios": "^1.20.0",
+    "electron-log": "^5.4.4",
+    "electron-updater": "^6.8.9",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "electron": "^44.7.2",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.2",
+    "ffmpeg-static": "^5.3.0",
+    "ffprobe-static": "^3.1.0"
+  },
+  "build": {
+    "appId": "com.kesit.app",
+    "productName": "Kesit App",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "copyright": "© Hakan Karaca",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "renderer/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      { "from": "dist-server", "to": "server" },
+      { "from": "../dist", "to": "web" },
+      { "from": "bin", "to": "bin" }
+    ],
+    "asar": true,
+    "npmRebuild": false,
+    "mac": {
+      "category": "public.app-category.video",
+      "target": [
+        { "target": "dmg", "arch": ["arm64", "x64"] },
+        { "target": "zip", "arch": ["arm64", "x64"] }
+      ],
+      "icon": "build/icon.png",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "identity": null
+    },
+    "dmg": {
+      "title": "Kesit App",
+      "contents": [
+        { "x": 140, "y": 180 },
+        { "x": 400, "y": 180, "type": "link", "path": "/Applications" }
+      ]
+    },
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "build/icon.png",
+      "verifyUpdateCodeSignature": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Kesit App",
+      "deleteAppDataOnUninstall": false
+    },
+    "publish": [
+      { "provider": "github", "owner": "1hakankaraca", "repo": "kesit", "releaseType": "release" }
+    ]
+  }
+}
