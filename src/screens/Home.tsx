@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useMemo, useState } from 'react';
 import { Icon, type IconName } from '../components/Icon.tsx';
-import { Pill, WorkspaceHead } from '../components/basics.tsx';
+import { Pill } from '../components/basics.tsx';
 import { api } from '../lib/api.ts';
 import { bytes, dayKey, duration, relative } from '../lib/format.ts';
 import { jobsStore } from '../lib/jobs.ts';
@@ -14,11 +14,11 @@ import { useInterval } from '../lib/useResource.ts';
 import { etaLabel, speedLabel, stepLabel } from '../lib/words.ts';
 import { isHorizontal, jobTitle } from './Gallery.tsx';
 
-const QUICK: { section: Section; icon: IconName; title: string; text: string }[] = [
-  { section: 'canli', icon: 'live', title: 'Canlı yayın', text: 'Kaydet, klip yakala, !clip at' },
-  { section: 'klipler', icon: 'vertical', title: 'Dikey klip üret', text: 'Kick kliplerini seç, işleme gönder' },
-  { section: 'editor', icon: 'scissors', title: 'Editörü aç', text: 'Kes, birleştir, yazı ve müzik ekle' },
-  { section: 'yayinlar', icon: 'film', title: 'Yayın indir', text: 'Geçmiş yayını bilgisayara al' },
+const QUICK: { section: Section; icon: IconName; title: string; text: string; img: string }[] = [
+  { section: 'canli', icon: 'live', title: 'Canlı yayın', text: 'Kaydet, klip yakala, !clip at', img: '/img/canli.jpg' },
+  { section: 'klipler', icon: 'vertical', title: 'Dikey klip üret', text: 'Kick kliplerini seç, işleme gönder', img: '/img/dikey.jpg' },
+  { section: 'editor', icon: 'scissors', title: 'Editörü aç', text: 'Kes, birleştir, yazı ve müzik ekle', img: '/img/editor.jpg' },
+  { section: 'yayinlar', icon: 'film', title: 'Yayın indir', text: 'Geçmiş yayını bilgisayara al', img: '/img/indir.jpg' },
 ];
 
 /** Video hazırlama hattının adımları — kartta hangi adımda olduğu gösterilir. */
@@ -40,7 +40,12 @@ const KIND_LABEL: Record<Task['kind'], string> = {
   proje: 'Dışa aktarılıyor',
 };
 
-/** Anasayfa: hızlı başlangıç, şu an hazırlananlar (canlı ilerleme) ve son bitenler. */
+function greeting() {
+  const h = new Date().getHours();
+  return h < 6 ? 'İyi geceler' : h < 12 ? 'Günaydın' : h < 18 ? 'İyi günler' : 'İyi akşamlar';
+}
+
+/** Anasayfa: fotoğraflı giriş, hızlı başlangıç, canlı ilerleme ve son bitenler. */
 export function Home() {
   const { user } = useSession();
   const { tasks, live: liveDownloads } = tasksStore.use();
@@ -59,10 +64,69 @@ export function Home() {
   const todayCount = ready.filter((j) => dayKey(j.created_at) === today).length;
   const recent = [...ready].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 8);
   const totalBytes = ready.reduce((s, j) => s + (j.file_size_bytes || 0), 0);
+  const isLive = !!(live?.recorder.recording || live?.watcher.watching || live?.autopilot.live);
 
   return (
-    <>
-      <WorkspaceHead guide="anasayfa" title="Hoş geldin" tape={user?.username ?? 'Kesit'} lead="Hazırlanan videoların ilerlemesini buradan izle; yeni bir işe de buradan başla." />
+    <div className="home">
+      <section className="hero" aria-label="Hoş geldin">
+        <img className="hero-img" src="/img/hero.jpg" alt="" />
+        <div className="hero-shade" aria-hidden="true" />
+        <div className="hero-body">
+          <p className="hero-eyebrow">
+            {greeting()}
+            {isLive && (
+              <span className="hero-live">
+                <i /> şu an iş var
+              </span>
+            )}
+          </p>
+          <h1 className="hero-title">
+            {user?.username ?? 'Kesit'} <span className="hero-tape">stüdyosu</span>
+          </h1>
+          <p className="hero-lead">Yayından klibe, klipten paylaşıma. Hazırlanan videoların ilerlemesini buradan izle; yeni bir işe de buradan başla.</p>
+          <div className="hero-actions">
+            <button type="button" className="btn btn-accent btn-large" onClick={() => navigate(sectionPath('klipler'))}>
+              <Icon name="vertical" size={18} /> Dikey klip üret
+            </button>
+            <button type="button" className="btn hero-ghost btn-large" onClick={() => void newProject()}>
+              <Icon name="scissors" size={18} /> Editörü aç
+            </button>
+          </div>
+          <div className="hero-stats" aria-label="Özet">
+            <span>
+              <b>{todayCount}</b> bugün hazırlanan
+            </span>
+            <span>
+              <b>{ready.length}</b> hazır video
+            </span>
+            <span>
+              <b>{active.length}</b> süren iş
+            </span>
+            <span>
+              <b>{bytes(totalBytes)}</b> videoların yeri
+            </span>
+          </div>
+        </div>
+        {live && (live.recorder.recording || live.watcher.watching || live.autopilot.config.enabled) && (
+          <div className="hero-pills">
+            {live.recorder.recording && (
+              <button type="button" className="pill-button" onClick={() => navigate(sectionPath('canli'))}>
+                <Pill tone="live">Kaydediliyor · {live.recorder.channel}</Pill>
+              </button>
+            )}
+            {live.watcher.watching && (
+              <button type="button" className="pill-button" onClick={() => navigate(sectionPath('canli'))}>
+                <Pill tone="on">Klipler dinleniyor · {live.watcher.channel}</Pill>
+              </button>
+            )}
+            {live.autopilot.config.enabled && (
+              <button type="button" className="pill-button" onClick={() => navigate(sectionPath('nobet'))}>
+                <Pill tone={live.autopilot.live ? 'live' : 'ok'}>{live.autopilot.live ? 'Bot: yayında' : `Bot bekliyor · ${live.autopilot.config.channel}`}</Pill>
+              </button>
+            )}
+          </div>
+        )}
+      </section>
 
       <div className="home-quick">
         {QUICK.map((q, i) => (
@@ -72,38 +136,22 @@ export function Home() {
             className="quick-tile"
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.05 }}
-            whileHover={{ y: -3 }}
+            transition={{ delay: 0.1 + i * 0.05 }}
+            whileHover={{ y: -4 }}
             onClick={() => (q.section === 'editor' ? void newProject() : navigate(sectionPath(q.section)))}
           >
-            <span className="quick-icon">
-              <Icon name={q.icon} size={20} />
+            <img className="quick-img" src={q.img} alt="" loading="lazy" />
+            <span className="quick-shade" aria-hidden="true" />
+            <span className="quick-body">
+              <span className="quick-icon">
+                <Icon name={q.icon} size={18} />
+              </span>
+              <b>{q.title}</b>
+              <span>{q.text}</span>
             </span>
-            <b>{q.title}</b>
-            <span>{q.text}</span>
           </motion.button>
         ))}
       </div>
-
-      {live && (live.recorder.recording || live.watcher.watching || live.autopilot.config.enabled) && (
-        <div className="home-live">
-          {live.recorder.recording && (
-            <button type="button" className="pill-button" onClick={() => navigate(sectionPath('canli'))}>
-              <Pill tone="live">Kaydediliyor · {live.recorder.channel}</Pill>
-            </button>
-          )}
-          {live.watcher.watching && (
-            <button type="button" className="pill-button" onClick={() => navigate(sectionPath('canli'))}>
-              <Pill tone="on">Klipler dinleniyor · {live.watcher.channel}</Pill>
-            </button>
-          )}
-          {live.autopilot.config.enabled && (
-            <button type="button" className="pill-button" onClick={() => navigate(sectionPath('nobet'))}>
-              <Pill tone={live.autopilot.live ? 'live' : 'ok'}>{live.autopilot.live ? 'Bot: yayında' : `Bot bekliyor · ${live.autopilot.config.channel}`}</Pill>
-            </button>
-          )}
-        </div>
-      )}
 
       <section className="home-section" aria-labelledby="now-title">
         <div className="home-section-head">
@@ -135,55 +183,34 @@ export function Home() {
         )}
       </section>
 
-      <div className="home-bottom">
-        <section className="home-section" aria-labelledby="recent-title">
-          <div className="home-section-head">
-            <h2 id="recent-title" className="section-title">
-              Son bitenler
-            </h2>
-            <button type="button" className="link" onClick={() => navigate(sectionPath('galeri'))}>
-              Galeri →
-            </button>
-          </div>
-          {recent.length === 0 ? (
-            <p className="muted">Henüz hazır video yok.</p>
-          ) : (
-            <ul className="recent-row">
-              {recent.map((j) => (
-                <li key={j.id}>
-                  <button type="button" className={isHorizontal(j) ? 'recent-card recent-card-h' : 'recent-card'} onClick={() => navigate(sectionPath('galeri', j.id))}>
-                    <span className="recent-thumb">{j.thumbnail_url ? <img src={j.thumbnail_url} alt="" loading="lazy" /> : <Icon name="film" />}</span>
-                    <span className="recent-title">{jobTitle(j)}</span>
-                    <span className="recent-meta">
-                      {duration(j.duration)} · {relative(j.created_at)}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <section className="home-stats" aria-label="Özet">
-          <div>
-            <b>{todayCount}</b>
-            <span>bugün hazırlanan</span>
-          </div>
-          <div>
-            <b>{ready.length}</b>
-            <span>hazır video</span>
-          </div>
-          <div>
-            <b>{active.length}</b>
-            <span>süren iş</span>
-          </div>
-          <div>
-            <b>{bytes(totalBytes)}</b>
-            <span>videoların yeri</span>
-          </div>
-        </section>
-      </div>
-    </>
+      <section className="home-section" aria-labelledby="recent-title">
+        <div className="home-section-head">
+          <h2 id="recent-title" className="section-title">
+            Son bitenler
+          </h2>
+          <button type="button" className="link" onClick={() => navigate(sectionPath('galeri'))}>
+            Galeri →
+          </button>
+        </div>
+        {recent.length === 0 ? (
+          <p className="muted">Henüz hazır video yok.</p>
+        ) : (
+          <ul className="recent-row">
+            {recent.map((j) => (
+              <li key={j.id}>
+                <button type="button" className={isHorizontal(j) ? 'recent-card recent-card-h' : 'recent-card'} onClick={() => navigate(sectionPath('galeri', j.id))}>
+                  <span className="recent-thumb">{j.thumbnail_url ? <img src={j.thumbnail_url} alt="" loading="lazy" /> : <Icon name="film" />}</span>
+                  <span className="recent-title">{jobTitle(j)}</span>
+                  <span className="recent-meta">
+                    {duration(j.duration)} · {relative(j.created_at)}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </div>
   );
 }
 

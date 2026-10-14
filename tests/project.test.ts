@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { emptyProject, fitFrame, coverCrop, normalizeProject, projectDuration, timelineCaptions, type Asset, type Clip, type Project } from '../shared/project.ts';
-import { buildRenderPlan } from '../server/services/ProjectRenderer.ts';
+import { atempoChain, buildRenderPlan } from '../server/services/ProjectRenderer.ts';
 import { describeCommand, parsePsLine } from '../server/services/SystemMonitor.ts';
 
 const asset = (id: string, kind: Asset['kind'] = 'video'): Asset => ({ id, kind, name: id, duration: kind === 'image' ? 0 : 30, width: 1920, height: 1080, hasAudio: kind !== 'image', origin: { type: 'upload', file: `${id}.mp4` }, thumb: null });
 const clip = (id: string, trackId: string, start: number, duration: number, extra: Partial<Clip> = {}): Clip => ({
   id, trackId, kind: 'video', assetId: 'a1', start, duration, in: 0,
-  frame: { x: 0, y: 0, w: 1, h: 1 }, crop: { x: 0, y: 0, w: 1, h: 1 }, opacity: 1, volume: 1, muted: false,
+  frame: { x: 0, y: 0, w: 1, h: 1 }, crop: { x: 0, y: 0, w: 1, h: 1 }, opacity: 1, volume: 1, muted: false, speed: 1, fadeIn: 0, fadeOut: 0,
   color: { brightness: 0, contrast: 1, saturation: 1, hue: 0 }, text: null, captions: null, renderAssetId: null, ...extra,
 });
 
@@ -59,6 +59,19 @@ test('buildRenderPlan: katmanlar alttan üste dikilir, ses karışır, altyazı 
   assert.match(plan.filterGraph, /subtitles=filename='\/tmp\/a\\:b\.ass'\[outv\]/);
   assert.ok(plan.args.includes('-loop'), 'görsel döngüyle okunur');
   assert.equal(plan.args[plan.args.length - 1], '/tmp/out.mp4');
+});
+
+test('buildRenderPlan: hız ve yumuşatma — setpts/atempo ve fade/afade', () => {
+  const p = sample();
+  p.clips = [clip('c1', 'v1', 0, 5, { speed: 2, fadeIn: 1, fadeOut: 0.5 }), clip('c2', 'v2', 1, 2, { fadeIn: 0.5 })];
+  const plan = buildRenderPlan(p, () => ({ file: '/tmp/x.mp4', kind: 'video', hasAudio: true }), { output: '/tmp/o.mp4' });
+  assert.ok(plan.args.join(' ').includes('-ss 0 -t 10 -i /tmp/x.mp4'), 'kaynaktan süre×hız okunur');
+  assert.match(plan.filterGraph, /setpts=\(PTS-STARTPTS\)\/2\+0\/TB/);
+  assert.match(plan.filterGraph, /fade=t=in:st=0:d=1,fade=t=out:st=4\.5:d=0\.5\[v1\]/, 'ana yol siyaha yumuşar');
+  assert.match(plan.filterGraph, /format=yuva420p,fade=t=in:st=1:d=0\.5:alpha=1/, 'üst katman saydama yumuşar');
+  assert.match(plan.filterGraph, /atempo=2,volume=1,afade=t=in:st=0:d=1,afade=t=out:st=4\.5:d=0\.5/);
+  assert.deepEqual(atempoChain(3), ['atempo=2', 'atempo=1.5']);
+  assert.deepEqual(atempoChain(0.25), ['atempo=0.5', 'atempo=0.5']);
 });
 
 test('buildRenderPlan: gizli yol atlanır, kaynağı olmayan parça uyarı verir', () => {

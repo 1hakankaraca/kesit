@@ -1,4 +1,4 @@
-import { FORMAT_SIZE, NEUTRAL_COLOR, projectDuration, type Clip, type Project } from '../../shared/project.ts';
+import { FORMAT_SIZE, NEUTRAL_COLOR, projectDuration, sourceSpan, type Clip, type Project } from '../../shared/project.ts';
 
 /** Bir klibin dışa aktarmada kullanılacak kaynağı. */
 export interface ClipSource {
@@ -17,6 +17,22 @@ export interface RenderPlan {
 }
 
 const even = (v: number) => Math.max(2, Math.round(v / 2) * 2);
+
+/** atempo tek başına 0.5–2 arası çalışır; dışındaki hızlar zincirlenir. */
+export function atempoChain(speed: number): string[] {
+  const out: string[] = [];
+  let s = speed;
+  while (s > 2) {
+    out.push('atempo=2');
+    s /= 2;
+  }
+  while (s < 0.5) {
+    out.push('atempo=0.5');
+    s /= 0.5;
+  }
+  if (Math.abs(s - 1) > 0.001) out.push(`atempo=${f(s)}`);
+  return out;
+}
 const f = (v: number) => (Math.round(v * 10000) / 10000).toString();
 const esc = (p: string) => p.replace(/\\/g, '\\\\').replace(/'/g, "'\\''").replace(/:/g, '\\:');
 
@@ -46,6 +62,7 @@ export function buildRenderPlan(
   const audioLabels: string[] = [];
 
   const ordered = [...project.clips].sort((a, b) => (trackIndex.get(a.trackId) ?? 0) - (trackIndex.get(b.trackId) ?? 0) || a.start - b.start);
+  const baseTrack = project.tracks.find((t) => t.kind === 'video')?.id;
   let last = '0:v';
   let k = 0;
 
@@ -59,15 +76,18 @@ export function buildRenderPlan(
     const end = clip.start + clip.duration;
     const n = inputIndex++;
     const visual = src.kind !== 'audio';
+    const speed = src.kind === 'image' ? 1 : clip.speed || 1;
+    const fadeIn = Math.min(clip.fadeIn, clip.duration / 2);
+    const fadeOut = Math.min(clip.fadeOut, clip.duration / 2);
 
     if (src.kind === 'image') args.push('-loop', '1', '-framerate', String(project.fps), '-t', f(clip.duration), '-i', src.file);
-    else args.push('-ss', f(clip.in), '-t', f(clip.duration), '-i', src.file);
+    else args.push('-ss', f(clip.in), '-t', f(sourceSpan({ duration: clip.duration, speed })), '-i', src.file);
 
     if (visual) {
       k++;
       const fw = even(clip.frame.w * W);
       const fh = even(clip.frame.h * H);
-      const chain: string[] = [`setpts=PTS-STARTPTS+${f(clip.start)}/TB`];
+      const chain: string[] = [speed === 1 ? `setpts=PTS-STARTPTS+${f(clip.start)}/TB` : `setpts=(PTS-STARTPTS)/${f(speed)}+${f(clip.start)}/TB`];
       if (clip.crop.w < 0.999 || clip.crop.h < 0.999 || clip.crop.x > 0.001 || clip.crop.y > 0.001) {
         chain.push(`crop=iw*${f(clip.crop.w)}:ih*${f(clip.crop.h)}:iw*${f(clip.crop.x)}:ih*${f(clip.crop.y)}`);
       }
@@ -78,8 +98,13 @@ export function buildRenderPlan(
       }
       if (c.hue) chain.push(`hue=h=${f(c.hue)}`);
       if (src.kind === 'image') chain.push('format=rgba');
+      // Ana yoldaki parça siyaha, üst katmanlar saydama doğru yumuşar.
+      const alphaFade = clip.trackId !== baseTrack;
+      if ((fadeIn > 0 || fadeOut > 0) && alphaFade && src.kind !== 'image') chain.push('format=yuva420p');
+      if (fadeIn > 0) chain.push(`fade=t=in:st=${f(clip.start)}:d=${f(fadeIn)}${alphaFade ? ':alpha=1' : ''}`);
+      if (fadeOut > 0) chain.push(`fade=t=out:st=${f(end - fadeOut)}:d=${f(fadeOut)}${alphaFade ? ':alpha=1' : ''}`);
       if (clip.opacity < 0.999) {
-        if (src.kind !== 'image') chain.push('format=yuva420p');
+        if (src.kind !== 'image' && !(alphaFade && (fadeIn > 0 || fadeOut > 0))) chain.push('format=yuva420p');
         chain.push(`colorchannelmixer=aa=${f(clip.opacity)}`);
       }
       filters.push(`[${n}:v]${chain.join(',')}[v${k}]`);
@@ -93,7 +118,11 @@ export function buildRenderPlan(
     if (audible) {
       const label = `a${audioLabels.length + 1}`;
       const delay = Math.round(clip.start * 1000);
-      filters.push(`[${n}:a]asetpts=PTS-STARTPTS,volume=${f(clip.volume)},aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,adelay=${delay}:all=1[${label}]`);
+      const achain = ['asetpts=PTS-STARTPTS', ...atempoChain(speed), `volume=${f(clip.volume)}`];
+      if (fadeIn > 0) achain.push(`afade=t=in:st=0:d=${f(fadeIn)}`);
+      if (fadeOut > 0) achain.push(`afade=t=out:st=${f(clip.duration - fadeOut)}:d=${f(fadeOut)}`);
+      achain.push('aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo', `adelay=${delay}:all=1`);
+      filters.push(`[${n}:a]${achain.join(',')}[${label}]`);
       audioLabels.push(label);
     }
   }

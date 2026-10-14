@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
-import { FORMAT_SIZE, timelineCaptions, type Clip, type Project, type Rect } from '../../shared/project.ts';
+import { FORMAT_SIZE, VERTICAL_SAFE, timelineCaptions, type Clip, type Project, type Rect } from '../../shared/project.ts';
 import { subtitleBox } from '../lib/frame.ts';
-import { assetOf, clampFrame, clipEnd, trackOf } from './model.ts';
+import { assetOf, clampFrame, clipEnd, fadeFactor, trackOf } from './model.ts';
 import { TEXT_FONTS, TEXT_LINE, TEXT_PAD_X, TEXT_PAD_Y, TEXT_RADIUS, TEXT_STROKE } from './textRender.ts';
 
 /** Parçanın görünür olması için önceden yüklenmeye başlanacağı pay (sn). */
@@ -15,7 +15,8 @@ const HANDLES: Handle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
 /**
  * Önizleme sahnesi: zaman çizelgesindeki görünür parçaları katman katman
  * çizer (video/görsel/yazı), sesleri çalar, altyazıyı basar. Seçili parça
- * sürüklenip boyutlanır; orta ve kenarlara yapışır.
+ * sürüklenip boyutlanır; orta ve kenarlara yapışır. Dikeyde "güvenli alan"
+ * platform arayüzlerinin kapattığı bölgeleri gösterir.
  */
 export function Stage({
   project,
@@ -23,6 +24,7 @@ export function Stage({
   playing,
   selectedId,
   subtitleStyle,
+  safeZone,
   onSelect,
   onFrame,
   onBegin,
@@ -33,6 +35,7 @@ export function Stage({
   playing: boolean;
   selectedId: string | null;
   subtitleStyle: string;
+  safeZone: boolean;
   onSelect: (id: string | null) => void;
   onFrame: (id: string, frame: Rect) => void;
   onBegin: () => void;
@@ -53,7 +56,6 @@ export function Stage({
   const hidden = useMemo(() => new Set(project.tracks.filter((t) => t.hidden).map((t) => t.id)), [project.tracks]);
   const mutedTracks = useMemo(() => new Set(project.tracks.filter((t) => t.muted).map((t) => t.id)), [project.tracks]);
 
-  // Yüklü tutulacak parçalar: şu an görünenler + az sonra gelecekler.
   const mounted = useMemo(
     () => project.clips.filter((c) => !hidden.has(c.trackId) && time >= c.start - PRELOAD_SEC && time < clipEnd(c) + 0.5).sort((a, b) => (trackIndex.get(a.trackId) ?? 0) - (trackIndex.get(b.trackId) ?? 0)),
     [project.clips, hidden, time, trackIndex],
@@ -65,16 +67,18 @@ export function Stage({
       const el = media.current.get(c.id);
       if (!el) continue;
       const active = time >= c.start && time < clipEnd(c);
-      const desired = c.in + (time - c.start);
+      const speed = c.speed || 1;
+      const desired = c.in + (time - c.start) * speed;
       el.muted = c.muted || mutedTracks.has(c.trackId) || c.volume <= 0;
-      el.volume = Math.max(0, Math.min(1, c.volume));
+      el.volume = Math.max(0, Math.min(1, c.volume * fadeFactor(c, time)));
+      if (el.playbackRate !== speed) el.playbackRate = Math.min(16, Math.max(0.0625, speed));
       if (!active) {
         if (!el.paused) el.pause();
         if (Math.abs(el.currentTime - Math.max(0, desired)) > 0.3) el.currentTime = Math.max(0, Math.min(desired, c.in));
         continue;
       }
       if (playing) {
-        if (Math.abs(el.currentTime - desired) > 0.25) el.currentTime = desired;
+        if (Math.abs(el.currentTime - desired) > 0.25 * speed) el.currentTime = desired;
         if (el.paused) void el.play().catch(() => {});
       } else {
         if (!el.paused) el.pause();
@@ -160,10 +164,9 @@ export function Stage({
         h = s.h - dy;
         y = s.y + dy;
       }
-      // Köşeden oran korunur (Alt ile serbest); kenardan tek eksen.
       const corner = m.length === 2;
       if (corner && !e.altKey) {
-        const ratio = d.aspect * (H / W); // kare oranı cinsinden w/h
+        const ratio = d.aspect * (H / W);
         if (Math.abs(dx) > Math.abs(dy)) h = w / ratio;
         else w = h * ratio;
         if (m.includes('w')) x = s.x + s.w - w;
@@ -208,7 +211,7 @@ export function Stage({
           const asset = assetOf(project, c);
           const z = (trackIndex.get(c.trackId) ?? 0) + 1;
           const filter = `brightness(${1 + c.color.brightness}) contrast(${c.color.contrast}) saturate(${c.color.saturation}) hue-rotate(${c.color.hue}deg)`;
-          const layerStyle: CSSProperties = { left: pct(c.frame.x), top: pct(c.frame.y), width: pct(c.frame.w), height: pct(c.frame.h), zIndex: z, opacity: c.opacity, display: active ? undefined : 'none' };
+          const layerStyle: CSSProperties = { left: pct(c.frame.x), top: pct(c.frame.y), width: pct(c.frame.w), height: pct(c.frame.h), zIndex: z, opacity: c.opacity * fadeFactor(c, time), display: active ? undefined : 'none' };
           const mediaStyle: CSSProperties = { width: pct(1 / c.crop.w), height: pct(1 / c.crop.h), left: pct(-c.crop.x / c.crop.w), top: pct(-c.crop.y / c.crop.h), filter };
           if (c.kind === 'audio') {
             return asset ? <audio key={c.id} ref={bind(c.id)} src={`/api/projects/${project.id}/assets/${asset.id}/stream`} preload="auto" /> : null;
@@ -237,6 +240,25 @@ export function Stage({
         {guides.x !== null && <span className="frame-snap frame-snap-v" style={{ left: pct(guides.x) }} aria-hidden="true" />}
         {guides.y !== null && <span className="frame-snap frame-snap-h" style={{ top: pct(guides.y) }} aria-hidden="true" />}
 
+        {safeZone && vertical && (
+          <div className="esafe" aria-hidden="true">
+            <span className="esafe-top" style={{ height: pct(VERTICAL_SAFE.top) }}>
+              üst bilgi
+            </span>
+            <span className="esafe-bottom" style={{ height: pct(VERTICAL_SAFE.bottom) }}>
+              açıklama + düğmeler
+            </span>
+            <span className="esafe-side esafe-left" style={{ width: pct(VERTICAL_SAFE.side) }} />
+            <span className="esafe-side esafe-right" style={{ width: pct(VERTICAL_SAFE.side) }} />
+            <span className="esafe-box" style={{ top: pct(VERTICAL_SAFE.top), bottom: pct(VERTICAL_SAFE.bottom), left: pct(VERTICAL_SAFE.side), right: pct(VERTICAL_SAFE.side) }} />
+          </div>
+        )}
+        {safeZone && !vertical && (
+          <div className="esafe" aria-hidden="true">
+            <span className="esafe-box" style={{ inset: '5%' }} />
+          </div>
+        )}
+
         {caption && (
           <p className={`frame-sub sub-${subtitleStyle}`} style={{ bottom: pct(sub.bottom), fontSize: `${sub.fontCqi}cqi` }}>
             {caption.text}
@@ -244,8 +266,8 @@ export function Stage({
         )}
         {!mounted.length && (
           <div className="estage-empty">
-            <b>Sahne boş</b>
-            <span>Soldan video, görsel ya da yazı ekle</span>
+            <b>{project.clips.length ? 'Bu anda görüntü yok' : 'Sahne boş'}</b>
+            <span>{project.clips.length ? 'Oynatma çizgisini bir parçanın üstüne getir' : 'Soldaki Medya sekmesinden video ekle'}</span>
           </div>
         )}
       </div>

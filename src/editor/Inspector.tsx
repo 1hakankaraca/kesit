@@ -6,7 +6,7 @@ import { api } from '../lib/api.ts';
 import { duration } from '../lib/format.ts';
 import { toast, toastError } from '../lib/toast.ts';
 import type { Studio } from '../lib/types.ts';
-import { assetOf, centerFrame, clipEnd, fillFrame, fitToFrame, splitCameraAndScreen, updateClip } from './model.ts';
+import { LAYOUTS, applyLayout, assetOf, centerFrame, clipEnd, fillFrame, fitToFrame, setSpeed, updateClip, type LayoutPreset } from './model.ts';
 
 type Update = (fn: (p: Project) => Project, record?: boolean) => void;
 
@@ -19,6 +19,7 @@ export function Inspector({
   onBegin,
   onEnd,
   onProject,
+  onSeek,
 }: {
   project: Project;
   clip: Clip | null;
@@ -27,9 +28,10 @@ export function Inspector({
   onBegin: () => void;
   onEnd: () => void;
   onProject: (changes: Partial<Project>) => void;
+  onSeek: (t: number) => void;
 }) {
   if (!clip) return <ProjectPanel project={project} studio={studio} onProject={onProject} />;
-  return <ClipPanel key={clip.id} project={project} clip={clip} onChange={onChange} onBegin={onBegin} onEnd={onEnd} />;
+  return <ClipPanel key={clip.id} project={project} clip={clip} onChange={onChange} onBegin={onBegin} onEnd={onEnd} onSeek={onSeek} />;
 }
 
 function ProjectPanel({ project, studio, onProject }: { project: Project; studio: Studio | null; onProject: (changes: Partial<Project>) => void }) {
@@ -83,7 +85,7 @@ function ProjectPanel({ project, studio, onProject }: { project: Project; studio
   );
 }
 
-function ClipPanel({ project, clip, onChange, onBegin, onEnd }: { project: Project; clip: Clip; onChange: Update; onBegin: () => void; onEnd: () => void }) {
+function ClipPanel({ project, clip, onChange, onBegin, onEnd, onSeek }: { project: Project; clip: Clip; onChange: Update; onBegin: () => void; onEnd: () => void; onSeek: (t: number) => void }) {
   const asset = assetOf(project, clip);
   const set = (changes: Partial<Clip>, record = true) => onChange((p) => updateClip(p, clip.id, changes), record);
   const [busy, setBusy] = useState<string | null>(null);
@@ -96,7 +98,7 @@ function ClipPanel({ project, clip, onChange, onBegin, onEnd }: { project: Proje
     if (!asset) return;
     setBusy('cc');
     try {
-      const res = await api.post<{ captions: Clip['captions'] }>(`/api/projects/${project.id}/assets/${asset.id}/transcribe`, { from: clip.in, to: clip.in + clip.duration });
+      const res = await api.post<{ captions: Clip['captions'] }>(`/api/projects/${project.id}/assets/${asset.id}/transcribe`, { from: clip.in, to: clip.in + clip.duration * (clip.speed || 1) });
       set({ captions: res.captions });
       onChange((p) => ({ ...p, subtitles: { ...p.subtitles, enabled: true } }), false);
       toast(res.captions?.length ? `${res.captions.length} satır yazıya döküldü` : 'Konuşma bulunamadı', res.captions?.length ? 'ok' : 'error');
@@ -107,13 +109,15 @@ function ClipPanel({ project, clip, onChange, onBegin, onEnd }: { project: Proje
     }
   };
 
-  const toVertical = async () => {
+  const layout = async (key: LayoutPreset) => {
     if (!asset) return;
+    const def = LAYOUTS.find((l) => l.key === key)!;
     setBusy('cam');
     try {
-      const res = await api.post<{ rect: Rect | null }>(`/api/projects/${project.id}/assets/${asset.id}/facecam`);
-      onChange((p) => splitCameraAndScreen(p, clip.id, res.rect));
-      toast(res.rect ? 'Kamera bulundu: üstte kamera, altta ekran' : 'Kamera bulunamadı; varsayılan köşe kullanıldı — kaynak bölgeyi elle ayarla', res.rect ? 'ok' : 'info');
+      let rect: Rect | null = null;
+      if (def.needsCam) rect = (await api.post<{ rect: Rect | null }>(`/api/projects/${project.id}/assets/${asset.id}/facecam`)).rect;
+      onChange((p) => applyLayout(p, clip.id, key, rect));
+      if (def.needsCam) toast(rect ? 'Kamera bulundu ve ayrı katmana alındı' : 'Kamera bulunamadı; varsayılan köşe kullanıldı — kaynak bölgeyi elle ayarla', rect ? 'ok' : 'info');
     } catch (err) {
       toastError(err);
     } finally {
@@ -156,13 +160,45 @@ function ClipPanel({ project, clip, onChange, onBegin, onEnd }: { project: Proje
           </details>
         )}
 
-        {project.format === 'vertical' && clip.kind === 'video' && (
+        {clip.kind === 'video' && (
           <div className="esec esec-cta">
-            <button type="button" className="btn btn-accent" disabled={!!busy} onClick={() => void toVertical()}>
-              {busy === 'cam' ? <Spinner size={14} /> : <Icon name="camera" size={16} />} Kamera + ekran olarak ayır
-            </button>
-            <p className="field-help">Yüz kamerası bulunur; kamera üstte, oyun ekranı altta ayrı katman olur. Sonra her birini ayrı taşıyıp boyutlarsın.</p>
+            <span className="eyebrow">Düzen</span>
+            <div className="row-gap">
+              {LAYOUTS.filter((l) => !l.vertical || project.format === 'vertical').map((l) => (
+                <button key={l.key} type="button" className={l.needsCam ? 'btn btn-accent btn-small' : 'btn btn-secondary btn-small'} disabled={!!busy} onClick={() => void layout(l.key)} title={l.hint}>
+                  {busy === 'cam' && l.needsCam ? <Spinner size={12} /> : l.needsCam ? <Icon name="camera" size={14} /> : null} {l.label}
+                </button>
+              ))}
+            </div>
+            <p className="field-help">Kamera düzenleri yüz kamerasını bulup ayrı katmana alır; sonra her parçayı ayrı taşıyıp boyutlarsın.</p>
           </div>
+        )}
+
+        {clip.kind !== 'text' && clip.kind !== 'image' && (
+          <details open className="esec">
+            <summary>Hız ve yumuşatma</summary>
+            <div className="row-gap">
+              {[0.5, 0.75, 1, 1.5, 2, 3].map((v) => (
+                <button key={v} type="button" className={Math.abs(clip.speed - v) < 0.001 ? 'btn btn-primary btn-small' : 'btn btn-secondary btn-small'} onClick={() => onChange((p) => setSpeed(p, clip.id, v))}>
+                  {v}x
+                </button>
+              ))}
+            </div>
+            <RangeField label="Hız" value={clip.speed} min={0.25} max={4} step={0.05} display={`${clip.speed.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}x`} onChange={(v) => onChange((p) => setSpeed(p, clip.id, v), false)} onBegin={onBegin} onEnd={onEnd} />
+            <div className="egrid2">
+              <RangeField label="Giriş yumuşatma" value={clip.fadeIn} min={0} max={3} step={0.1} display={clip.fadeIn ? `${clip.fadeIn.toLocaleString('tr-TR')} sn` : 'yok'} onChange={(v) => set({ fadeIn: v }, false)} onBegin={onBegin} onEnd={onEnd} />
+              <RangeField label="Çıkış yumuşatma" value={clip.fadeOut} min={0} max={3} step={0.1} display={clip.fadeOut ? `${clip.fadeOut.toLocaleString('tr-TR')} sn` : 'yok'} onChange={(v) => set({ fadeOut: v }, false)} onBegin={onBegin} onEnd={onEnd} />
+            </div>
+          </details>
+        )}
+        {(clip.kind === 'text' || clip.kind === 'image') && (
+          <details className="esec">
+            <summary>Yumuşatma</summary>
+            <div className="egrid2">
+              <RangeField label="Giriş" value={clip.fadeIn} min={0} max={3} step={0.1} display={clip.fadeIn ? `${clip.fadeIn.toLocaleString('tr-TR')} sn` : 'yok'} onChange={(v) => set({ fadeIn: v }, false)} onBegin={onBegin} onEnd={onEnd} />
+              <RangeField label="Çıkış" value={clip.fadeOut} min={0} max={3} step={0.1} display={clip.fadeOut ? `${clip.fadeOut.toLocaleString('tr-TR')} sn` : 'yok'} onChange={(v) => set({ fadeOut: v }, false)} onBegin={onBegin} onEnd={onEnd} />
+            </div>
+          </details>
         )}
 
         {clip.kind !== 'text' && visual && asset && (
@@ -210,7 +246,7 @@ function ClipPanel({ project, clip, onChange, onBegin, onEnd }: { project: Proje
             {clip.captions?.length ? (
               <>
                 <p className="muted">{clip.captions.length} satır · {duration(clip.captions[0].start - clip.in < 0 ? 0 : clip.captions[0].start - clip.in)} – {duration(Math.min(clip.duration, clip.captions[clip.captions.length - 1].end - clip.in))}</p>
-                <CaptionList clip={clip} onChange={(captions) => set({ captions })} />
+                <CaptionList clip={clip} onChange={(captions) => set({ captions })} onSeek={onSeek} />
                 <div className="row-gap">
                   <button type="button" className="btn btn-quiet btn-small" disabled={!!busy} onClick={() => void transcribe()}>
                     Yeniden dök
@@ -388,16 +424,20 @@ function CropEditor({ thumb, crop, onChange, onBegin, onEnd }: { thumb: string |
   );
 }
 
-function CaptionList({ clip, onChange }: { clip: Clip; onChange: (c: NonNullable<Clip['captions']>) => void }) {
+function CaptionList({ clip, onChange, onSeek }: { clip: Clip; onChange: (c: NonNullable<Clip['captions']>) => void; onSeek: (t: number) => void }) {
   const caps = clip.captions ?? [];
-  const inRange = caps.filter((c) => c.end > clip.in && c.start < clip.in + clip.duration);
+  const speed = clip.speed || 1;
+  const inRange = caps.filter((c) => c.end > clip.in && c.start < clip.in + clip.duration * speed);
   return (
     <ul className="caplist">
       {inRange.slice(0, 200).map((c) => {
         const i = caps.indexOf(c);
+        const at = clip.start + Math.max(0, c.start - clip.in) / speed;
         return (
           <li key={i}>
-            <span className="muted">{duration(Math.max(0, c.start - clip.in))}</span>
+            <button type="button" className="caplist-time" onClick={() => onSeek(at)} title="O ana git">
+              {duration(at)}
+            </button>
             <input className="input" value={c.text} onChange={(e) => onChange(caps.map((x, j) => (j === i ? { ...x, text: e.target.value } : x)))} aria-label="Altyazı satırı" />
             <button type="button" className="btn btn-quiet btn-icon" onClick={() => onChange(caps.filter((_, j) => j !== i))} aria-label="Satırı sil">
               <Icon name="x" size={12} />

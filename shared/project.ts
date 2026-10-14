@@ -93,6 +93,11 @@ export interface Clip {
   opacity: number;
   volume: number;
   muted: boolean;
+  /** Oynatma hızı (0.25–4); zaman çizelgesindeki süre = kaynak süresi / hız */
+  speed: number;
+  /** Giriş/çıkış yumuşatma süreleri (sn) */
+  fadeIn: number;
+  fadeOut: number;
   color: ColorGrade;
   text: TextStyle | null;
   /** Kaynak zamanında konuşma dökümü (otomatik altyazı) */
@@ -247,6 +252,9 @@ export function normalizeClip(raw: unknown, assetIds: Set<string>, trackIds: Set
     opacity: num(c.opacity, 1, 0, 1),
     volume: num(c.volume, 1, 0, 3),
     muted: c.muted === true,
+    speed: num(c.speed, 1, 0.25, 4),
+    fadeIn: num(c.fadeIn, 0, 0, 10),
+    fadeOut: num(c.fadeOut, 0, 0, 10),
     color: normalizeColor(c.color),
     text: kind === 'text' ? normalizeText(c.text) : null,
     captions: normalizeCaptions(c.captions),
@@ -344,17 +352,24 @@ export function coverCrop(srcW: number, srcH: number, frame: Rect, format: Proje
   return { x: 0, y: (1 - h) / 2, w: 1, h };
 }
 
+/** Klibin kaynaktan kullandığı süre (hız hesaba katılır). */
+export const sourceSpan = (c: Pick<Clip, 'duration' | 'speed'>) => c.duration * (c.speed || 1);
+
 /** Klip kaynak zamanından zaman çizelgesine altyazı satırları. */
 export function timelineCaptions(p: Pick<Project, 'clips' | 'tracks'>): Caption[] {
   const hidden = new Set(p.tracks.filter((t) => t.hidden).map((t) => t.id));
   const out: Caption[] = [];
   for (const c of p.clips) {
     if (!c.captions || hidden.has(c.trackId) || c.kind === 'text' || c.kind === 'image') continue;
-    const end = c.in + c.duration;
+    const speed = c.speed || 1;
+    const end = c.in + sourceSpan(c);
     for (const cap of c.captions) {
       if (cap.end <= c.in || cap.start >= end) continue;
-      out.push({ start: c.start + Math.max(0, cap.start - c.in), end: c.start + Math.min(c.duration, cap.end - c.in), text: cap.text });
+      out.push({ start: c.start + Math.max(0, cap.start - c.in) / speed, end: c.start + Math.min(sourceSpan(c), cap.end - c.in) / speed, text: cap.text });
     }
   }
   return out.sort((a, b) => a.start - b.start);
 }
+
+/** Dikey videoda platform arayüzlerinin kapattığı bölgeler (karenin oranı, topluluk ölçümlerinin tutucu birleşimi). */
+export const VERTICAL_SAFE = { top: 250 / 1920, bottom: 420 / 1920, side: 60 / 1080 };

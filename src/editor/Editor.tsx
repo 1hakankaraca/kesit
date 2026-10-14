@@ -1,8 +1,8 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FORMAT_SIZE, fitFrame, type Asset, type Project, type Rect } from '../../shared/project.ts';
+import { FORMAT_SIZE, fitFrame, type Asset, type Clip, type Project, type Rect } from '../../shared/project.ts';
 import { Icon } from '../components/Icon.tsx';
-import { Empty, Progress, Spinner, WorkspaceHead } from '../components/basics.tsx';
+import { Empty, Modal, Progress, Spinner, WorkspaceHead } from '../components/basics.tsx';
 import { api } from '../lib/api.ts';
 import { duration, relative, stamp } from '../lib/format.ts';
 import { navigate, sectionPath } from '../lib/router.ts';
@@ -11,12 +11,53 @@ import { deleteWithUndo, toast, toastError } from '../lib/toast.ts';
 import type { ProjectSummary, RenderStatus, Studio } from '../lib/types.ts';
 import { useResource } from '../lib/useResource.ts';
 import { Inspector } from './Inspector.tsx';
-import { MediaPanel } from './MediaPanel.tsx';
+import { MediaPanel, type PanelTab } from './MediaPanel.tsx';
 import { Stage } from './Stage.tsx';
-import { Tracks } from './Tracks.tsx';
-import { addAssetClip, addTextClip, addTrack, clipEnd, closeGaps, duplicateClip, removeClips, removeTrack, rippleRemove, splitAt, updateClip } from './model.ts';
+import { Tracks, type MenuItem, type TimelineTool } from './Tracks.tsx';
+import {
+  LAYOUTS,
+  addAssetClip,
+  addTextClip,
+  addTrack,
+  applyLayout,
+  clipEnd,
+  closeGaps,
+  duplicateClip,
+  mainTrackId,
+  moveToTrack,
+  pasteClip,
+  removeClips,
+  removeTrack,
+  rippleRemove,
+  splitAt,
+  trimToPlayhead,
+  updateClip,
+  type LayoutPreset,
+  type TextPreset,
+} from './model.ts';
 import { renderTextToBlob, textRenderKey } from './textRender.ts';
 import { useProject } from './useProject.ts';
+
+const COACH_KEY = 'kesit.editor.rehber.v1';
+const MAGNET_KEY = 'kesit.editor.miknatis';
+
+const SHORTCUTS: [string, string][] = [
+  ['Boşluk', 'Oynat / duraklat'],
+  ['S  ·  ⌘B', 'Oynatma çizgisinden böl'],
+  ['Q', 'Seçili parçanın başını (çizginin solunu) at'],
+  ['W', 'Seçili parçanın sonunu (çizginin sağını) at'],
+  ['Sil', 'Parçayı kaldır'],
+  ['⇧ Sil', 'Kaldır ve sonrakileri geri çek'],
+  ['⌘D', 'Çoğalt'],
+  ['⌘C  ·  ⌘V', 'Kopyala · oynatma çizgisine yapıştır'],
+  ['M', 'Sessize al / aç'],
+  ['⌘Z  ·  ⇧⌘Z', 'Geri al · yinele'],
+  ['←  →', 'Bir kare geri / ileri (⇧ ile 1 sn)'],
+  ['Home  ·  End', 'Başa / sona git'],
+  ['⌘ + tekerlek', 'Zaman çizelgesini yakınlaştır'],
+  ['Alt + sürükle', 'Önizlemede yapışmadan taşı / serbest boyutla'],
+  ['?', 'Bu listeyi aç'],
+];
 
 /** Editör: proje listesi ya da seçili projenin çalışma alanı. */
 export function Editor({ projectId }: { projectId: number | null }) {
@@ -59,11 +100,11 @@ function ProjectList() {
         lead="Boş bir projeyle başla ya da kaldığın yerden devam et. Galeri'deki her videoyu da 'Editörde aç' ile buraya getirebilirsin."
         actions={
           <>
-            <button type="button" className="btn btn-accent" disabled={creating} onClick={() => void create('horizontal')}>
-              {creating ? <Spinner /> : <Icon name="plus" size={16} />} Yeni yatay proje
+            <button type="button" className="btn btn-accent" disabled={creating} onClick={() => void create('vertical')}>
+              {creating ? <Spinner /> : <Icon name="vertical" size={16} />} Yeni dikey proje
             </button>
-            <button type="button" className="btn btn-secondary" disabled={creating} onClick={() => void create('vertical')}>
-              <Icon name="vertical" size={16} /> Yeni dikey proje
+            <button type="button" className="btn btn-secondary" disabled={creating} onClick={() => void create('horizontal')}>
+              <Icon name="horizontal" size={16} /> Yeni yatay proje
             </button>
           </>
         }
@@ -119,6 +160,23 @@ function ProjectList() {
 
 /* ── Çalışma alanı ─────────────────────────────────────────────────────── */
 
+function readFlag(key: string, dflt: boolean) {
+  try {
+    const v = localStorage.getItem(key);
+    return v === null ? dflt : v === '1';
+  } catch {
+    return dflt;
+  }
+}
+
+function writeFlag(key: string, v: boolean) {
+  try {
+    localStorage.setItem(key, v ? '1' : '0');
+  } catch {
+    /* depolama kapalı */
+  }
+}
+
 function Workspace({ id }: { id: number }) {
   const pr = useProject(id);
   const { project } = pr;
@@ -127,6 +185,13 @@ function Workspace({ id }: { id: number }) {
   const [playing, setPlaying] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [tab, setTab] = useState<PanelTab>('medya');
+  const [magnetic, setMagnetic] = useState(() => readFlag(MAGNET_KEY, true));
+  const [safeZone, setSafeZone] = useState(false);
+  const [showKeys, setShowKeys] = useState(false);
+  const [coach, setCoach] = useState(() => !readFlag(COACH_KEY, false));
+  const [hint, setHint] = useState<string | null>(null);
+  const clipboard = useRef<Clip | null>(null);
   const raf = useRef<number | null>(null);
   const lastTick = useRef(0);
   const timeRef = useRef(0);
@@ -134,6 +199,7 @@ function Workspace({ id }: { id: number }) {
 
   const total = useMemo(() => (project ? project.clips.reduce((m, c) => Math.max(m, clipEnd(c)), 0) : 0), [project]);
   const selected = project?.clips.find((c) => c.id === selectedId) ?? null;
+  const accent = studio.data?.brand.brandColor ?? '#f43f5e';
 
   /* ── Oynatma saati ───────────────────────────────────────────────────── */
   useEffect(() => {
@@ -167,6 +233,8 @@ function Workspace({ id }: { id: number }) {
     setPlaying((p) => !p);
   };
 
+  useEffect(() => writeFlag(MAGNET_KEY, magnetic), [magnetic]);
+
   /* ── Render durumu ───────────────────────────────────────────────────── */
   useSocketEvent<RenderStatus>('project:render', (e) => {
     if (e.projectId !== id) return;
@@ -180,60 +248,95 @@ function Workspace({ id }: { id: number }) {
     }
   });
 
+  /* ── Komutlar ────────────────────────────────────────────────────────── */
+  const split = () =>
+    pr.update((p) => {
+      const r = splitAt(p, timeRef.current, selectedId ? [selectedId] : undefined);
+      if (!r.created.length) toast('Oynatma çizgisi bir parçanın içinde değil', 'info');
+      return r.project;
+    });
+  const remove = (ripple = false) => {
+    if (!selectedId) return;
+    pr.update((p) => (ripple ? rippleRemove(p, selectedId) : removeClips(p, [selectedId], magnetic)));
+    setSelectedId(null);
+  };
+  const trimSide = (side: 'left' | 'right') => selectedId && pr.update((p) => trimToPlayhead(p, selectedId, timeRef.current, side, magnetic));
+  const duplicate = () =>
+    selectedId &&
+    pr.update((p) => {
+      const r = duplicateClip(p, selectedId);
+      if (r.clip) setSelectedId(r.clip.id);
+      return r.project;
+    });
+  const copy = () => {
+    if (selected) {
+      clipboard.current = selected;
+      toast('Kopyalandı — ⌘V ile oynatma çizgisine yapıştır', 'ok');
+    }
+  };
+  const paste = () => {
+    const src = clipboard.current;
+    if (!src) return;
+    pr.update((p) => {
+      const r = pasteClip(p, src, timeRef.current, magnetic);
+      if (r.clip) setSelectedId(r.clip.id);
+      else toast('Yapıştırılacak yer yok', 'error');
+      return r.project;
+    });
+  };
+  const toggleMute = () => selected && pr.update((p) => updateClip(p, selected.id, { muted: !selected.muted }));
+
   /* ── Klavye ──────────────────────────────────────────────────────────── */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement)?.isContentEditable) return;
       const mod = e.metaKey || e.ctrlKey;
+      const k = e.key.toLowerCase();
       if (e.code === 'Space') {
         e.preventDefault();
         togglePlay();
-      } else if (mod && e.key.toLowerCase() === 'z') {
+      } else if (mod && k === 'z') {
         e.preventDefault();
         if (e.shiftKey) pr.redo();
         else pr.undo();
-      } else if (mod && e.key.toLowerCase() === 'd') {
+      } else if (mod && k === 'd') {
         e.preventDefault();
-        if (selectedId) {
-          pr.update((p) => {
-            const r = duplicateClip(p, selectedId);
-            if (r.clip) setSelectedId(r.clip.id);
-            return r.project;
-          });
-        }
-      } else if (e.key === 's' || e.key === 'S') {
+        duplicate();
+      } else if (mod && k === 'c') copy();
+      else if (mod && k === 'v') paste();
+      else if (mod && k === 'b') {
+        e.preventDefault();
         split();
-      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+      } else if (!mod && k === 's') split();
+      else if (!mod && k === 'q') trimSide('left');
+      else if (!mod && k === 'w') trimSide('right');
+      else if (!mod && k === 'm') toggleMute();
+      else if (k === '?' || (e.shiftKey && k === '/')) setShowKeys(true);
+      else if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selectedId) {
           e.preventDefault();
-          if (e.shiftKey) pr.update((p) => rippleRemove(p, selectedId));
-          else pr.update((p) => removeClips(p, [selectedId]));
-          setSelectedId(null);
+          remove(e.shiftKey);
         }
       } else if (e.key === 'ArrowLeft') seek(timeRef.current - (e.shiftKey ? 1 : 1 / 30));
       else if (e.key === 'ArrowRight') seek(timeRef.current + (e.shiftKey ? 1 : 1 / 30));
       else if (e.key === 'Home') seek(0);
       else if (e.key === 'End') seek(total);
-      else if (e.key === 'Escape') setSelectedId(null);
+      else if (e.key === 'Escape') {
+        setSelectedId(null);
+        setShowKeys(false);
+      }
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   });
 
-  const split = () => {
-    pr.update((p) => {
-      const r = splitAt(p, timeRef.current, selectedId ? [selectedId] : undefined);
-      if (!r.created.length) toast('Oynatma çizgisi bir parçanın içinde değil', 'info');
-      return r.project;
-    });
-  };
-
   /* ── Varlık ekleme ───────────────────────────────────────────────────── */
   const place = (asset: Asset, at = timeRef.current, trackId?: string) => {
     pr.update((p) => {
-      const r = addAssetClip(p, asset, at, trackId);
+      const r = addAssetClip(p, asset, at, trackId, magnetic);
       setSelectedId(r.clip.id);
+      if (p.clips.length === 0) setHint('İlk parça yerleşti. Yazı ve müzik için soldaki sekmeleri kullan; S ile oynatma çizgisinden bölersin.');
       return r.project;
     });
   };
@@ -242,7 +345,6 @@ function Workspace({ id }: { id: number }) {
     for (const from of origins) {
       try {
         const res = await api.post<{ asset: Asset; project: Project }>(`/api/projects/${id}/assets/link`, { from });
-        // Varlık listesi sunucudan gelir; parçayı burada ekleriz (geri alınabilir).
         pr.update((p) => ({ ...p, assets: res.project.assets }), { record: false });
         place(res.asset);
       } catch (err) {
@@ -276,6 +378,35 @@ function Workspace({ id }: { id: number }) {
     }
   };
 
+  const addText = (preset: TextPreset) =>
+    pr.update((p) => {
+      const r = addTextClip(p, timeRef.current, preset, accent);
+      setSelectedId(r.clip.id);
+      return r.project;
+    });
+
+  const layout = async (key: LayoutPreset) => {
+    const cur = pr.current();
+    if (!cur) return;
+    const target = (selected?.kind === 'video' ? selected : null) ?? cur.clips.filter((c) => c.kind === 'video').sort((a, b) => a.start - b.start)[0];
+    if (!target) return toast('Önce bir video parçası ekle', 'error');
+    const asset = cur.assets.find((a) => a.id === target.assetId);
+    if (!asset) return;
+    const def = LAYOUTS.find((l) => l.key === key)!;
+    try {
+      let rect: Rect | null = null;
+      if (def.needsCam) {
+        toast('Yüz kamerası aranıyor…', 'info');
+        rect = (await api.post<{ rect: Rect | null }>(`/api/projects/${id}/assets/${asset.id}/facecam`)).rect;
+      }
+      pr.update((p) => applyLayout(p, target.id, key, rect));
+      setSelectedId(target.id);
+      if (def.needsCam) toast(rect ? 'Kamera bulundu, düzen uygulandı' : 'Kamera bulunamadı; varsayılan köşe kullanıldı — kaynak bölgeyi elle ayarla', rect ? 'ok' : 'info');
+    } catch (err) {
+      toastError(err);
+    }
+  };
+
   /* ── Dışa aktarma ────────────────────────────────────────────────────── */
   const exportProject = async () => {
     const cur = pr.current();
@@ -284,7 +415,6 @@ function Workspace({ id }: { id: number }) {
     setExporting(true);
     try {
       let next = cur;
-      // Yazı parçaları çıktı çözünürlüğünde görsele çevrilir (önizlemeyle birebir).
       for (const clip of cur.clips.filter((c) => c.kind === 'text' && c.text)) {
         const key = textRenderKey(clip.text!, clip.frame, cur.format);
         let asset = next.assets.find((a) => a.name === key);
@@ -341,7 +471,6 @@ function Workspace({ id }: { id: number }) {
   const onProject = (changes: Partial<Project>) =>
     pr.update((p) => {
       const next = { ...p, ...changes };
-      // Biçim değişince görsel parçalar yeni kareye oran koruyarak yeniden sığdırılır.
       if (changes.format && changes.format !== p.format) {
         next.clips = p.clips.map((c) => {
           const a = c.assetId ? p.assets.find((x) => x.id === c.assetId) : null;
@@ -350,6 +479,37 @@ function Workspace({ id }: { id: number }) {
       }
       return next;
     });
+
+  const inClip = !!selected && time > selected.start && time < clipEnd(selected);
+  const tools: TimelineTool[] = [
+    { key: 'split', icon: 'split', label: 'Böl', title: 'Oynatma çizgisinden böl (S)', run: split },
+    { key: 'q', label: 'Başını at', title: 'Seçili parçanın çizginin solunda kalan kısmını at (Q)', disabled: !inClip, run: () => void trimSide('left') },
+    { key: 'w', label: 'Sonunu at', title: 'Seçili parçanın çizginin sağında kalan kısmını at (W)', disabled: !inClip, run: () => void trimSide('right') },
+    { key: 'dup', label: 'Çoğalt', title: 'Seçili parçayı çoğalt (⌘D)', disabled: !selected, run: () => void duplicate() },
+    { key: 'mute', icon: selected?.muted ? 'mute' : 'volume', label: selected?.muted ? 'Sesi aç' : 'Sessiz', title: 'Seçili parçayı sessize al (M)', disabled: !selected || selected.kind === 'text' || selected.kind === 'image', run: () => void toggleMute() },
+    { key: 'del', icon: 'trash', label: 'Sil', title: 'Seçili parçayı kaldır (Sil)', disabled: !selected, danger: true, run: () => remove(false) },
+    { key: 'layer', icon: 'layers', label: 'Katman', title: 'Yeni görüntü katmanı', run: () => pr.update((p) => addTrack(p, 'video')) },
+    { key: 'magnetic', label: '', title: '', run: () => setMagnetic((m) => !m) },
+  ];
+
+  const menuFor = (c: Clip): MenuItem[] => {
+    const inside = time > c.start && time < clipEnd(c);
+    const main = mainTrackId(project);
+    return [
+      { label: 'Böl', shortcut: 'S', disabled: !inside, run: () => pr.update((p) => splitAt(p, timeRef.current, [c.id]).project) },
+      { label: 'Başını at (çizginin solu)', shortcut: 'Q', disabled: !inside, run: () => pr.update((p) => trimToPlayhead(p, c.id, timeRef.current, 'left', magnetic)) },
+      { label: 'Sonunu at (çizginin sağı)', shortcut: 'W', disabled: !inside, run: () => pr.update((p) => trimToPlayhead(p, c.id, timeRef.current, 'right', magnetic)) },
+      { label: 'Çoğalt', shortcut: '⌘D', run: duplicate },
+      { label: 'Kopyala', shortcut: '⌘C', run: copy },
+      { label: c.muted ? 'Sesi aç' : 'Sessize al', shortcut: 'M', disabled: c.kind === 'text' || c.kind === 'image', run: () => pr.update((p) => updateClip(p, c.id, { muted: !c.muted })) },
+      { label: 'Bir üst katmana taşı', disabled: c.kind === 'audio', run: () => pr.update((p) => moveToTrack(p, c.id, 'up')) },
+      { label: 'Bir alt katmana taşı', disabled: c.kind === 'audio' || c.trackId === main, run: () => pr.update((p) => moveToTrack(p, c.id, 'down')) },
+      { label: 'Bu yolda boşlukları kapat', run: () => pr.update((p) => closeGaps(p, c.trackId)) },
+      { label: 'Yolu kaldır (içindekilerle)', disabled: project.tracks.length <= 1, danger: true, run: () => pr.update((p) => removeTrack(p, c.trackId)) },
+      { label: 'Sil', shortcut: 'Sil', danger: true, run: () => (pr.update((p) => removeClips(p, [c.id], magnetic)), setSelectedId(null)) },
+      { label: 'Sil ve sonrakileri geri çek', shortcut: '⇧Sil', danger: true, run: () => (pr.update((p) => rippleRemove(p, c.id)), setSelectedId(null)) },
+    ];
+  };
 
   return (
     <div className="ed">
@@ -360,11 +520,8 @@ function Workspace({ id }: { id: number }) {
         <input className="ed-title" value={project.title} maxLength={120} onChange={(e) => onProject({ title: e.target.value })} aria-label="Proje adı" />
         <span className="ed-save muted">{pr.saving ? 'Kaydediliyor…' : pr.dirty ? 'Değişti' : 'Kaydedildi'}</span>
         <div className="ed-top-side">
-          <button type="button" className="btn btn-quiet btn-icon" onClick={pr.undo} disabled={!pr.canUndo} title="Geri al (⌘Z)" aria-label="Geri al">
-            <Icon name="undo" size={16} />
-          </button>
-          <button type="button" className="btn btn-quiet btn-icon" onClick={pr.redo} disabled={!pr.canRedo} title="Yinele (⇧⌘Z)" aria-label="Yinele">
-            <Icon name="redo" size={16} />
+          <button type="button" className="btn btn-quiet btn-small" onClick={() => setShowKeys(true)} title="Klavye kısayolları (?)">
+            <Icon name="help" size={14} /> Kısayollar
           </button>
           <span className="ed-format muted">{project.format === 'vertical' ? '9:16 · 1080×1920' : '16:9 · 1920×1080'}</span>
           {rendering ? (
@@ -383,21 +540,44 @@ function Workspace({ id }: { id: number }) {
         </div>
       </header>
 
+      <AnimatePresence>
+        {coach && (
+          <motion.div className="coach" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}>
+            <ol>
+              <li>
+                <b>1 · Ekle</b> Soldaki <em>Medya</em> sekmesinden Galeri'den ya da bilgisayardan video al; dosyanın üstüne gelip <em>Ekle</em>'ye bas.
+              </li>
+              <li>
+                <b>2 · Kes</b> Alttaki çizelgede oynatma çizgisini istediğin yere getir, <em>Böl</em>'e bas (S); istemediğin parçayı seçip <em>Sil</em>.
+              </li>
+              <li>
+                <b>3 · Süsle ve çıkar</b> <em>Yazı</em>, <em>Düzen</em> ve <em>Marka</em> sekmeleriyle ekle; sağ panelden renk ve ses; en sonda <em>Dışa aktar</em>.
+              </li>
+            </ol>
+            <button
+              type="button"
+              className="btn btn-primary btn-small"
+              onClick={() => {
+                setCoach(false);
+                writeFlag(COACH_KEY, true);
+              }}
+            >
+              Anladım
+            </button>
+          </motion.div>
+        )}
+        {hint && !coach && (
+          <motion.p key="hint" className="ed-hintbar" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <Icon name="bolt" size={14} /> {hint}
+            <button type="button" className="btn btn-quiet btn-small" onClick={() => setHint(null)}>
+              Tamam
+            </button>
+          </motion.p>
+        )}
+      </AnimatePresence>
+
       <div className="ed-body">
-        <MediaPanel
-          project={project}
-          onLink={link}
-          onUpload={upload}
-          onPlace={(a) => place(a)}
-          onRemoveAsset={(a) => void removeAsset(a)}
-          onAddText={() =>
-            pr.update((p) => {
-              const r = addTextClip(p, timeRef.current);
-              setSelectedId(r.clip.id);
-              return r.project;
-            })
-          }
-        />
+        <MediaPanel project={project} tab={tab} onTab={setTab} hasSelection={selected?.kind === 'video'} onLink={link} onUpload={upload} onPlace={(a) => place(a)} onRemoveAsset={(a) => void removeAsset(a)} onAddText={addText} onLayout={(l) => void layout(l)} />
 
         <section className="ed-center" aria-label="Önizleme">
           <Stage
@@ -406,6 +586,7 @@ function Workspace({ id }: { id: number }) {
             playing={playing}
             selectedId={selectedId}
             subtitleStyle={subtitleStyle}
+            safeZone={safeZone}
             onSelect={setSelectedId}
             onFrame={(cid, frame: Rect) => pr.update((p) => updateClip(p, cid, { frame }), { record: false })}
             onBegin={pr.begin}
@@ -422,40 +603,32 @@ function Workspace({ id }: { id: number }) {
               {stamp(time)} <span className="muted">/ {duration(total)}</span>
             </span>
             <span className="ed-tools">
-              <button type="button" className="btn btn-secondary btn-small" onClick={split} title="Oynatma çizgisinden böl (S)">
-                <Icon name="split" size={14} /> Böl
+              <button type="button" className={safeZone ? 'btn btn-primary btn-small' : 'btn btn-secondary btn-small'} onClick={() => setSafeZone((v) => !v)} title={project.format === 'vertical' ? 'TikTok/Reels/Shorts arayüzünün kapattığı bölgeleri göster' : 'Kenar payını göster'}>
+                <Icon name="phone" size={14} /> Güvenli alan
               </button>
-              <button type="button" className="btn btn-secondary btn-small" disabled={!selected} onClick={() => selected && (pr.update((p) => removeClips(p, [selected.id])), setSelectedId(null))} title="Seçili parçayı sil (Sil)">
-                <Icon name="trash" size={14} /> Sil
-              </button>
-              <button type="button" className="btn btn-secondary btn-small" disabled={!selected} onClick={() => selected && (pr.update((p) => rippleRemove(p, selected.id)), setSelectedId(null))} title="Sil ve boşluğu kapat (⇧Sil)">
-                Sil + kaydır
-              </button>
-              <button type="button" className="btn btn-secondary btn-small" disabled={!selected} onClick={() => selected && pr.update((p) => closeGaps(p, selected.trackId))} title="Bu yoldaki boşlukları kapat">
-                Boşlukları kapat
-              </button>
-              <button type="button" className="btn btn-secondary btn-small" onClick={() => pr.update((p) => addTrack(p, 'video'))} title="Yeni görüntü katmanı">
-                <Icon name="layers" size={14} /> Katman
-              </button>
-              <button type="button" className="btn btn-secondary btn-small" onClick={() => pr.update((p) => addTrack(p, 'audio'))} title="Yeni ses yolu">
-                <Icon name="music" size={14} /> Ses yolu
-              </button>
-              {selected && project.tracks.length > 1 && (
-                <button type="button" className="btn btn-quiet btn-small" onClick={() => pr.update((p) => removeTrack(p, selected.trackId))} title="Seçili parçanın yolunu (içindekilerle) kaldır">
-                  Yolu kaldır
-                </button>
-              )}
             </span>
           </div>
         </section>
 
-        <Inspector project={project} clip={selected} studio={studio.data} onChange={(fn, record = true) => pr.update(fn, { record })} onBegin={pr.begin} onEnd={pr.end} onProject={onProject} />
+        <Inspector project={project} clip={selected} studio={studio.data} onChange={(fn, record = true) => pr.update(fn, { record })} onBegin={pr.begin} onEnd={pr.end} onProject={onProject} onSeek={(t) => (setPlaying(false), seek(t))} />
       </div>
 
       <Tracks
         project={project}
         time={time}
         selectedId={selectedId}
+        magnetic={magnetic}
+        tools={tools}
+        leading={
+          <>
+            <button type="button" className="tl-tool" onClick={pr.undo} disabled={!pr.canUndo} title="Geri al (⌘Z)">
+              <Icon name="undo" size={14} />
+            </button>
+            <button type="button" className="tl-tool" onClick={pr.redo} disabled={!pr.canRedo} title="Yinele (⇧⌘Z)">
+              <Icon name="redo" size={14} />
+            </button>
+          </>
+        }
         onSelect={setSelectedId}
         onSeek={(t) => {
           setPlaying(false);
@@ -468,6 +641,7 @@ function Workspace({ id }: { id: number }) {
           const asset = project.assets.find((a) => a.id === assetId);
           if (asset) place(asset, at, trackId ?? undefined);
         }}
+        onMenu={menuFor}
       />
 
       <AnimatePresence>
@@ -478,9 +652,19 @@ function Workspace({ id }: { id: number }) {
         )}
       </AnimatePresence>
       <p className="timeline-hint ed-hint">
-        <kbd>Boşluk</kbd> oynat · <kbd>S</kbd> böl · <kbd>Sil</kbd> parçayı kaldır · <kbd>⇧Sil</kbd> kaldır ve kaydır · <kbd>⌘Z</kbd> geri al · <kbd>⌘D</kbd> çoğalt · <kbd>←</kbd>
-        <kbd>→</kbd> kare kare · <kbd>⌘</kbd>+tekerlek yakınlaştır · önizlemede köşeden oranlı, <kbd>Alt</kbd> ile serbest boyutla · çıktı {FORMAT_SIZE[project.format].w}×{FORMAT_SIZE[project.format].h}
+        <kbd>Boşluk</kbd> oynat · <kbd>S</kbd> böl · <kbd>Q</kbd>/<kbd>W</kbd> başını/sonunu at · <kbd>Sil</kbd> kaldır · <kbd>⌘Z</kbd> geri al · <kbd>?</kbd> tüm kısayollar · çıktı {FORMAT_SIZE[project.format].w}×{FORMAT_SIZE[project.format].h}
       </p>
+
+      <Modal open={showKeys} onClose={() => setShowKeys(false)} title="Klavye kısayolları">
+        <ul className="keys">
+          {SHORTCUTS.map(([k, v]) => (
+            <li key={k}>
+              <kbd>{k}</kbd>
+              <span>{v}</span>
+            </li>
+          ))}
+        </ul>
+      </Modal>
     </div>
   );
 }
