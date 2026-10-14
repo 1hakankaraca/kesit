@@ -1,11 +1,11 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Icon } from '../components/Icon.tsx';
-import { Field, Pill, Progress, Spinner, WorkspaceHead } from '../components/basics.tsx';
+import { Field, Pill, Progress, Spinner, Switch, WorkspaceHead } from '../components/basics.tsx';
 import { api } from '../lib/api.ts';
 import { bytes } from '../lib/format.ts';
 import { useSocketEvent } from '../lib/socket.ts';
 import { createStore } from '../lib/store.ts';
-import { toast, toastError } from '../lib/toast.ts';
+import { deleteWithUndo, toast, toastError } from '../lib/toast.ts';
 import { useResource } from '../lib/useResource.ts';
 
 interface SystemInfo {
@@ -49,7 +49,11 @@ export function Settings() {
     <>
       <WorkspaceHead title="Ayarlar" tape="sistem" lead="Altyazı motorunu kur, telefondan nasıl açılacağını gör, verilerin nerede durduğunu öğren." guide="ayarlar" />
       <div className="ws-grid">
-        <CaptionsPanel />
+        <div className="ws-stack">
+          <CaptionsPanel />
+          <ExportPanel />
+          <StoragePanel />
+        </div>
         <aside className="ws-stack">
           <section className="panel">
             <span className="panel-tape" aria-hidden="true" />
@@ -153,7 +157,10 @@ function CaptionsPanel() {
               {s.whisper.models.map((m) => {
                 const isDownloading = download?.id === m.id;
                 return (
-                  <li key={m.id} className={s.whisper.active === m.id ? 'model model-on' : 'model'}>
+                  <li key={m.id} className={s.whisper.active === m.id ? 'model model-on' : 'model model-recommended'}>
+                    <span className="model-badge">
+                      <Icon name="sparkle" size={12} /> Önerilen
+                    </span>
                     <div className="model-head">
                       <b>{m.label}</b>
                       <span className="muted">{bytes(m.sizeBytes)}</span>
@@ -178,7 +185,19 @@ function CaptionsPanel() {
                             Bunu kullan
                           </button>
                         )}
-                        <button type="button" className="btn btn-quiet btn-small" disabled={busy} onClick={() => void call(() => api.del(`/api/captions/models/${m.id}`))}>
+                        <button
+                          type="button"
+                          className="btn btn-quiet btn-small"
+                          disabled={busy}
+                          onClick={() =>
+                            deleteWithUndo({
+                              label: 'Altyazı modeli kaldırıldı',
+                              hide: () => status.setData((d) => d && { ...d, whisper: { ...d.whisper, models: d.whisper.models.map((x) => (x.id === m.id ? { ...x, installed: false } : x)) } }),
+                              restore: () => void status.reload(),
+                              commit: () => api.del<CaptionsStatus>(`/api/captions/models/${m.id}`).then(status.setData),
+                            })
+                          }
+                        >
                           Kaldır
                         </button>
                       </div>
@@ -204,7 +223,19 @@ function CaptionsPanel() {
               <p>
                 <span className="status status-ready">Bağlı</span> <span className="muted">anahtar {s.elevenlabs.keyHint}</span>
               </p>
-              <button type="button" className="btn btn-quiet btn-small" disabled={busy} onClick={() => void call(() => api.del('/api/captions/elevenlabs'), 'ElevenLabs kaldırıldı')}>
+              <button
+                type="button"
+                className="btn btn-quiet btn-small"
+                disabled={busy}
+                onClick={() =>
+                  deleteWithUndo({
+                    label: 'ElevenLabs bağlantısı kaldırıldı',
+                    hide: () => status.setData((d) => d && { ...d, elevenlabs: { connected: false, keyHint: null } }),
+                    restore: () => void status.reload(),
+                    commit: () => api.del<CaptionsStatus>('/api/captions/elevenlabs').then(status.setData),
+                  })
+                }
+              >
                 Bağlantıyı kaldır
               </button>
             </div>
@@ -230,6 +261,146 @@ function CaptionsPanel() {
           )}
         </div>
       </div>
+    </section>
+  );
+}
+
+interface ExportSettings {
+  enabled: boolean;
+  dir: string;
+  defaultDir: string;
+  isDefault: boolean;
+}
+
+/** Hazır videoların kopyalandığı klasör (varsayılan: İndirilenler/Kesit). */
+function ExportPanel() {
+  const data = useResource(() => api.get<ExportSettings>('/api/export'));
+  const [dir, setDir] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (data.data) setDir(data.data.dir);
+  }, [data.data]);
+
+  const save = async (patch: Partial<{ enabled: boolean; dir: string | null }>, done?: string) => {
+    setBusy(true);
+    try {
+      data.setData(await api.put<ExportSettings>('/api/export', patch));
+      if (done) toast(done, 'ok');
+    } catch (err) {
+      toastError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const d = data.data;
+  return (
+    <section className="panel">
+      <h2 className="panel-title">
+        <Icon name="download" size={18} /> Çıktılar nereye kaydedilsin
+      </h2>
+      <p className="panel-sub">Hazır olan her dikey video, yatay kesit ve kayıt çıktısı bu klasöre kopyalanır: Dikey/, Yatay/ ve Kayıtlar/ alt klasörlerine.</p>
+      {!d ? (
+        <Spinner />
+      ) : (
+        <div className="stack">
+          <Switch checked={d.enabled} onChange={(v) => void save({ enabled: v })} label="Hazır olanları otomatik kopyala" />
+          <Field label="Klasör" help={d.isDefault ? 'Bilgisayarın İndirilenler klasörü (varsayılan)' : `Varsayılan: ${d.defaultDir}`} htmlFor="export-dir">
+            <div className="inline-form">
+              <input id="export-dir" className="input mono" value={dir} onChange={(e) => setDir(e.target.value)} spellCheck={false} />
+              <button type="button" className="btn btn-primary" disabled={busy || dir === d.dir || !dir.trim()} onClick={() => void save({ dir: dir.trim() }, 'Klasör değiştirildi')}>
+                Kaydet
+              </button>
+            </div>
+          </Field>
+          <div className="row-gap">
+            <button type="button" className="btn btn-secondary btn-small" onClick={() => void api.post('/api/export/reveal').catch(toastError)}>
+              <Icon name="folder" size={14} /> Klasörü aç
+            </button>
+            {!d.isDefault && (
+              <button type="button" className="btn btn-quiet btn-small" disabled={busy} onClick={() => void save({ dir: null }, 'Varsayılan klasöre dönüldü')}>
+                Varsayılana dön
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+interface StorageReport {
+  total: number;
+  categories: { id: string; label: string; hint: string; bytes: number; cleanable: boolean }[];
+  exportDir: { path: string; bytes: number };
+}
+
+/** Kesit'in bilgisayarda kapladığı yer ve temizleme. */
+function StoragePanel() {
+  const report = useResource(() => api.get<StorageReport>('/api/storage'));
+  const [pending, setPending] = useState<string | null>(null);
+  const r = report.data;
+  const max = Math.max(1, ...(r?.categories.map((c) => c.bytes) ?? [1]));
+
+  const clean = (id: 'cache' | 'videos') => {
+    const label = id === 'cache' ? 'Önbellek temizleniyor' : 'Üretilen videolar siliniyor';
+    deleteWithUndo({
+      label,
+      hide: () => setPending(id),
+      restore: () => setPending(null),
+      commit: () =>
+        api.post<{ freed: number; skipped?: number }>(`/api/storage/${id}/clear`).then((res) => {
+          toast(`${bytes(res.freed)} yer açıldı${res.skipped ? ` · süren ${res.skipped} iş atlandı` : ''}`, 'ok');
+        }),
+      done: () => {
+        setPending(null);
+        void report.reload();
+      },
+    });
+  };
+
+  return (
+    <section className="panel">
+      <header className="panel-head">
+        <div>
+          <h2 className="panel-title">
+            <Icon name="archive" size={18} /> Disk kullanımı
+          </h2>
+          <p className="panel-sub">Kesit'in bu bilgisayarda kapladığı yer.</p>
+        </div>
+        {r && <span className="disk-total">{bytes(r.total)}</span>}
+      </header>
+      {!r ? (
+        <Spinner />
+      ) : (
+        <>
+          <ul className="disk-list">
+            {r.categories.map((c) => (
+              <li key={c.id} className={pending === c.id ? 'disk-row disk-row-pending' : 'disk-row'}>
+                <div className="disk-head">
+                  <b>{c.label}</b>
+                  <span>{pending === c.id ? 'temizlenecek' : bytes(c.bytes)}</span>
+                </div>
+                <span className="disk-bar">
+                  <span style={{ width: `${(c.bytes / max) * 100}%` }} />
+                </span>
+                <span className="muted">{c.hint}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="row-gap pad-top">
+            <button type="button" className="btn btn-secondary btn-small" disabled={!!pending} onClick={() => clean('cache')}>
+              <Icon name="refresh" size={14} /> Önbelleği temizle
+            </button>
+            <button type="button" className="btn btn-quiet btn-small stage-delete" disabled={!!pending} onClick={() => clean('videos')}>
+              <Icon name="trash" size={14} /> Üretilen videoları sil
+            </button>
+          </div>
+          <p className="field-help pad-top">
+            Silinen videoların kaydı Arşiv'de kalır. İndirilenler klasörüne kopyalananlar ({bytes(r.exportDir.bytes)}) senin dosyalarındır; Kesit onlara dokunmaz.
+          </p>
+        </>
+      )}
     </section>
   );
 }

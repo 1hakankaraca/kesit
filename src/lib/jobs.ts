@@ -33,6 +33,11 @@ export function removeJobsLocally(ids: number[]) {
   jobsStore.set((s) => ({ ...s, jobs: s.jobs.filter((j) => !set.has(j.id)) }));
 }
 
+/** Geri alınan silmede işi listeye geri koyar (sıra id'ye göre). */
+export function restoreJobLocally(job: Job) {
+  jobsStore.set((s) => ({ ...s, jobs: [...s.jobs.filter((j) => j.id !== job.id), job].sort((a, b) => b.id - a.id) }));
+}
+
 export const isActive = (j: Job) => j.status === 'queued' || j.status === 'processing';
 
 export function wireJobEvents() {

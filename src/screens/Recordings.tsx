@@ -7,7 +7,7 @@ import { bytes, dateTime, duration } from '../lib/format.ts';
 import { refreshJobs } from '../lib/jobs.ts';
 import { navigate, sectionPath } from '../lib/router.ts';
 import { useSocketEvent } from '../lib/socket.ts';
-import { toast, toastError } from '../lib/toast.ts';
+import { deleteWithUndo, toast, toastError } from '../lib/toast.ts';
 import type { Recording, RecorderStatus, ZernioSummary } from '../lib/types.ts';
 import { useResource } from '../lib/useResource.ts';
 
@@ -84,14 +84,31 @@ export function Recordings({ openId }: { openId: number | null }) {
               ))}
             </ul>
           </section>
-          {selected && <RecordingDetail key={selected.id} rec={selected} onChange={reload} />}
+          {selected && (
+            <RecordingDetail
+              key={selected.id}
+              rec={selected}
+              onChange={reload}
+              onDelete={() =>
+                deleteWithUndo({
+                  label: 'Kayıt silindi',
+                  hide: () => {
+                    list.setData((d) => d && { ...d, recordings: d.recordings.filter((r) => r.id !== selected.id) });
+                    navigate(sectionPath('kayitlar'), true);
+                  },
+                  restore: reload,
+                  commit: () => api.del(`/api/recordings/${selected.id}`),
+                })
+              }
+            />
+          )}
         </div>
       )}
     </>
   );
 }
 
-function RecordingDetail({ rec, onChange }: { rec: Recording; onChange: () => void }) {
+function RecordingDetail({ rec, onChange, onDelete }: { rec: Recording; onChange: () => void; onDelete: () => void }) {
   const [cuts, setCuts] = useState<Cut[]>([]);
   const [mode, setMode] = useState<'segments' | 'remove'>('segments');
   const [format, setFormat] = useState<'horizontal' | 'vertical'>('horizontal');
@@ -129,6 +146,14 @@ function RecordingDetail({ rec, onChange }: { rec: Recording; onChange: () => vo
 
   return (
     <div className="ws-stack rec-detail">
+      <div className="detail-bar">
+        <span className="muted">
+          {rec.channel_slug} · {dateTime(rec.started_at)} · {duration(rec.duration_sec)}
+        </span>
+        <button type="button" className="btn btn-quiet btn-small stage-delete" onClick={onDelete} disabled={rec.status === 'recording' || rec.status === 'processing'}>
+          <Icon name="trash" size={14} /> Kaydı sil
+        </button>
+      </div>
       <section className="panel">
         {rec.available ? (
           <Timeline src={`/api/recordings/${rec.id}/stream`} duration={rec.duration_sec} cuts={cuts} onCutsChange={setCuts} />

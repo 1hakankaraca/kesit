@@ -10,7 +10,7 @@ import { navigate, sectionPath, useRoute, type Section } from '../lib/router.ts'
 import { logout, saveChannels, useSession } from '../lib/session.ts';
 import { connectSocket, disconnectSocket } from '../lib/socket.ts';
 import { useTheme } from '../lib/theme.ts';
-import { toastError } from '../lib/toast.ts';
+import { toast, toastError } from '../lib/toast.ts';
 import { useInterval } from '../lib/useResource.ts';
 import { Archive } from './Archive.tsx';
 import { Clips } from './Clips.tsx';
@@ -221,7 +221,10 @@ function ChannelTabs() {
 
   const close = (slug: string) => {
     const rest = tabs.filter((t) => t !== slug);
+    const prevTabs = tabs;
+    const prevActive = active;
     void save(rest, active === slug ? (rest[rest.length - 1] ?? null) : active);
+    toast(`${slug} sekmesi kapatıldı`, 'info', { label: 'Geri al', run: () => void save(prevTabs, prevActive) }, 6000);
   };
 
   return (

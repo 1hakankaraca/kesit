@@ -14,8 +14,8 @@ import { ChannelBanner } from './Live.tsx';
 
 const STEPS = [
   { icon: 'clock', title: 'Yoklar', text: 'Sunucu kanalı belirli aralıklarla kontrol eder. Tarayıcın kapalı olabilir.' },
-  { icon: 'record', title: 'Yayın açılınca', text: 'Kayıt başlar, chat klipleri yakalanır ve istersen dikey videoya çevrilir.' },
-  { icon: 'check', title: 'Yayın bitince', text: 'Kayıt kapanır; intro, outro ve logolu çıktı hazırlanır, Kayıtlar\'a düşer.' },
+  { icon: 'live', title: 'Yayın açılınca', text: 'Chat\'e düşen klipler yakalanır ve istersen dikey videoya çevrilir.' },
+  { icon: 'download', title: 'Yayın bitince', text: 'Yayının tamamı indirilir, Geçmiş yayınlar\'da editörde seni bekler.' },
 ] as const;
 
 /** Nöbet: bilgisayar başında değilken takip edilen kanalı izler. */
@@ -117,7 +117,12 @@ function AutopilotPanel({ live, fallbackChannel }: { live: LiveState; fallbackCh
             disabled={on}
           />
         </Field>
-        <Switch checked={draft.record} onChange={(v) => patch({ record: v })} label="Yayını baştan sona kaydet" hint="Yayın bitince kayıt kapanır; intro, outro ve logo eklenmiş çıktı otomatik hazırlanır" />
+        <Switch
+          checked={draft.downloadVod}
+          onChange={(v) => patch({ downloadVod: v })}
+          label="Yayın bitince yayını indir"
+          hint="Kick yayın kaydını yayımlayınca indirilir ve Geçmiş yayınlar'a düşer; editörde sen düzenlersin, otomatik işlenmez"
+        />
         <Switch checked={draft.clips} onChange={(v) => patch({ clips: v })} label="Chat kliplerini yakala" hint="Sohbete düşen kick.com ve kickbot.com klip bağlantıları" />
         {draft.clips && <Switch checked={draft.autoEdit} onChange={(v) => patch({ autoEdit: v })} label="Yakalananları otomatik düzenle" hint="Dikey klip + altyazı, Kütüphane'ye düşer" />}
         {draft.clips && draft.autoEdit && <Switch checked={draft.subtitles} onChange={(v) => patch({ subtitles: v })} label="Altyazı" />}

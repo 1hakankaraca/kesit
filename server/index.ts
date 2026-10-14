@@ -21,6 +21,10 @@ import { vodRoutes } from './routes/vods.ts';
 import { ArchiveLedger } from './services/ArchiveLedger.ts';
 import { Autopilot } from './services/Autopilot.ts';
 import { Captions } from './services/Captions.ts';
+import { ClipHarvester } from './services/ClipHarvester.ts';
+import { Exporter } from './services/Exporter.ts';
+import { KickChat } from './services/KickChat.ts';
+import { Storage } from './services/Storage.ts';
 import { Publishing } from './services/Publishing.ts';
 import { Workspaces } from './services/Workspaces.ts';
 
@@ -29,7 +33,8 @@ const server = createServer(app);
 const io = new IOServer(server, { serveClient: false });
 
 const store = new Store(config.dbPath);
-const archive = new ArchiveLedger(store);
+const exporter = new Exporter(store);
+const archive = new ArchiveLedger(store, exporter);
 store.setArchiveHooks(archive);
 const vodScanner = new VodScanManager({ db: store, io });
 const workspaces = new Workspaces(store, io, vodScanner);
@@ -40,8 +45,12 @@ const ctx: AppContext = {
   vodScanner,
   archive,
   publishing: new Publishing(store),
-  autopilot: new Autopilot(store, io, workspaces),
+  autopilot: new Autopilot(store, io, workspaces, vodScanner),
   captions: new Captions(store, io),
+  exporter,
+  storage: new Storage(store, workspaces, vodScanner, exporter),
+  kickChat: new KickChat(store),
+  harvester: new ClipHarvester(store, io, workspaces),
 };
 ctx.captions.apply();
 
@@ -133,6 +142,7 @@ function parseSignedCookie(header: string | undefined, name: string): string | f
 
 vodScanner.start();
 await ctx.autopilot.restore();
+ctx.harvester.restore();
 const purge = setInterval(() => store.purgeExpiredSessions(), 6 * 3_600_000);
 purge.unref();
 
@@ -147,6 +157,7 @@ async function shutdown(signal: string) {
   closing = true;
   console.log(`[Kesit] ${signal} alındı, kapanıyor…`);
   ctx.autopilot.stopAll();
+  ctx.harvester.stopAll();
   await workspaces.destroyAll().catch(() => {});
   await vodScanner.close().catch(() => {});
   io.close();

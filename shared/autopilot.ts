@@ -3,8 +3,8 @@ export interface AutopilotConfig {
   enabled: boolean;
   /** Takip edilen Kick kanalı (kullanıcının kendi kanalı olmak zorunda değil). */
   channel: string | null;
-  /** Yayının tamamını kaydet; yayın bitince kayıt kapanır ve çıktı otomatik üretilir. */
-  record: boolean;
+  /** Yayın bitince Kick'teki yayın kaydını indir (Geçmiş yayınlar editöründe düzenlenir, otomatik işlenmez). */
+  downloadVod: boolean;
   /** Chat'e düşen klip bağlantılarını yakala. */
   clips: boolean;
   /** Yakalanan klipleri otomatik düzenle (dikey + altyazı). */
@@ -18,7 +18,7 @@ export interface AutopilotConfig {
 export const AUTOPILOT_DEFAULTS: AutopilotConfig = {
   enabled: false,
   channel: null,
-  record: true,
+  downloadVod: true,
   clips: true,
   autoEdit: true,
   autoPublish: false,
@@ -26,7 +26,7 @@ export const AUTOPILOT_DEFAULTS: AutopilotConfig = {
   subtitles: true,
 };
 
-export type AutopilotEventKind = 'armed' | 'live' | 'offline' | 'record-start' | 'record-stop' | 'error' | 'disarmed';
+export type AutopilotEventKind = 'armed' | 'live' | 'offline' | 'vod-wait' | 'vod-queued' | 'error' | 'disarmed';
 
 export interface AutopilotEvent {
   at: string;
@@ -52,7 +52,8 @@ export function normalizeAutopilot(raw: unknown): AutopilotConfig {
   return {
     enabled: bool(r.enabled, d.enabled),
     channel: typeof r.channel === 'string' && r.channel ? r.channel : null,
-    record: bool(r.record, d.record),
+    // Eski "record" ayarı indirme seçeneğine taşınır.
+    downloadVod: bool(r.downloadVod, bool((r as { record?: unknown }).record, d.downloadVod)),
     clips: bool(r.clips, d.clips),
     autoEdit: bool(r.autoEdit, d.autoEdit),
     autoPublish: bool(r.autoPublish, d.autoPublish),

@@ -1,11 +1,11 @@
 import { useState, type FormEvent } from 'react';
 import { Icon } from '../components/Icon.tsx';
 import { platformLabel } from '../components/PublishDialog.tsx';
-import { Empty, Field, Modal, Spinner, WorkspaceHead } from '../components/basics.tsx';
+import { Empty, Field, Spinner, WorkspaceHead } from '../components/basics.tsx';
 import { api } from '../lib/api.ts';
 import { dateTime, duration } from '../lib/format.ts';
 import { navigate, sectionPath } from '../lib/router.ts';
-import { toast, toastError } from '../lib/toast.ts';
+import { deleteWithUndo, toast, toastError } from '../lib/toast.ts';
 import type { ScheduleEntry, ZernioSummary } from '../lib/types.ts';
 import { useResource } from '../lib/useResource.ts';
 
@@ -172,7 +172,7 @@ function ConnectionPanel({ zernio, loading, onChange }: { zernio: ZernioSummary 
   const [profiles, setProfiles] = useState<{ id: string; name: string }[] | null>(null);
   const [profileId, setProfileId] = useState('');
   const [busy, setBusy] = useState(false);
-  const [confirm, setConfirm] = useState(false);
+  const [hidden, setHidden] = useState(false);
 
   const verify = async (e: FormEvent) => {
     e.preventDefault();
@@ -203,16 +203,17 @@ function ConnectionPanel({ zernio, loading, onChange }: { zernio: ZernioSummary 
     }
   };
 
-  const disconnect = async () => {
-    try {
-      await api.del('/api/zernio');
-      setConfirm(false);
-      toast('Zernio bağlantısı kaldırıldı', 'ok');
-      onChange();
-    } catch (err) {
-      toastError(err);
-    }
-  };
+  const disconnect = () =>
+    deleteWithUndo({
+      label: 'Zernio bağlantısı kaldırıldı',
+      hide: () => setHidden(true),
+      restore: () => setHidden(false),
+      commit: () => api.del('/api/zernio'),
+      done: () => {
+        setHidden(false);
+        onChange();
+      },
+    });
 
   if (loading && !zernio) {
     return (
@@ -222,7 +223,7 @@ function ConnectionPanel({ zernio, loading, onChange }: { zernio: ZernioSummary 
     );
   }
 
-  if (zernio?.connected) {
+  if (zernio?.connected && !hidden) {
     return (
       <section className="panel">
         <span className="panel-tape" aria-hidden="true" />
@@ -252,27 +253,10 @@ function ConnectionPanel({ zernio, loading, onChange }: { zernio: ZernioSummary 
           <a className="btn btn-secondary btn-small" href="https://zernio.com" target="_blank" rel="noreferrer">
             Zernio panelini aç
           </a>
-          <button type="button" className="btn btn-quiet btn-small" onClick={() => setConfirm(true)}>
+          <button type="button" className="btn btn-quiet btn-small" onClick={disconnect}>
             Bağlantıyı kaldır
           </button>
         </div>
-        <Modal
-          open={confirm}
-          onClose={() => setConfirm(false)}
-          title="Zernio bağlantısı kaldırılsın mı?"
-          footer={
-            <>
-              <button type="button" className="btn btn-quiet" onClick={() => setConfirm(false)}>
-                Vazgeç
-              </button>
-              <button type="button" className="btn btn-danger" onClick={disconnect}>
-                Kaldır
-              </button>
-            </>
-          }
-        >
-          <p className="notice">API anahtarı Kesit'ten silinir. Planlanmış gönderiler Zernio'da kalır; otomatik paylaşım durur.</p>
-        </Modal>
       </section>
     );
   }

@@ -1,7 +1,8 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useState, type FormEvent } from 'react';
+import { HlsVideo } from '../components/HlsVideo.tsx';
 import { Icon } from '../components/Icon.tsx';
-import { Empty, Segmented, Spinner, Switch, WorkspaceHead } from '../components/basics.tsx';
+import { Empty, Modal, Segmented, Spinner, Switch, WorkspaceHead } from '../components/basics.tsx';
 import { api, query } from '../lib/api.ts';
 import { count, duration, relative } from '../lib/format.ts';
 import { refreshJobs } from '../lib/jobs.ts';
@@ -36,6 +37,7 @@ export function Clips() {
   const [composition, setComposition] = useState<Composition>('auto');
   const [link, setLink] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [preview, setPreview] = useState<KickClip | null>(null);
 
   const browse = async (append = false, override?: string) => {
     const slug = (override ?? channel).trim();
@@ -213,22 +215,25 @@ export function Clips() {
                   const on = selected.has(c.id);
                   return (
                     <motion.li key={c.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(i, 12) * 0.025 }}>
-                      <button type="button" className={on ? 'clip-card clip-card-on' : 'clip-card'} onClick={() => toggle(c)} aria-pressed={on}>
-                        <span className="clip-thumb">
+                      <div className={on ? 'clip-card clip-card-on' : 'clip-card'}>
+                        <button type="button" className="clip-thumb clip-thumb-play" onClick={() => setPreview(c)} aria-label={`${c.title || 'Klibi'} izle`}>
                           {c.thumbnailUrl ? <img src={c.thumbnailUrl} alt="" loading="lazy" /> : <Icon name="film" size={26} />}
-                          <span className="clip-badge clip-badge-dur">{duration(c.duration)}</span>
-                          <span className="clip-check" aria-hidden="true">
-                            <Icon name="check" size={14} />
+                          <span className="clip-play" aria-hidden="true">
+                            <Icon name="play" size={18} />
                           </span>
+                          <span className="clip-badge clip-badge-dur">{duration(c.duration)}</span>
                           {c.processed && <span className="clip-badge clip-badge-done">İşlendi</span>}
-                        </span>
-                        <span className="clip-card-body">
+                        </button>
+                        <button type="button" className="clip-check" onClick={() => toggle(c)} aria-pressed={on} aria-label={on ? 'Seçimi kaldır' : 'Seç'}>
+                          <Icon name="check" size={14} />
+                        </button>
+                        <button type="button" className="clip-card-body" onClick={() => toggle(c)} aria-pressed={on}>
                           <span className="clip-card-title">{c.title || 'Başlıksız klip'}</span>
                           <span className="clip-card-meta">
                             <Icon name="eye" size={13} /> {count(c.viewCount)} izlenme · {relative(c.createdAt)}
                           </span>
-                        </span>
-                      </button>
+                        </button>
+                      </div>
                     </motion.li>
                   );
                 })}
@@ -279,6 +284,46 @@ export function Clips() {
           </form>
         </aside>
       </div>
+
+      <Modal
+        open={!!preview}
+        onClose={() => setPreview(null)}
+        title={preview?.title || 'Klip'}
+        wide
+        footer={
+          preview && (
+            <>
+              <button type="button" className="btn btn-secondary" onClick={() => toggle(preview)}>
+                <Icon name="check" size={16} /> {selected.has(preview.id) ? 'Seçimden çıkar' : 'Seç'}
+              </button>
+              <button
+                type="button"
+                className="btn btn-accent"
+                disabled={submitting}
+                onClick={() => {
+                  setSelected(new Map([[preview.id, preview]]));
+                  setPreview(null);
+                }}
+              >
+                <Icon name="vertical" size={16} /> Yalnız bunu seç
+              </button>
+            </>
+          )
+        }
+      >
+        {preview?.videoUrl ? (
+          <div className="stage stage-h">
+            <HlsVideo key={preview.id} className="stage-video" src={preview.videoUrl} poster={preview.thumbnailUrl ?? undefined} controls autoPlay playsInline />
+          </div>
+        ) : (
+          <p className="muted">Bu klibin oynatma adresi yok.</p>
+        )}
+        {preview && (
+          <p className="muted pad-top">
+            {count(preview.viewCount)} izlenme · {duration(preview.duration)} · {relative(preview.createdAt)}
+          </p>
+        )}
+      </Modal>
 
       <AnimatePresence>
         {selected.size > 0 && (

@@ -2,12 +2,12 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useMemo, useState } from 'react';
 import { Icon } from '../components/Icon.tsx';
 import { PublishDialog, platformLabel } from '../components/PublishDialog.tsx';
-import { Empty, Modal, Progress, Segmented, Spinner, WorkspaceHead } from '../components/basics.tsx';
+import { Empty, Progress, Segmented, Spinner, WorkspaceHead } from '../components/basics.tsx';
 import { api } from '../lib/api.ts';
 import { bytes, dateTime, duration, parseJson, relative } from '../lib/format.ts';
-import { isActive, jobsStore, refreshJobs, removeJobsLocally } from '../lib/jobs.ts';
+import { isActive, jobsStore, refreshJobs, removeJobsLocally, restoreJobLocally } from '../lib/jobs.ts';
 import { navigate, sectionPath } from '../lib/router.ts';
-import { toast, toastError } from '../lib/toast.ts';
+import { deleteWithUndo, toast, toastError } from '../lib/toast.ts';
 import type { Job } from '../lib/types.ts';
 
 type FormatFilter = 'all' | 'vertical' | 'horizontal';
@@ -202,8 +202,21 @@ export function JobStatusLine({ job, progress }: { job: Job; progress?: number }
 /** Önizleme sahnesi: biçime göre 9:16 ya da 16:9 çerçeve + eylemler. */
 function Stage({ job, progress, onPublish }: { job: Job; progress?: number; onPublish: () => void }) {
   const horizontal = isHorizontal(job);
-  const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+
+  const remove = () =>
+    deleteWithUndo({
+      label: 'Klip silindi',
+      hide: () => {
+        removeJobsLocally([job.id]);
+        navigate(sectionPath('kutuphane'), true);
+      },
+      restore: () => {
+        restoreJobLocally(job);
+        navigate(sectionPath('kutuphane', job.id), true);
+      },
+      commit: () => api.del(`/api/jobs/${job.id}`),
+    });
 
   const act = async (label: string, fn: () => Promise<unknown>, done?: string) => {
     setBusy(label);
@@ -275,43 +288,11 @@ function Stage({ job, progress, onPublish }: { job: Job; progress?: number; onPu
             <Icon name="refresh" size={16} /> Yeniden dene
           </button>
         )}
-        <button type="button" className="btn btn-quiet stage-delete" onClick={() => setConfirm(true)} disabled={isActive(job)}>
+        <button type="button" className="btn btn-quiet stage-delete" onClick={remove} disabled={isActive(job)}>
           <Icon name="trash" size={16} /> Sil
         </button>
       </div>
 
-      <Modal
-        open={confirm}
-        onClose={() => setConfirm(false)}
-        title="Klip silinsin mi?"
-        footer={
-          <>
-            <button type="button" className="btn btn-quiet" onClick={() => setConfirm(false)}>
-              Vazgeç
-            </button>
-            <button
-              type="button"
-              className="btn btn-danger"
-              onClick={() =>
-                act(
-                  'del',
-                  async () => {
-                    await api.del(`/api/jobs/${job.id}`);
-                    removeJobsLocally([job.id]);
-                    setConfirm(false);
-                    navigate(sectionPath('kutuphane'), true);
-                  },
-                  'Klip silindi — arşivde kaydı kalır',
-                )
-              }
-            >
-              Sil
-            </button>
-          </>
-        }
-      >
-        <p className="notice">Video dosyası diskten silinir. Arşivde bu klibin ne zaman üretildiği ve nerede paylaşıldığı görünmeye devam eder.</p>
-      </Modal>
     </section>
   );
 }

@@ -11,9 +11,12 @@ import type { Store } from '../db/Store.ts';
 import { fetchChannel } from '../lib/kick.ts';
 import type { Workspaces } from './Workspaces.ts';
 
-/** Kick API anlık "çevrimdışı" dönebiliyor; kayıt ancak art arda bu kadar yoklamada kapalı görülürse durur. */
+/** Kick API anlık "çevrimdışı" dönebiliyor; yayın ancak art arda bu kadar yoklamada kapalı görülürse bitmiş sayılır. */
 const OFFLINE_CONFIRMATIONS = 2;
 const MAX_EVENTS = 30;
+/** Kick yayın kaydını yayından birkaç dakika sonra yayımlar; bu aralıkla ve bu kadar kez aranır. */
+const VOD_RETRY_MS = 2 * 60_000;
+const VOD_MAX_TRIES = 20;
 
 interface Watch {
   config: AutopilotConfig;
@@ -24,18 +27,19 @@ interface Watch {
   viewers: number;
   lastCheckAt: Date | null;
   nextCheckAt: Date | null;
-  /** Kaydı nöbetçi mi başlattı — elle başlatılan kayda dokunulmaz. */
-  ownsRecording: boolean;
+  /** Yayının başladığı an (Kick'ten) — biten yayının kaydını eşlemek için. */
+  liveSince: Date | null;
+  vodTimer: NodeJS.Timeout | null;
   events: AutopilotEvent[];
   busy: boolean;
 }
 
 /**
- * Nöbetçi: kullanıcı bilgisayar başında değilken takip ettiği kanalı yoklar.
- *  - Kanal canlıya geçince: yayın kaydı başlar, chat'teki klipler yakalanıp
- *    (istenirse) otomatik düzenlenir ve paylaşılır.
- *  - Yayın bitince: kayıt kapanır; motor kaydı kendiliğinden yayına hazır
- *    çıktıya (intro/outro/logo) dönüştürür, klip takibi bırakılır.
+ * Nöbet: kullanıcı bilgisayar başında değilken takip ettiği kanalı yoklar.
+ *  - Kanal canlıya geçince: chat'teki klipler yakalanır, istenirse otomatik
+ *    düzenlenip paylaşılır.
+ *  - Yayın bitince: Kick'in yayın kaydı yayımlanınca indirilir ve Geçmiş
+ *    yayınlar'a düşer. Otomatik işlenmez — kullanıcı editörde keser.
  * Ayar kalıcıdır; sunucu yeniden başlarsa açık nöbetler geri kurulur.
  */
 export class Autopilot {
@@ -45,6 +49,7 @@ export class Autopilot {
     private store: Store,
     private io: IOServer,
     private workspaces: Workspaces,
+    private vodScanner: any,
   ) {}
 
   /** Sunucu açılışında kalıcı nöbetleri geri kurar. */
@@ -94,7 +99,10 @@ export class Autopilot {
   }
 
   stopAll() {
-    for (const w of this.watches.values()) if (w.timer) clearTimeout(w.timer);
+    for (const w of this.watches.values()) {
+      if (w.timer) clearTimeout(w.timer);
+      if (w.vodTimer) clearTimeout(w.vodTimer);
+    }
     this.watches.clear();
   }
 
@@ -110,7 +118,8 @@ export class Autopilot {
       viewers: 0,
       lastCheckAt: null,
       nextCheckAt: null,
-      ownsRecording: false,
+      liveSince: null,
+      vodTimer: null,
       events: [],
       busy: false,
     };
@@ -123,9 +132,10 @@ export class Autopilot {
     const w = this.watches.get(userId);
     if (!w) return;
     if (w.timer) clearTimeout(w.timer);
+    if (w.vodTimer) clearTimeout(w.vodTimer);
     this.watches.delete(userId);
     const ws = await this.workspaces.get(userId);
-    // Nöbetin açtığı klip takibi kapanır; süren kayıt kullanıcı verisi olduğundan kesilmez.
+    // Nöbetin açtığı klip takibi kapanır.
     if (w.config.clips && ws.clipWatcher.isWatching) ws.clipWatcher.unwatch();
     if (announce) {
       w.events.unshift({ at: new Date().toISOString(), kind: 'disarmed', text: 'Nöbet kapatıldı' });
@@ -153,6 +163,7 @@ export class Autopilot {
         w.offlineStreak = 0;
         if (w.live !== true) {
           w.live = true;
+          w.liveSince = info.startedAt ? new Date(info.startedAt) : new Date();
           this.log(userId, w, 'live', `${w.config.channel} canlı yayına geçti${info.title ? `: ${info.title}` : ''}`);
         }
         await this.applyLiveSettings(userId, w);
@@ -177,40 +188,52 @@ export class Autopilot {
 
   /** Canlıyken istenen her şeyin açık olduğundan emin olur (idempotent). */
   private async applyLiveSettings(userId: number, w: Watch) {
+    if (!w.config.clips) return;
     const ws = await this.workspaces.get(userId);
-    const channel = w.config.channel!;
-    if (w.config.record && !ws.recorder.isRecording) {
-      try {
-        const rec = await ws.recorder.start(channel, { follow: true });
-        w.ownsRecording = true;
-        this.log(userId, w, 'record-start', `Kayıt başladı (#${rec?.id ?? '?'})`);
-      } catch (err) {
-        this.log(userId, w, 'error', `Kayıt başlatılamadı: ${(err as Error).message}`, true);
-      }
-    }
-    if (w.config.clips) {
-      await ws.clipWatcher.watch(channel, {
-        autoEdit: w.config.autoEdit,
-        autoPublish: w.config.autoPublish,
-        publishAccounts: w.config.publishAccounts,
-        subtitles: w.config.subtitles,
-      });
-    }
+    await ws.clipWatcher.watch(w.config.channel!, {
+      autoEdit: w.config.autoEdit,
+      autoPublish: w.config.autoPublish,
+      publishAccounts: w.config.publishAccounts,
+      subtitles: w.config.subtitles,
+    });
   }
 
-  /** Yayın bitti: nöbetin açtığı kaydı kapatır (çıktı motor tarafından otomatik üretilir). */
+  /** Yayın bitti: klip takibini bırakır, istenirse yayın kaydını indirmeye başlar. */
   private async wrapUp(userId: number, w: Watch) {
     const ws = await this.workspaces.get(userId);
-    if (w.ownsRecording && ws.recorder.isRecording) {
-      try {
-        const rec = await ws.recorder.stop();
-        this.log(userId, w, 'record-stop', `Kayıt kapandı (#${rec?.id ?? '?'}); çıktı hazırlanıyor`);
-      } catch (err) {
-        this.log(userId, w, 'error', `Kayıt kapatılamadı: ${(err as Error).message}`, true);
-      }
-    }
-    w.ownsRecording = false;
     if (w.config.clips && ws.clipWatcher.isWatching) ws.clipWatcher.unwatch();
+    if (w.config.downloadVod) {
+      this.log(userId, w, 'vod-wait', 'Kick yayın kaydını yayımlayınca indirilecek');
+      this.findVod(userId, w, w.config.channel!, w.liveSince, 1);
+    }
+    w.liveSince = null;
+  }
+
+  /** Biten yayının Kick kaydını arar; bulunca indirme sırasına koyar (işlemez). */
+  private findVod(userId: number, w: Watch, channel: string, since: Date | null, attempt: number) {
+    w.vodTimer = setTimeout(async () => {
+      if (this.watches.get(userId) !== w) return;
+      try {
+        const videos: { id: string | number; title?: string; startedAt?: string; isLive?: boolean }[] = await this.vodScanner.listVideos(channel);
+        // Yayının başlangıcından (ya da son bir günden) sonraki ilk kapanmış kayıt.
+        const floor = (since?.getTime() ?? Date.now() - 86_400_000) - 15 * 60_000;
+        const vod = videos.find((v) => !v.isLive && v.startedAt && Date.parse(v.startedAt.replace(' ', 'T') + 'Z') >= floor);
+        if (vod) {
+          const known = (await this.store.getVodScanJobs(userId, 100)).some((j) => String(j.source_video_id) === String(vod.id));
+          if (!known) await this.vodScanner.enqueue(userId, { channelSlug: channel, videoId: String(vod.id), quality: '1080p' });
+          this.log(userId, w, 'vod-queued', `Yayın kaydı indiriliyor${vod.title ? `: ${vod.title}` : ''} — Geçmiş yayınlar'dan düzenleyebilirsin`);
+          this.emit(userId);
+          return;
+        }
+      } catch (err) {
+        this.log(userId, w, 'error', `Yayın kaydı aranamadı: ${(err as Error).message}`, true);
+      }
+      if (attempt >= VOD_MAX_TRIES) {
+        this.log(userId, w, 'error', 'Kick yayın kaydını yayımlamadı (yayıncı kaydı kapatmış olabilir)');
+        this.emit(userId);
+      } else this.findVod(userId, w, channel, since, attempt + 1);
+    }, attempt === 1 ? 60_000 : VOD_RETRY_MS);
+    w.vodTimer.unref?.();
   }
 
   private log(userId: number, w: Watch, kind: AutopilotEventKind, text: string, dedupe = false) {

@@ -7,10 +7,9 @@ import { config } from '../config.ts';
 import type { Store } from '../db/Store.ts';
 import { HttpError, badRequest } from '../http.ts';
 
-/** İndirilebilir yerel (whisper.cpp) modelleri. Türkçe için turbo en iyi denge. */
+/** Yerel (whisper.cpp) model: Türkçede en isabetli olan tek seçenek sunulur. */
 export const WHISPER_MODELS = [
-  { id: 'turbo', file: 'ggml-large-v3-turbo-q5_0.bin', label: 'En iyi (önerilen)', sizeBytes: 574_041_195, hint: 'Türkçede en doğru sonuç, orta hız' },
-  { id: 'small', file: 'ggml-small-q5_1.bin', label: 'Hızlı', sizeBytes: 190_085_487, hint: 'Daha küçük ve hızlı, doğruluk biraz düşük' },
+  { id: 'turbo', file: 'ggml-large-v3-turbo-q5_0.bin', label: 'Whisper Large v3 Turbo', sizeBytes: 574_041_195, hint: 'Türkçede en doğru sonuç; bir kez indirilir, internet olmadan çalışır' },
 ] as const;
 
 type ModelId = (typeof WHISPER_MODELS)[number]['id'];

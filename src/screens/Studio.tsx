@@ -3,16 +3,16 @@ import { Icon } from '../components/Icon.tsx';
 import { Field, Segmented, Spinner, Switch, WorkspaceHead } from '../components/basics.tsx';
 import { api } from '../lib/api.ts';
 import { bytes, duration } from '../lib/format.ts';
-import { toast, toastError } from '../lib/toast.ts';
+import { deleteWithUndo, toast, toastError } from '../lib/toast.ts';
 import type { BrandMedia, ClipOptions, RecordingOutput, Studio as StudioData } from '../lib/types.ts';
 import { useResource } from '../lib/useResource.ts';
 
-const GROUP_LABELS: Record<string, { label: string; hint: string }> = {
-  gezgin: { label: 'Klipler', hint: 'Kick kliplerinden ve bağlantıdan üretilenler' },
-  vodscan: { label: 'Geçmiş yayın', hint: 'Yayın editöründen kesilenler' },
-  live: { label: 'Canlı', hint: 'Chat\'te yakalanıp otomatik işlenenler' },
-  horizontal: { label: 'Yatay kesit', hint: '16:9 kesitler ve kayıt parçaları' },
-};
+type Format = 'vertical' | 'horizontal';
+
+const FORMATS: { value: Format; label: string; hint: string }[] = [
+  { value: 'vertical', label: 'Dikey 9:16', hint: 'Kliplerden, canlıdan ve geçmiş yayından üretilen dikey videolar' },
+  { value: 'horizontal', label: 'Yatay 16:9', hint: 'Geçmiş yayın ve kayıtlardan alınan yatay kesitler' },
+];
 
 const SAMPLE_LINE = ['Bunu', 'kimse', 'beklemiyordu', 've', 'tam', 'o', 'anda…'];
 
@@ -32,11 +32,13 @@ export function Studio() {
 
 function StudioEditor({ data, reload }: { data: StudioData; reload: () => void }) {
   const [brand, setBrand] = useState(data.brand);
-  const [group, setGroup] = useState('horizontal');
-  const [defaults, setDefaults] = useState<Record<string, ClipOptions>>(data.defaults);
+  const [format, setFormat] = useState<Format>('vertical');
+  const [defaults, setDefaults] = useState<Record<Format, ClipOptions>>(data.defaults);
   const [output, setOutput] = useState<RecordingOutput>(data.recordingOutput);
   const [saving, setSaving] = useState<string | null>(null);
-  const opts = defaults[group];
+  const opts = defaults[format];
+  const vertical = format === 'vertical';
+  const styleKey = opts.subtitleStyle ?? brand.subtitleStyle;
 
   // Marka renkleri anında sayfaya yansır; önizleme de bunları kullanır.
   const style = { '--brand': brand.brandColor, '--accent': brand.accentColor } as CSSProperties;
@@ -53,53 +55,91 @@ function StudioEditor({ data, reload }: { data: StudioData; reload: () => void }
     }
   };
 
-  const setOpt = (patch: Partial<ClipOptions>) => setDefaults((d) => ({ ...d, [group]: { ...d[group], ...patch } }));
+  const setOpt = (patch: Partial<ClipOptions>) => setDefaults((d) => ({ ...d, [format]: { ...d[format], ...patch } }));
 
   return (
     <div style={style}>
-      <WorkspaceHead guide="marka" title="Marka ve" tape="şablon" lead="Logo, intro, outro ve renklerini bir kez ayarla; her klip ve kayıt bu kimlikle çıksın. Önizleme gerçek yerleşimi gösterir." />
+      <WorkspaceHead guide="marka" title="Marka ve" tape="şablon" lead="Logo, renk ve altyazı kimliğini bir kez ayarla. Dikey ve yatay videoların ayarları ayrı; önizleme gerçek yerleşimi gösterir." />
 
       <div className="studio-grid">
-        <section className="panel studio-preview" aria-label="Önizleme">
+        <section className="panel studio-defaults" aria-label="Üretim varsayılanları">
           <span className="panel-tape" aria-hidden="true" />
           <header className="panel-head">
             <div>
-              <h2 className="panel-title">Prototip</h2>
-              <p className="panel-sub">Logoyu yatay videoda sürükleyerek konumla; dikeyde dikiş ya da üst orta seçilir.</p>
+              <h2 className="panel-title">Üretim varsayılanları</h2>
+              <p className="panel-sub">{FORMATS.find((f) => f.value === format)!.hint}.</p>
             </div>
-            <button type="button" className="btn btn-accent" disabled={saving === 'defaults'} onClick={() => save('defaults', () => api.put('/api/studio/defaults', { group, options: defaults[group] }))}>
-              {saving === 'defaults' ? <Spinner /> : <Icon name="check" size={16} />} {GROUP_LABELS[group]?.label} ayarlarını kaydet
+            <button type="button" className="btn btn-accent" disabled={saving === 'defaults'} onClick={() => save('defaults', () => api.put('/api/studio/defaults', { format, options: defaults[format] }), `${vertical ? 'Dikey' : 'Yatay'} ayarlar kaydedildi`)}>
+              {saving === 'defaults' ? <Spinner /> : <Icon name="check" size={16} />} {vertical ? 'Dikey' : 'Yatay'} ayarlarını kaydet
             </button>
           </header>
 
-          <div className="proto-row">
-            <VerticalProto opts={opts} logoUrl={data.logo.url} styleKey={opts.subtitleStyle ?? brand.subtitleStyle} />
-            <div className="proto-h-col">
-              <HorizontalProto opts={opts} logoUrl={data.logo.url} styleKey={opts.subtitleStyle ?? brand.subtitleStyle} onLogoMove={(x, y) => setOpt({ logoPosition: 'custom', logoX: x, logoY: y })} />
-              <SequenceStrip intro={data.intro} outro={data.outro} withIntro={opts.intro} withOutro={opts.outro} />
-            </div>
-          </div>
+          <Segmented label="Biçim" value={format} onChange={setFormat} options={FORMATS.map((f) => ({ value: f.value, label: f.label }))} />
 
-          <div className="logo-controls">
-            <Switch checked={opts.logo} onChange={(v) => setOpt({ logo: v })} label="Logo" hint={data.logo.exists ? 'Videoya bindirilir' : 'Sağdan logo yükle'} />
-            <Field label={`Boyut · ${Math.round(opts.logoScale * 100)}%`}>
-              <input type="range" className="range" min={0.5} max={2} step={0.05} value={opts.logoScale} disabled={!opts.logo} onChange={(e) => setOpt({ logoScale: Number(e.target.value) })} />
-            </Field>
-            <Field label={`Opaklık · ${Math.round(opts.logoOpacity * 100)}%`}>
-              <input type="range" className="range" min={0.05} max={1} step={0.05} value={opts.logoOpacity} disabled={!opts.logo} onChange={(e) => setOpt({ logoOpacity: Number(e.target.value) })} />
-            </Field>
-            <Field label="Dikeyde yeri">
-              <Segmented
-                size="small"
-                label="Dikeyde logo yeri"
-                value={opts.logoPosition === 'top-center' ? 'top-center' : 'seam'}
-                onChange={(v) => setOpt({ logoPosition: v })}
-                options={[
-                  { value: 'seam', label: 'Dikiş' },
-                  { value: 'top-center', label: 'Üst orta' },
-                ]}
-              />
-            </Field>
+          <div className={vertical ? 'proto-stage proto-stage-v' : 'proto-stage'}>
+            {vertical ? (
+              <VerticalProto opts={opts} logoUrl={data.logo.url} styleKey={styleKey} />
+            ) : (
+              <div className="proto-h-col">
+                <HorizontalProto opts={opts} logoUrl={data.logo.url} styleKey={styleKey} onLogoMove={(x, y) => setOpt({ logoPosition: 'custom', logoX: x, logoY: y })} />
+                <SequenceStrip intro={data.intro} outro={data.outro} withIntro={opts.intro} withOutro={opts.outro} />
+              </div>
+            )}
+
+            <div className="proto-settings">
+              <h3 className="eyebrow">Logo</h3>
+              <Switch checked={opts.logo} onChange={(v) => setOpt({ logo: v })} label="Logoyu bindir" hint={data.logo.exists ? (vertical ? 'Yeri aşağıdan seçilir' : 'Önizlemede sürükleyerek konumla') : 'Sağdaki Kimlik bölümünden logo yükle'} />
+              <Field label={`Boyut · ${Math.round(opts.logoScale * 100)}%`}>
+                <input type="range" className="range" min={0.5} max={2} step={0.05} value={opts.logoScale} disabled={!opts.logo} onChange={(e) => setOpt({ logoScale: Number(e.target.value) })} />
+              </Field>
+              <Field label={`Opaklık · ${Math.round(opts.logoOpacity * 100)}%`}>
+                <input type="range" className="range" min={0.05} max={1} step={0.05} value={opts.logoOpacity} disabled={!opts.logo} onChange={(e) => setOpt({ logoOpacity: Number(e.target.value) })} />
+              </Field>
+              {vertical && (
+                <Field label="Yeri">
+                  <Segmented
+                    size="small"
+                    label="Logo yeri"
+                    value={opts.logoPosition === 'top-center' ? 'top-center' : 'seam'}
+                    onChange={(v) => setOpt({ logoPosition: v })}
+                    options={[
+                      { value: 'seam', label: 'Dikiş' },
+                      { value: 'top-center', label: 'Üst orta' },
+                    ]}
+                  />
+                </Field>
+              )}
+
+              <h3 className="eyebrow pad-top">Video</h3>
+              <Switch checked={opts.subtitles} onChange={(v) => setOpt({ subtitles: v })} label="Altyazı" hint="Konuşma yazıya dökülür (Ayarlar'da altyazı motoru gerekir)" />
+              <Switch checked={opts.subtitleFollowsTheme} onChange={(v) => setOpt({ subtitleFollowsTheme: v })} label="Vurgu rengi altyazıda" hint="Kapalıyken marka rengi" />
+              <Switch checked={opts.censor} onChange={(v) => setOpt({ censor: v })} label="Küfür sansürü" hint="Geçen anlar biplenir" />
+              {vertical ? (
+                <Field label="Kompozisyon">
+                  <Segmented
+                    size="small"
+                    label="Kompozisyon"
+                    value={opts.composition}
+                    onChange={(v) => setOpt({ composition: v })}
+                    options={[
+                      { value: 'auto', label: 'Otomatik' },
+                      { value: 'split', label: 'Kamera + oyun' },
+                      { value: 'single', label: 'Tek kare' },
+                    ]}
+                  />
+                </Field>
+              ) : (
+                <>
+                  <Switch checked={opts.intro} onChange={(v) => setOpt({ intro: v })} label="Intro ekle" hint={data.intro.exists ? `${duration(data.intro.durationSec)} başa eklenir` : 'Yüklenmedi'} disabled={!data.intro.exists} />
+                  <Switch checked={opts.outro} onChange={(v) => setOpt({ outro: v })} label="Outro ekle" hint={data.outro.exists ? `${duration(data.outro.durationSec)} sona eklenir` : 'Yüklenmedi'} disabled={!data.outro.exists} />
+                </>
+              )}
+              {vertical && (
+                <Field label={`Otomatik paylaşım eşiği · ${opts.autoPublishMinScore || 'yok'}`} help="Nöbet'te otomatik paylaşılan kliplerde viral skoru bunun altındakiler paylaşılmaz">
+                  <input type="range" className="range" min={0} max={100} step={5} value={opts.autoPublishMinScore} onChange={(e) => setOpt({ autoPublishMinScore: Number(e.target.value) })} />
+                </Field>
+              )}
+            </div>
           </div>
         </section>
 
@@ -114,12 +154,12 @@ function StudioEditor({ data, reload }: { data: StudioData; reload: () => void }
               </div>
               <Field label="Altyazı stili">
                 <div className="style-grid">
-                  {data.styles.map((s) => (
-                    <button key={s.key} type="button" className={brand.subtitleStyle === s.key ? 'style-tile style-tile-on' : 'style-tile'} onClick={() => setBrand({ ...brand, subtitleStyle: s.key })} title={s.hint}>
-                      <span className={`sub-sample sub-${s.key}`}>
+                  {data.styles.map((st) => (
+                    <button key={st.key} type="button" className={brand.subtitleStyle === st.key ? 'style-tile style-tile-on' : 'style-tile'} onClick={() => setBrand({ ...brand, subtitleStyle: st.key })} title={st.hint}>
+                      <span className={`sub-sample sub-${st.key}`}>
                         Aa <em>Bb</em>
                       </span>
-                      <span>{s.label}</span>
+                      <span>{st.label}</span>
                     </button>
                   ))}
                 </div>
@@ -142,58 +182,18 @@ function StudioEditor({ data, reload }: { data: StudioData; reload: () => void }
           <section className="panel">
             <h2 className="panel-title">Intro ve outro</h2>
             <p className="panel-sub">
-              Yatay kesitlerin ve kayıt çıktılarının başına/sonuna eklenir. En fazla {data.limits.mediaMaxSeconds} sn, {bytes(data.limits.mediaMaxBytes)}.
+              Yalnız yatay videolara ve çıktılara eklenir; dikey videolara eklenmez. En fazla {data.limits.mediaMaxSeconds} sn, {bytes(data.limits.mediaMaxBytes)}.
             </p>
             <div className="stack">
               <MediaUpload kind="intro" media={data.intro} onChange={reload} />
               <MediaUpload kind="outro" media={data.outro} onChange={reload} />
             </div>
           </section>
-        </aside>
-      </div>
 
-      <div className="ws-grid pad-top">
-        <section className="panel">
-          <header className="panel-head">
-            <div>
-              <h2 className="panel-title">Üretim varsayılanları</h2>
-              <p className="panel-sub">{GROUP_LABELS[group]?.hint}. Her kaynak kendi ayarını taşır.</p>
-            </div>
-          </header>
-          <Segmented label="Kaynak" value={group} onChange={setGroup} options={data.groups.map((g) => ({ value: g, label: GROUP_LABELS[g]?.label ?? g }))} />
-          <div className="settings-grid pad-top">
-            <Switch checked={opts.subtitles} onChange={(v) => setOpt({ subtitles: v })} label="Altyazı" hint="Konuşma yazıya dökülür" />
-            <Switch checked={opts.subtitleFollowsTheme} onChange={(v) => setOpt({ subtitleFollowsTheme: v })} label="Altyazı vurgusu vurgu renginde" hint="Kapalıyken marka rengi" />
-            <Switch checked={opts.censor} onChange={(v) => setOpt({ censor: v })} label="Küfür sansürü" hint="Geçen anlar biplenir" />
-            <Switch checked={opts.intro} onChange={(v) => setOpt({ intro: v })} label="Intro ekle" hint="Yalnız yatay çıktılar" />
-            <Switch checked={opts.outro} onChange={(v) => setOpt({ outro: v })} label="Outro ekle" hint="Yalnız yatay çıktılar" />
-            <Field label="Dikey kompozisyon">
-              <Segmented
-                size="small"
-                label="Kompozisyon"
-                value={opts.composition}
-                onChange={(v) => setOpt({ composition: v })}
-                options={[
-                  { value: 'auto', label: 'Otomatik' },
-                  { value: 'split', label: 'Kamera + oyun' },
-                  { value: 'single', label: 'Tek kare' },
-                ]}
-              />
-            </Field>
-            {group === 'live' && (
-              <Field label={`Otomatik paylaşım eşiği · ${opts.autoPublishMinScore || 'yok'}`} help="Viral skoru bunun altında kalan klipler otomatik paylaşılmaz">
-                <input type="range" className="range" min={0} max={100} step={5} value={opts.autoPublishMinScore} onChange={(e) => setOpt({ autoPublishMinScore: Number(e.target.value) })} />
-              </Field>
-            )}
-          </div>
-        </section>
-
-        <aside className="ws-stack">
           <section className="panel">
-            <h2 className="panel-title">Kayıt çıktısı</h2>
-            <p className="panel-sub">Yayın kaydı bitince üretilen yayına hazır dosya.</p>
+            <h2 className="panel-title">Çıktı ayarları</h2>
+            <p className="panel-sub">Kayıtlar bölümünde "Çıktıyı üret" dediğinde kullanılır. Hiçbir çıktı kendiliğinden üretilmez.</p>
             <div className="stack">
-              <Switch checked={output.auto} onChange={(v) => setOutput({ ...output, auto: v })} label="Kayıt bitince otomatik üret" />
               <Switch checked={output.intro} onChange={(v) => setOutput({ ...output, intro: v })} label="Intro" />
               <Switch checked={output.outro} onChange={(v) => setOutput({ ...output, outro: v })} label="Outro" />
               <Switch checked={output.logo} onChange={(v) => setOutput({ ...output, logo: v })} label="Logo (alt orta)" />
@@ -238,7 +238,7 @@ function StudioEditor({ data, reload }: { data: StudioData; reload: () => void }
                 disabled={saving === 'output'}
                 onClick={() => save('output', async () => setOutput((await api.put<{ options: RecordingOutput }>('/api/studio/recording-output', { options: output })).options))}
               >
-                {saving === 'output' ? <Spinner /> : null} Kayıt ayarlarını kaydet
+                {saving === 'output' ? <Spinner /> : null} Çıktı ayarlarını kaydet
               </button>
             </div>
           </section>
@@ -322,8 +322,11 @@ function HorizontalProto({ opts, logoUrl, styleKey, onLogoMove }: { opts: ClipOp
   const move = (e: ReactPointerEvent) => {
     if (!dragging.current || !box.current) return;
     const r = box.current.getBoundingClientRect();
-    const nx = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
-    const ny = Math.min(1, Math.max(0, (e.clientY - r.top) / r.height));
+    // Logo merkezden konumlanır; kenarlardan taşmasın diye yarı boyutu kadar içeride tutulur.
+    const half = ((1 / 3) * opts.logoScale) / 2;
+    const halfH = ((r.width / 3) * opts.logoScale) / 6 / r.height;
+    const nx = Math.min(1 - half, Math.max(half, (e.clientX - r.left) / r.width));
+    const ny = Math.min(1 - halfH, Math.max(halfH, (e.clientY - r.top) / r.height));
     onLogoMove(Math.round(nx * 1000) / 1000, Math.round(ny * 1000) / 1000);
   };
 
@@ -372,8 +375,10 @@ function SequenceStrip({ intro, outro, withIntro, withOutro }: { intro: BrandMed
 
 /* ── Yüklemeler ────────────────────────────────────────────────────────── */
 
-function LogoUpload({ logo, max, onChange }: { logo: StudioData['logo']; max: number; onChange: () => void }) {
+function LogoUpload({ logo: loaded, max, onChange }: { logo: StudioData['logo']; max: number; onChange: () => void }) {
   const [busy, setBusy] = useState(false);
+  const [removed, setRemoved] = useState(false);
+  const logo = removed ? { exists: false, url: null } : loaded;
   const pick = async (file: File | undefined) => {
     if (!file) return;
     if (file.size > max) return toast(`Logo ${bytes(max)} sınırını aşıyor`, 'error');
@@ -400,7 +405,22 @@ function LogoUpload({ logo, max, onChange }: { logo: StudioData['logo']; max: nu
             <input type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => void pick(e.target.files?.[0])} />
           </label>
           {logo.exists && (
-            <button type="button" className="btn btn-quiet btn-small" onClick={() => api.del('/api/studio/logo').then(onChange, toastError)}>
+            <button
+              type="button"
+              className="btn btn-quiet btn-small"
+              onClick={() =>
+                deleteWithUndo({
+                  label: 'Logo kaldırıldı',
+                  hide: () => setRemoved(true),
+                  restore: () => setRemoved(false),
+                  commit: () => api.del('/api/studio/logo'),
+                  done: () => {
+                    setRemoved(false);
+                    onChange();
+                  },
+                })
+              }
+            >
               Kaldır
             </button>
           )}
@@ -410,8 +430,10 @@ function LogoUpload({ logo, max, onChange }: { logo: StudioData['logo']; max: nu
   );
 }
 
-function MediaUpload({ kind, media, onChange }: { kind: 'intro' | 'outro'; media: BrandMedia; onChange: () => void }) {
+function MediaUpload({ kind, media: loaded, onChange }: { kind: 'intro' | 'outro'; media: BrandMedia; onChange: () => void }) {
   const [busy, setBusy] = useState(false);
+  const [removed, setRemoved] = useState(false);
+  const media = removed ? { ...loaded, exists: false, url: null } : loaded;
   const label = kind === 'intro' ? 'Intro' : 'Outro';
   const pick = async (file: File | undefined) => {
     if (!file) return;
@@ -438,7 +460,22 @@ function MediaUpload({ kind, media, onChange }: { kind: 'intro' | 'outro'; media
             <input type="file" accept="video/mp4,video/quicktime,video/webm" hidden onChange={(e) => void pick(e.target.files?.[0])} />
           </label>
           {media.exists && (
-            <button type="button" className="btn btn-quiet btn-small" onClick={() => api.del(`/api/studio/media/${kind}`).then(onChange, toastError)}>
+            <button
+              type="button"
+              className="btn btn-quiet btn-small"
+              onClick={() =>
+                deleteWithUndo({
+                  label: `${label} kaldırıldı`,
+                  hide: () => setRemoved(true),
+                  restore: () => setRemoved(false),
+                  commit: () => api.del(`/api/studio/media/${kind}`),
+                  done: () => {
+                    setRemoved(false);
+                    onChange();
+                  },
+                })
+              }
+            >
               Kaldır
             </button>
           )}

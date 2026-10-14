@@ -5,13 +5,14 @@ Kick yayıncıları için klip stüdyosu. Kurulduğu bilgisayarda çalışır; b
 - **Klipler**: Kanalın Kick/KickBot kliplerini tara, seç, toplu olarak dikey videoya çevir. Yüz kamerası tespiti, altyazı ve 9:16 kompozisyon otomatik yapılır. Klip bağlantısı yapıştırarak da eklenebilir.
 - **Geçmiş yayınlar**: Kick'in sakladığı yayını indir. Zaman çizelgesinde sürükleyerek ya da I/O ile kesit işaretle, en iyi anları otomatik buldur.
 - **Kanal sekmeleri**: Üst ortada Kick'te arayarak kanal seçilir; her yayıncı bir sekme olur, "+" yeni sekme açar. Etkin sekme tarama, kayıt ve nöbetin varsayılanıdır.
-- **Canlı**: Elle yayın kaydı (geçmişten başlatılabilir), canlı önizleme ve chat'e düşen klipleri yakalayıp otomatik işleme.
-- **Nöbet**: Takip edilen kanalı sunucu tarafında yoklar. Yayın açılınca kaydı ve klip yakalamayı başlatır. Yayın bitince kaydı kapatır; intro, outro ve logo eklenmiş çıktı kendiliğinden üretilir. Tarayıcı kapalıyken de çalışır, sunucu yeniden başlarsa geri kurulur.
+- **Canlı**: Elle yayın kaydı (geçmişten başlatılabilir), canlı önizleme, chat'e düşen klipleri yakalayıp otomatik işleme, sohbete `!clip 30…180` gönderen anlık klip düğmeleri (kanalda klip botu varsa çalışır; Kick ile giriş gerekir) ve kanala eklenen yeni Kick kliplerini arka planda indiren klip takibi.
+- **Nöbet**: Takip edilen kanalı sunucu tarafında yoklar. Yayın açılınca chat klip yakalamayı başlatır; yayın bitince Kick'in yayın kaydını indirir ve Geçmiş yayınlar'a koyar — hiçbir şey otomatik işlenmez, editörde sen kesersin. Tarayıcı kapalıyken de çalışır, sunucu yeniden başlarsa geri kurulur.
 - **Kayıtlar**: Yayına hazır çıktı, kesitleri ayrı klip/kesit olarak üretme, istenmeyen kısımları çıkarma, küçültülmüş indirme, Zernio ile YouTube'a taslak → yayın.
 - **Paylaşım**: Her kullanıcı kendi Zernio API anahtarını bağlar. Anahtar veritabanında AES-GCM ile şifreli durur. Hemen ya da planlı paylaşım yapılabilir; TikTok için açık onay zorunludur.
 - **Arşiv**: Üretilen her klip, kayıt ve indirilen yayın günlük bir defterde tutulur. Dosya silinse bile kayıt, küçük görsel ve paylaşım geçmişi kalır. Isı haritasından güne göre süzülebilir.
-- **Ayarlar**: Altyazı motoru (bu bilgisayarda çalışan ücretsiz whisper modeli tek tıkla indirilir ya da ElevenLabs anahtarı bağlanır), telefondan açma adresi ve verilerin bulunduğu klasör.
-- **Marka ve şablon**: Logo, intro, outro, marka/vurgu rengi ve altyazı stili ayarlanır. Dikey ve yatay prototipte yerleşim önizlenir; yatayda logo sürüklenerek konumlanır. Kaynağa göre üretim varsayılanları ve kayıt çıktısı ayarları da buradadır.
+- **Ayarlar**: Altyazı motoru (önerilen yerel whisper modeli tek tıkla indirilir ya da ElevenLabs anahtarı bağlanır), hazır videoların kopyalanacağı klasör (varsayılan `~/Downloads/Kesit`, Dikey/Yatay/Kayıtlar), disk kullanımı ve önbellek/video temizliği, telefondan açma adresi.
+- **Silme**: Hiçbir silme onay sormaz; bildirimdeki "Geri al" ile 6 saniye içinde geri alınır.
+- **Marka ve şablon**: Logo, marka/vurgu rengi ve altyazı stili. Üretim varsayılanları Dikey ve Yatay olarak ayrıdır; prototip seçili biçimi gösterir (yatayda logo sürüklenir). Intro/outro yalnız yatay videolara eklenir. Çıktı ayarları Kayıtlar'daki "Çıktıyı üret" içindir; hiçbir çıktı kendiliğinden üretilmez.
 
 ## Çalıştırma
 
@@ -22,7 +23,7 @@ npm install
 npm run dev            # arayüz http://localhost:5174, API 3002
 ```
 
-`.env` gerekmez. "Kick ile giriş" Kick'te kanal arayıp hesabı bağlar; Kesit Kick'e hiçbir şey yazmadığı için geliştirici uygulaması gerekmez. İstenirse `.env`'e `KICK_CLIENT_ID/SECRET` yazılarak resmi OAuth girişi açılabilir. Aynı Wi-Fi'daki telefondan açma adresi uygulamanın sol alt köşesinde ve Ayarlar'da yazar.
+Kick girişi için `.env`'e Kick uygulamasının `KICK_CLIENT_ID/SECRET` ve `KICK_REDIRECT_URI` değerleri yazılır (bu kurulumda LivoBot'un uygulaması kullanılıyor). Kick geliştirici panelinde uygulamaya `http://localhost:3002/auth/kick/callback` dönüş adresi eklenmiş olmalıdır. OAuth tanımlı değilse "Kick ile giriş" kanal adıyla bağlar; bu durumda anlık klip (sohbete yazma) kullanılamaz. Aynı Wi-Fi'daki telefondan açma adresi uygulamanın sol alt köşesinde ve Ayarlar'da yazar.
 
 Yayın için tek süreç yeterlidir. Sunucu derlenmiş arayüzü de kendisi sunar:
 

@@ -39,7 +39,7 @@ export function publicKickRoutes() {
 }
 
 /** Kanal sekmeleri, sistem bilgisi ve altyazı motoru ayarları. */
-export function settingsRoutes({ store, captions }: AppContext) {
+export function settingsRoutes({ store, captions, exporter, storage }: AppContext) {
   const r = express.Router();
 
   r.get('/me/channels', async (req, res) => {
@@ -63,6 +63,35 @@ export function settingsRoutes({ store, captions }: AppContext) {
 
   r.get('/system', (_req, res) => {
     res.json({ lan: lanAddresses(), dataDir: config.dataDir, hostname: os.hostname(), platform: process.platform });
+  });
+
+  /* ── Çıktıların kopyalandığı klasör ───────────────────────────────── */
+
+  r.get('/export', (_req, res) => {
+    res.json(exporter.settings());
+  });
+
+  r.put('/export', (req, res) => {
+    res.json(exporter.update(req.body || {}));
+  });
+
+  r.post('/export/reveal', (_req, res) => {
+    exporter.reveal();
+    res.json({ ok: true });
+  });
+
+  /* ── Disk kullanımı ve temizlik ───────────────────────────────────── */
+
+  r.get('/storage', async (_req, res) => {
+    res.json(await storage.report());
+  });
+
+  r.post('/storage/cache/clear', async (_req, res) => {
+    res.json(await storage.clearCache());
+  });
+
+  r.post('/storage/videos/clear', async (req, res) => {
+    res.json(await storage.clearVideos(req.user!.id));
   });
 
   r.get('/captions', (_req, res) => {

@@ -49,6 +49,8 @@ export interface KickClip {
   viewCount: number;
   duration: number;
   thumbnailUrl: string | null;
+  /** Oynatma adresi (Kick: HLS, KickBot: MP4). */
+  videoUrl?: string;
   createdAt: string;
   processed: boolean;
   jobId: number | null;
@@ -164,6 +166,8 @@ export interface LiveState {
   watcher: WatcherStatus;
   recorder: RecorderStatus;
   autopilot: AutopilotStatus;
+  /** Kullanıcının Kick hesabıyla sohbete yazma izni var mı (anlık klip için). */
+  chatAccess: boolean;
 }
 
 export interface ChannelInfo {
@@ -209,7 +213,6 @@ export interface ClipOptions {
 }
 
 export interface RecordingOutput {
-  auto: boolean;
   intro: boolean;
   outro: boolean;
   logo: boolean;
@@ -224,8 +227,7 @@ export interface RecordingOutput {
 export interface Studio {
   styles: { key: string; label: string; hint: string }[];
   brand: { subtitleStyle: string; brandColor: string; accentColor: string; language: 'tr' | 'en' };
-  groups: string[];
-  defaults: Record<string, ClipOptions>;
+  defaults: Record<'vertical' | 'horizontal', ClipOptions>;
   logo: { exists: boolean; url: string | null };
   intro: BrandMedia;
   outro: BrandMedia;

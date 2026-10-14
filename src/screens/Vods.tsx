@@ -8,7 +8,7 @@ import { jobsStore, refreshJobs } from '../lib/jobs.ts';
 import { navigate, sectionPath } from '../lib/router.ts';
 import { useSession } from '../lib/session.ts';
 import { useSocketEvent } from '../lib/socket.ts';
-import { toast, toastError } from '../lib/toast.ts';
+import { deleteWithUndo, toast, toastError } from '../lib/toast.ts';
 import { useResource } from '../lib/useResource.ts';
 import type { Frame, Highlight, Job, VodJob, VodVideo } from '../lib/types.ts';
 import { JobStatusLine, jobTitle } from './Library.tsx';
@@ -61,9 +61,17 @@ function VodList() {
   };
 
   const act = async (job: VodJob, action: 'pause' | 'resume' | 'cancel' | 'delete') => {
+    if (action === 'delete') {
+      deleteWithUndo({
+        label: 'İndirilen yayın silindi',
+        hide: () => jobs.setData((list) => list?.filter((j) => j.id !== job.id) ?? list),
+        restore: () => void jobs.reload(),
+        commit: () => api.del(`/api/vod-jobs/${job.id}`),
+      });
+      return;
+    }
     try {
-      if (action === 'delete') await api.del(`/api/vod-jobs/${job.id}`);
-      else await api.post(`/api/vod-jobs/${job.id}/${action}`);
+      await api.post(`/api/vod-jobs/${job.id}/${action}`);
       await jobs.reload();
     } catch (err) {
       toastError(err);

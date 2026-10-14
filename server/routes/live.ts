@@ -2,7 +2,7 @@ import axios from 'axios';
 import express from 'express';
 import type { AppContext } from '../context.ts';
 import { BROWSER_HEADERS } from '../engine.ts';
-import { accountsFrom, badRequest, engine, slugOrThrow } from '../http.ts';
+import { accountsFrom, badRequest, engine, intParam, slugOrThrow } from '../http.ts';
 import { fetchChannel } from '../lib/kick.ts';
 
 const encode = (u: string) => Buffer.from(u, 'utf8').toString('base64url');
@@ -31,7 +31,7 @@ function sameHost(candidate: string, source: string) {
  * Canlı: chat klip yakalama, yayın kaydı, canlı önizleme vekili ve
  * Nöbetçi (bilgisayar başında değilken otomatik kayıt/klip).
  */
-export function liveRoutes({ workspaces, autopilot, publishing }: AppContext) {
+export function liveRoutes({ workspaces, autopilot, publishing, kickChat, harvester }: AppContext) {
   const r = express.Router();
 
   r.get('/live', async (req, res) => {
@@ -40,7 +40,34 @@ export function liveRoutes({ workspaces, autopilot, publishing }: AppContext) {
       watcher: ws.clipWatcher.getStatus(),
       recorder: ws.recorder.getStatus(),
       autopilot: await autopilot.status(req.user!.id),
+      chatAccess: kickChat.connected(req.user!.id),
     });
+  });
+
+  /** Anlık klip: takip edilen kanalın sohbetine "!clip <sn>" yazar (kanalda klip botu varsa çalışır). */
+  r.post('/live/quick-clip', async (req, res) => {
+    const ws = await workspaces.get(req.user!.id);
+    const channel = slugOrThrow(req.body?.channel || ws.clipWatcher.channelSlug || req.user!.channelSlug);
+    res.json(await kickChat.sendClipCommand(req.user!.id, channel, Number(req.body?.seconds)));
+  });
+
+  /* ── Kanal klip takibi (Kick'e eklenen yeni klipleri indirir) ─────── */
+
+  r.get('/harvest', async (req, res) => {
+    res.json(await harvester.state(req.user!.id));
+  });
+
+  r.put('/harvest', async (req, res) => {
+    const body = req.body || {};
+    res.json(await harvester.update(req.user!.id, { ...body, channel: body.channel ? slugOrThrow(body.channel) : null }));
+  });
+
+  r.delete('/harvest/:id', async (req, res) => {
+    res.json({ ok: await harvester.remove(req.user!.id, intParam(req.params.id)) });
+  });
+
+  r.post('/harvest/:id/edit', async (req, res) => {
+    res.json({ job: await engine(() => harvester.edit(req.user!.id, intParam(req.params.id)), 502) });
   });
 
   r.get('/live/channel', async (req, res) => {

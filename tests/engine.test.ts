@@ -59,9 +59,10 @@ test('LocalQueue: eşzamanlılık sınırı ve kuyruktan çıkarma', async () =>
 });
 
 test('nöbetçi ayarı: bilinmeyen alanlar atılır, hesaplar süzülür', () => {
-  const cfg = normalizeAutopilot({ enabled: true, channel: 'kanal', record: 'evet', publishAccounts: [{ platform: 'youtube', accountId: '1' }, { bad: 1 }], hack: true });
+  const cfg = normalizeAutopilot({ enabled: true, channel: 'kanal', downloadVod: 'evet', publishAccounts: [{ platform: 'youtube', accountId: '1' }, { bad: 1 }], hack: true });
   assert.equal(cfg.enabled, true);
-  assert.equal(cfg.record, true);
+  assert.equal(cfg.downloadVod, true, 'geçersiz değer varsayılana düşer');
+  assert.equal(normalizeAutopilot({ record: false }).downloadVod, false, 'eski "record" ayarı taşınır');
   assert.equal(cfg.publishAccounts.length, 1);
   assert.equal('hack' in cfg, false);
 });

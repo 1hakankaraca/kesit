@@ -40,7 +40,7 @@ const KODLAYICILAR = {
 const HIZLAR = ['fast', 'balanced', 'quality'];
 
 const VARSAYILAN_CIKTI = {
-    auto: true,          // kayıt bitince kendiliğinden üret
+    auto: false,         // Kesit: kayıt bitince kendiliğinden ÜRETİLMEZ (ürün kararı) — çıktı elle başlatılır
     intro: true,         // intro yüklüyse başa ekle
     outro: true,         // outro yüklüyse sona ekle
     logo: true,          // logo yüklüyse alt ortaya bindir
@@ -62,7 +62,7 @@ function normalizeOutputOptions(raw = {}) {
     const d = VARSAYILAN_CIKTI;
     const r = raw && typeof raw === 'object' ? raw : {};
     return {
-        auto: r.auto === undefined ? d.auto : r.auto !== false,
+        auto: false, // Kesit: otomatik üretim seçeneği yok
         intro: r.intro === undefined ? d.intro : r.intro !== false,
         outro: r.outro === undefined ? d.outro : r.outro !== false,
         logo: r.logo === undefined ? d.logo : r.logo !== false,

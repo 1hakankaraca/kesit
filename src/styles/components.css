@@ -749,3 +749,31 @@ select.input {
     bottom: calc(84px + env(safe-area-inset-bottom));
   }
 }
+
+.toast-action {
+  margin-left: 6px;
+  padding: 5px 11px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--tape);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  pointer-events: auto;
+}
+
+.toast-close {
+  display: grid;
+  place-items: center;
+  margin-left: 2px;
+  padding: 2px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  opacity: 0.7;
+}
+
+a.btn {
+  text-decoration: none;
+}

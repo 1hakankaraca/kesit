@@ -15,7 +15,7 @@ const LOGIN_ERRORS: Record<string, string> = {
 const FEATURES: { icon: IconName; title: string; text: string }[] = [
   { icon: 'scissors', title: 'Kliplerden dikey video', text: 'Kanalın kliplerini tara, seç; yüz kamerası, altyazı ve 9:16 kompozisyon otomatik.' },
   { icon: 'film', title: 'Geçmiş yayından kesit', text: 'Yayını indir, zaman çizelgesinde işaretle ya da en iyi anları otomatik buldur.' },
-  { icon: 'shield', title: 'Sen yokken nöbet', text: 'Yayın açılınca kayıt başlar, chat klipleri işlenir; yayın bitince çıktı hazır olur.' },
+  { icon: 'shield', title: 'Sen yokken nöbet', text: 'Yayın açılınca chat klipleri yakalanır; yayın bitince yayının tamamı indirilir, editörde seni bekler.' },
   { icon: 'share', title: 'Zernio ile paylaşım', text: 'Hesabını bağla; TikTok, YouTube, Instagram için tek tıkla ya da planlı paylaş.' },
 ];
 
@@ -98,25 +98,33 @@ export function Gate() {
               {LOGIN_ERRORS[reason]}
             </p>
           )}
-          {kickOAuth ? (
-            <a className="btn btn-accent btn-large" href="/auth/kick">
-              <KickGlyph />
-              Kick ile giriş yap
-            </a>
+          {kickOAuth && !kickOpen ? (
+            <>
+              <a className="btn btn-accent btn-large" href="/auth/kick">
+                <KickGlyph />
+                Kick ile giriş yap
+              </a>
+              <p className="start-note">
+                Kick hesabınla onaylarsın. Kesit yalnız kimliğini okur ve sen "anlık klip" düğmesine bastığında sohbete <code>!clip</code> yazar.{' '}
+                <button type="button" className="link" onClick={() => setKickOpen(true)}>
+                  Kanal adıyla bağla
+                </button>
+              </p>
+            </>
           ) : kickOpen ? (
             <div className="stack-s">
               <ChannelSearch large autoFocus placeholder="Kick kullanıcı adını yaz" onPick={(h) => void link(h.slug)} />
-              {busy && <p className="start-note">Hesap bağlanıyor…</p>}
+              <p className="start-note">{busy ? 'Hesap bağlanıyor…' : 'Kanal adıyla bağlanınca anlık klip (sohbete yazma) kullanılamaz.'}</p>
             </div>
           ) : (
-            <button type="button" className="btn btn-accent btn-large" onClick={() => setKickOpen(true)}>
-              <KickGlyph />
-              Kick ile giriş yap
-            </button>
+            <>
+              <button type="button" className="btn btn-accent btn-large" onClick={() => setKickOpen(true)}>
+                <KickGlyph />
+                Kick ile giriş yap
+              </button>
+              <p className="start-note">Kick kanalını seç, hesabın bağlansın. Kesit senin adına yazmaz, yayın yapmaz.</p>
+            </>
           )}
-          <p className="start-note">
-            {kickOAuth ? 'Yalnız kullanıcı adın ve kanalın okunur.' : 'Kick kanalını seç, hesabın bağlansın.'} Kesit senin adına yazmaz, yayın yapmaz.
-          </p>
           <div className="start-or">ya da</div>
           <button type="button" className="btn btn-secondary btn-large" onClick={guest} disabled={busy}>
             <Icon name="user" />

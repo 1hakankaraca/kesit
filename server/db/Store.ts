@@ -30,7 +30,7 @@ const STREAM_RECORDING_COLUMNS = new Set([
 ]);
 const SETTINGS_COLUMNS = new Set([
   'auto_edit_clips', 'clip_defaults', 'clip_next_publish_at', 'subtitle_style', 'brand_color', 'accent_color',
-  'language', 'zernio_profile_id', 'zernio_profile_name', 'recording_output', 'autopilot', 'channel_tabs',
+  'language', 'zernio_profile_id', 'zernio_profile_name', 'recording_output', 'autopilot', 'channel_tabs', 'clip_harvest',
 ]);
 const MANUAL_CLIP_COLUMNS = new Set(['status', 'error', 'edited_clip_id']);
 
@@ -133,15 +133,27 @@ export class Store {
   upsertKickUser(u: { kickUserId: string; username: string; avatarUrl: string | null; channelSlug: string | null }) {
     const existing = this.get('SELECT * FROM users WHERE kick_user_id = ?', [u.kickUserId]);
     if (existing) {
-      this.run(`UPDATE users SET username = ?, avatar_url = ?, channel_slug = COALESCE(channel_slug, ?), last_seen_at = ${NOW_SQL} WHERE id = ?`, [
-        u.username, u.avatarUrl, u.channelSlug, existing.id,
+      this.run(`UPDATE users SET username = ?, avatar_url = ?, channel_slug = COALESCE(channel_slug, ?), own_channel = COALESCE(?, own_channel), last_seen_at = ${NOW_SQL} WHERE id = ?`, [
+        u.username, u.avatarUrl, u.channelSlug, u.channelSlug, existing.id,
       ]);
       return this.getUser(existing.id)!;
     }
-    const res = this.run('INSERT INTO users (kind, kick_user_id, username, avatar_url, channel_slug) VALUES (?, ?, ?, ?, ?)', [
-      'kick', u.kickUserId, u.username, u.avatarUrl, u.channelSlug,
+    const res = this.run('INSERT INTO users (kind, kick_user_id, username, avatar_url, channel_slug, own_channel) VALUES (?, ?, ?, ?, ?, ?)', [
+      'kick', u.kickUserId, u.username, u.avatarUrl, u.channelSlug, u.channelSlug,
     ]);
     return this.getUser(Number(res.lastInsertRowid))!;
+  }
+
+  /**
+   * Aynı Kick kanalı için tek kullanıcı: kanal adıyla bağlanmış hesap
+   * sonradan OAuth ile girerse (ya da tersi) çalışmaları aynı hesapta kalır.
+   */
+  findKickUserByChannel(slug: string) {
+    return this.get("SELECT * FROM users WHERE kind = 'kick' AND own_channel = ? ORDER BY id LIMIT 1", [slug]);
+  }
+
+  rekeyKickUser(id: number, kickUserId: string) {
+    this.run('UPDATE users SET kick_user_id = ? WHERE id = ? AND NOT EXISTS (SELECT 1 FROM users WHERE kick_user_id = ?)', [kickUserId, id, kickUserId]);
   }
 
   createGuestUser(username: string) {
@@ -206,7 +218,7 @@ export class Store {
     this.run('INSERT OR IGNORE INTO user_settings (user_id) VALUES (?)', [userId]);
     const row = this.get('SELECT * FROM user_settings WHERE user_id = ?', [userId])!;
     // Motor açık anahtarı `zernio_api_key` adıyla okur; şifreli kolon dışarı verilmez.
-    const { zernio_api_key_enc, ...rest } = row;
+    const { zernio_api_key_enc, kick_tokens_enc: _tokens, ...rest } = row;
     return { ...rest, zernio_api_key: unseal(zernio_api_key_enc) };
   }
 
@@ -222,6 +234,27 @@ export class Store {
     this.run('UPDATE user_settings SET zernio_api_key_enc = ?, zernio_profile_id = ?, zernio_profile_name = ? WHERE user_id = ?', [
       conn ? seal(conn.apiKey) : null, conn?.profileId ?? null, conn?.profileName ?? null, userId,
     ]);
+  }
+
+  /** Kick OAuth belirteçleri (şifreli). null siler. */
+  getKickTokens(userId: number): { accessToken: string; refreshToken: string | null; expiresAt: number } | null {
+    const row = this.get('SELECT kick_tokens_enc FROM user_settings WHERE user_id = ?', [userId]);
+    const raw = unseal(row?.kick_tokens_enc);
+    try {
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  setKickTokens(userId: number, tokens: { accessToken: string; refreshToken: string | null; expiresAt: number } | null) {
+    this.run('INSERT OR IGNORE INTO user_settings (user_id) VALUES (?)', [userId]);
+    this.run('UPDATE user_settings SET kick_tokens_enc = ? WHERE user_id = ?', [tokens ? seal(JSON.stringify(tokens)) : null, userId]);
+  }
+
+  /** Klip takibi açık kullanıcılar (sunucu açılışında takipçi kurulur). */
+  getHarvestUsers(): Row[] {
+    return this.all("SELECT user_id, clip_harvest FROM user_settings WHERE clip_harvest LIKE '%\"enabled\":true%'");
   }
 
   /* ── Düzenlenmiş klipler ──────────────────────────────────────────────── */

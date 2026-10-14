@@ -3,6 +3,10 @@ import type { Store } from './db/Store.ts';
 import type { ArchiveLedger } from './services/ArchiveLedger.ts';
 import type { Autopilot } from './services/Autopilot.ts';
 import type { Captions } from './services/Captions.ts';
+import type { ClipHarvester } from './services/ClipHarvester.ts';
+import type { Exporter } from './services/Exporter.ts';
+import type { KickChat } from './services/KickChat.ts';
+import type { Storage } from './services/Storage.ts';
 import type { Publishing } from './services/Publishing.ts';
 import type { Workspaces } from './services/Workspaces.ts';
 
@@ -16,4 +20,8 @@ export interface AppContext {
   archive: ArchiveLedger;
   publishing: Publishing;
   captions: Captions;
+  exporter: Exporter;
+  storage: Storage;
+  kickChat: KickChat;
+  harvester: ClipHarvester;
 }

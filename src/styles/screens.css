@@ -2381,3 +2381,294 @@ code {
   flex: none;
   margin-top: 2px;
 }
+
+/* ── Klip kartı: küçük resim önizler, gövde seçer ───────────────────────── */
+
+.clip-card {
+  position: relative;
+}
+
+.clip-thumb-play {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  cursor: zoom-in;
+}
+
+.clip-play {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: auto;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 0.55);
+  color: #fff;
+  opacity: 0;
+  transform: scale(0.9);
+  transition: opacity 0.18s, transform 0.18s var(--ease-spring);
+}
+
+.clip-thumb-play:hover .clip-play,
+.clip-thumb-play:focus-visible .clip-play {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.clip-card > .clip-check {
+  padding: 0;
+  cursor: pointer;
+}
+
+.clip-card-body {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  color: inherit;
+}
+
+.detail-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* ── Marka: biçime göre üretim varsayılanları ───────────────────────────── */
+
+.studio-defaults {
+  display: grid;
+  gap: 16px;
+}
+
+.proto-stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 300px);
+  align-items: start;
+  gap: 24px;
+}
+
+.proto-stage-v {
+  grid-template-columns: minmax(200px, 300px) minmax(240px, 1fr);
+}
+
+.proto-settings {
+  display: grid;
+  gap: 12px;
+}
+
+.proto-settings .switch {
+  padding: 0;
+}
+
+.proto-settings .eyebrow + * {
+  margin-top: -4px;
+}
+
+@media (max-width: 760px) {
+  .proto-stage,
+  .proto-stage-v {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .proto-stage-v .proto-v {
+    width: min(260px, 80%);
+    margin: 0 auto;
+  }
+}
+
+/* ── Canlı: anlık klip ve kanal klip takibi ─────────────────────────────── */
+
+.quick-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.quick-btn {
+  display: grid;
+  place-items: center;
+  gap: 0;
+  height: 66px;
+  border: 1.5px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--ink-3);
+  font-size: 12px;
+  transition: transform 0.12s var(--ease-out), border-color 0.15s, background 0.15s;
+}
+
+.quick-btn b {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 30px;
+  line-height: 1;
+  color: var(--ink);
+}
+
+.quick-btn:hover:not(:disabled) {
+  border-color: var(--g1);
+  background: color-mix(in srgb, var(--g1) 8%, var(--surface));
+}
+
+.quick-btn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.quick-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pad-top-section {
+  margin-top: 24px;
+}
+
+.harvest-list {
+  display: grid;
+  margin-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.harvest-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.harvest-thumb {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 96px;
+  height: 54px;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: var(--sunken);
+  color: var(--ink-3);
+  overflow: hidden;
+}
+
+.harvest-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.harvest-thumb .clip-play {
+  width: 30px;
+  height: 30px;
+}
+
+.harvest-thumb:hover .clip-play {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.harvest-body {
+  display: grid;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.harvest-body b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 560px) {
+  .quick-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* ── Ayarlar: model, disk ───────────────────────────────────────────────── */
+
+.model {
+  position: relative;
+}
+
+.model-recommended {
+  border-color: color-mix(in srgb, var(--g1) 55%, var(--line));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--g1) 12%, transparent);
+}
+
+.model-badge {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--tape);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.input.mono {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.disk-total {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 34px;
+  line-height: 1;
+}
+
+.disk-list {
+  display: grid;
+  gap: 14px;
+}
+
+.disk-row {
+  display: grid;
+  gap: 5px;
+  transition: opacity 0.2s;
+}
+
+.disk-row-pending {
+  opacity: 0.45;
+}
+
+.disk-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+}
+
+.disk-head span {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+}
+
+.disk-bar {
+  display: block;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--sunken);
+  overflow: hidden;
+}
+
+.disk-bar span {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  border-radius: inherit;
+  background: var(--tape);
+}

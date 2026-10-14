@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config.ts';
 import type { ArchiveHooks, Row, Store } from '../db/Store.ts';
+import type { ExportKind, Exporter } from './Exporter.ts';
 
 type Kind = 'clip' | 'recording' | 'vod';
 
@@ -53,7 +54,10 @@ function clipUrlToPath(url: string | null | undefined): string | null {
  * için silinmiş içerik de geçmişte görsel olarak tanınır.
  */
 export class ArchiveLedger implements ArchiveHooks {
-  constructor(private store: Store) {}
+  constructor(
+    private store: Store,
+    private exporter: Exporter | null = null,
+  ) {}
 
   /* ── Kancalar (Store çağırır) ─────────────────────────────────────────── */
 
@@ -72,6 +76,10 @@ export class ArchiveLedger implements ArchiveHooks {
       published_at: row.published_at || null,
     });
     this.keepThumb(row.user_id, 'clip', row.id, clipUrlToPath(row.thumbnail_url));
+    if (row.status === 'ready') {
+      const format: ExportKind = options.outputFormat === 'horizontal' ? 'horizontal' : 'vertical';
+      this.exportOnce(row.user_id, 'clip', row.id, path.join(config.clipDir, String(row.user_id), 'vertical', `${row.id}.mp4`), format, row.title || `Klip ${row.id}`);
+    }
   }
 
   clipDeleted(userId: number, id: number) {
@@ -92,6 +100,7 @@ export class ArchiveLedger implements ArchiveHooks {
       publish_platforms: row.publish_status ? JSON.stringify([{ platform: 'youtube', status: row.publish_status }]) : null,
       published_at: row.published_at || null,
     });
+    if (final) this.exportOnce(row.user_id, 'recording', row.id, row.final_path, 'recording', row.title || `Kayıt ${row.id}`);
     const video = final ? row.final_path : row.file_path;
     if (video && !this.thumbPath(row.user_id, 'recording', row.id, true)) this.grabFrame(row.user_id, row.id, video);
   }
@@ -203,6 +212,15 @@ export class ArchiveLedger implements ArchiveHooks {
     }
     const vod = this.store.get('SELECT vod_path FROM vod_scan_jobs WHERE id = ?', [r.ref_id]);
     return !!vod?.vod_path && fs.existsSync(vod.vod_path);
+  }
+
+  /** Hazır dosyayı İndirilenler klasörüne bir kez kopyalar. */
+  private exportOnce(userId: number, kind: Kind, refId: number, source: string, as: ExportKind, title: string) {
+    if (!this.exporter) return;
+    const row = this.store.get('SELECT exported_path FROM archive_entries WHERE user_id = ? AND kind = ? AND ref_id = ?', [userId, kind, refId]);
+    if (!row || row.exported_path) return;
+    const target = this.exporter.copy(source, as, title, refId);
+    if (target) this.store.run('UPDATE archive_entries SET exported_path = ? WHERE user_id = ? AND kind = ? AND ref_id = ?', [target, userId, kind, refId]);
   }
 
   private exists(userId: number, kind: Kind, refId: number) {

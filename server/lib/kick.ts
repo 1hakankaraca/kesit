@@ -3,6 +3,8 @@ import { BROWSER_HEADERS, SLUG_PATTERN } from '../engine.ts';
 
 export interface ChannelInfo {
   slug: string;
+  /** Kanal sahibinin Kick kullanıcı kimliği (sohbet API'si bunu ister). */
+  userId: number | null;
   username: string;
   avatarUrl: string | null;
   isLive: boolean;
@@ -27,6 +29,7 @@ export async function fetchChannel(slug: string): Promise<ChannelInfo> {
   const live = d.livestream ?? null;
   return {
     slug,
+    userId: Number(d.user_id) || null,
     username: d.user?.username || slug,
     avatarUrl: d.user?.profile_pic || null,
     isLive: !!live,

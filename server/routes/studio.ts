@@ -12,6 +12,16 @@ const run = promisify(execFile);
 const HEX = /^#[0-9a-f]{6}$/i;
 const LOGO_MAX_BYTES = 5 * 1024 * 1024;
 const BRAND_KINDS = ['intro', 'outro'] as const;
+
+/**
+ * Arayüzde yalnız iki biçim var; motor ise kaynağa göre dört grup okur.
+ * Dikey ayar üç dikey gruba birden yazılır, yatay ayar yatay gruba.
+ */
+const FORMAT_GROUPS = {
+  vertical: ['gezgin', 'vodscan', 'live'],
+  horizontal: ['horizontal'],
+} as const;
+type Format = keyof typeof FORMAT_GROUPS;
 type BrandKind = (typeof BRAND_KINDS)[number];
 
 const userDir = (userId: number) => path.join(config.clipDir, String(userId));
@@ -54,9 +64,8 @@ export function studioRoutes({ store, workspaces }: AppContext) {
     const userId = req.user!.id;
     const s = await store.getSettings(userId);
     const saved = parseJson(s.clip_defaults);
-    const defaults = Object.fromEntries(
-      ClipEditorManager.SETTINGS_GROUPS.map((g: string) => [g, ClipEditorManager.normalizeClipOptions(ClipEditorManager._extractGroupDefaults(saved, g))]),
-    );
+    const read = (group: string) => ClipEditorManager.normalizeClipOptions(ClipEditorManager._extractGroupDefaults(saved, group));
+    const defaults = { vertical: read('gezgin'), horizontal: read('horizontal') };
     const ws = await workspaces.get(userId);
     const logo = ws.clipEditor.getLogoPath();
     res.json({
@@ -67,7 +76,6 @@ export function studioRoutes({ store, workspaces }: AppContext) {
         accentColor: s.accent_color,
         language: s.language || 'tr',
       },
-      groups: ClipEditorManager.SETTINGS_GROUPS,
       defaults,
       logo: { exists: !!logo, url: logo ? fileUrl(userId, 'logo.png') : null },
       intro: await mediaInfo(userId, 'intro'),
@@ -91,18 +99,22 @@ export function studioRoutes({ store, workspaces }: AppContext) {
   });
 
   r.put('/studio/defaults', async (req, res) => {
-    const groups: string[] = ClipEditorManager.SETTINGS_GROUPS;
-    const group = groups.includes(req.body?.group) ? req.body.group : null;
-    if (!group) throw badRequest('Geçersiz ayar grubu');
-    const defaults = ClipEditorManager.normalizeClipOptions(req.body?.options || {});
+    const format = req.body?.format as Format;
+    if (!(format in FORMAT_GROUPS)) throw badRequest('Biçim dikey ya da yatay olmalı');
+    const raw = req.body?.options || {};
+    // Dikey çıktılara intro/outro eklenmez.
+    const defaults = ClipEditorManager.normalizeClipOptions(
+      format === 'vertical' ? { ...raw, outputFormat: 'vertical', intro: false, outro: false } : { ...raw, outputFormat: 'horizontal' },
+    );
     const s = await store.getSettings(req.user!.id);
     const parsed = parseJson(s.clip_defaults);
+    const groups: string[] = ClipEditorManager.SETTINGS_GROUPS;
     const grouped = groups.every((g) => parsed[g] && typeof parsed[g] === 'object')
       ? { ...parsed }
       : Object.fromEntries(groups.map((g) => [g, parsed]));
-    grouped[group] = defaults;
+    for (const g of FORMAT_GROUPS[format]) grouped[g] = defaults;
     await store.updateSettings(req.user!.id, { clip_defaults: JSON.stringify(grouped) });
-    res.json({ group, defaults });
+    res.json({ format, defaults });
   });
 
   r.put('/studio/recording-output', async (req, res) => {

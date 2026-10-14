@@ -11,8 +11,8 @@ const OAUTH_COOKIE = 'kesit_oauth';
 const KICK_AUTHORIZE = 'https://id.kick.com/oauth/authorize';
 const KICK_TOKEN = 'https://id.kick.com/oauth/token';
 const KICK_API = 'https://api.kick.com/public/v1';
-/** Yalnız kimlik ve kanal adı okunur; Kesit kullanıcı adına hiçbir şey yazmaz. */
-const KICK_SCOPES = 'user:read channel:read';
+/** Kimlik ve kanal okunur; sohbete yalnız kullanıcı "anlık klip" düğmesine basınca "!clip" yazılır. */
+const KICK_SCOPES = 'user:read channel:read chat:write';
 
 export interface SessionUser {
   id: number;
@@ -127,7 +127,8 @@ export function authRouter(store: Store): Router {
       res.status(404).json({ error: 'Bu adla bir Kick kanalı bulunamadı' });
       return;
     }
-    const user = store.upsertKickUser({ kickUserId: `kanal:${slug}`, username: info.username, avatarUrl: info.avatarUrl, channelSlug: slug });
+    const existing = store.findKickUserByChannel(slug);
+    const user = store.upsertKickUser({ kickUserId: existing?.kick_user_id ?? `kanal:${slug}`, username: info.username, avatarUrl: info.avatarUrl, channelSlug: slug });
     endSession(store, req, res);
     startSession(store, res, user.id);
     res.json({ user: toSessionUser(user) });
@@ -135,7 +136,7 @@ export function authRouter(store: Store): Router {
 
   router.get('/kick', (_req, res) => {
     if (!kickLoginEnabled()) {
-      res.redirect('/?giris=kick-kapali');
+      res.redirect(`${config.baseUrl}/?giris=kick-kapali`);
       return;
     }
     const verifier = base64url(randomBytes(32));
@@ -153,11 +154,12 @@ export function authRouter(store: Store): Router {
     res.redirect(`${KICK_AUTHORIZE}?${params}`);
   });
 
-  router.get('/kick/callback', async (req, res) => {
+  // Kick'te kayıtlı dönüş adresi LivoBot'unkiyle (/auth/bot/callback) aynı olabilir; ikisi de karşılanır.
+  const callback = async (req: Request, res: Response) => {
     const pending = parseOAuthCookie(req.signedCookies?.[OAUTH_COOKIE]);
     res.clearCookie(OAUTH_COOKIE, { path: '/' });
     if (!pending || typeof req.query.code !== 'string' || req.query.state !== pending.state) {
-      res.redirect('/?giris=gecersiz');
+      res.redirect(`${config.baseUrl}/?giris=gecersiz`);
       return;
     }
     try {
@@ -181,6 +183,9 @@ export function authRouter(store: Store): Router {
         .then((r) => r.data?.data?.[0]?.slug ?? null)
         .catch(() => null);
 
+      // Daha önce kanal adıyla bağlanmış hesap varsa gerçek Kick kimliğine taşınır.
+      const linked = channel ? store.findKickUserByChannel(channel) : null;
+      if (linked?.kick_user_id?.startsWith('kanal:')) store.rekeyKickUser(linked.id, String(me.user_id));
       const user = store.upsertKickUser({
         kickUserId: String(me.user_id),
         username: me.name || channel || 'kick',
@@ -188,14 +193,21 @@ export function authRouter(store: Store): Router {
         channelSlug: channel,
       });
 
+      store.setKickTokens(user.id, {
+        accessToken: token.data.access_token,
+        refreshToken: token.data.refresh_token || null,
+        expiresAt: Date.now() + (Number(token.data.expires_in) || 3600) * 1000,
+      });
       endSession(store, req, res);
       startSession(store, res, user.id);
-      res.redirect('/');
+      res.redirect(`${config.baseUrl}/`);
     } catch (err) {
       console.error('[Kick giriş] Başarısız:', (err as Error).message);
-      res.redirect('/?giris=hata');
+      res.redirect(`${config.baseUrl}/?giris=hata`);
     }
-  });
+  };
+  router.get('/kick/callback', callback);
+  router.get('/bot/callback', callback);
 
   router.post('/logout', (req, res) => {
     endSession(store, req, res);

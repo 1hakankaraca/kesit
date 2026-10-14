@@ -225,4 +225,48 @@ export const MIGRATIONS: { id: string; sql: string }[] = [
       ALTER TABLE user_settings ADD COLUMN channel_tabs TEXT DEFAULT '[]';
     `,
   },
+  {
+    id: '003-disa-aktarma',
+    sql: `
+      -- İndirilenler klasörüne kopyalanan dosyanın yolu (bir kez kopyalanır).
+      ALTER TABLE archive_entries ADD COLUMN exported_path TEXT;
+    `,
+  },
+  {
+    id: '004-kick-oturum-ve-klip-takibi',
+    sql: `
+      -- Kick OAuth belirteçleri (şifreli JSON) — yalnız sohbete !clip yazmak için.
+      ALTER TABLE user_settings ADD COLUMN kick_tokens_enc TEXT;
+      -- Kanal klip takibi ayarı: { enabled, channel, autoEdit }
+      ALTER TABLE user_settings ADD COLUMN clip_harvest TEXT DEFAULT '{}';
+
+      -- Kick'te yeni yayımlanan ve arka planda indirilen klipler.
+      CREATE TABLE harvested_clips (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        clip_id TEXT NOT NULL,
+        channel_slug TEXT NOT NULL,
+        title TEXT,
+        duration_sec REAL,
+        thumbnail_url TEXT,
+        clip_created_at TEXT,
+        status TEXT NOT NULL DEFAULT 'seen',
+        file_path TEXT,
+        file_size INTEGER,
+        error TEXT,
+        job_id INTEGER,
+        created_at TEXT NOT NULL DEFAULT ${NOW},
+        UNIQUE (user_id, clip_id)
+      );
+      CREATE INDEX idx_harvested_user ON harvested_clips (user_id, id DESC);
+    `,
+  },
+  {
+    id: '005-kendi-kanali',
+    sql: `
+      -- Hesabın kendi Kick kanalı (users.channel_slug etkin sekmedir, değişir).
+      ALTER TABLE users ADD COLUMN own_channel TEXT;
+      UPDATE users SET own_channel = substr(kick_user_id, 7) WHERE kick_user_id LIKE 'kanal:%';
+    `,
+  },
 ];

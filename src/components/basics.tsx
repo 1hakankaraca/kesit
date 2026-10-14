@@ -180,26 +180,34 @@ export function Toasts() {
     <div className="toasts" aria-live="polite">
       <AnimatePresence>
         {toasts.map((t) => (
-          <motion.button
+          <motion.div
             key={t.id}
-            type="button"
             layout
+            role="status"
             className={`toast toast-${t.tone}`}
-            onClick={() => dismiss(t.id)}
             initial={{ opacity: 0, y: 16, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, x: 40 }}
           >
-            <Icon name={t.tone === 'error' ? 'x' : 'check'} size={16} />
-            {t.text}
-          </motion.button>
+            <Icon name={t.tone === 'error' ? 'x' : t.action ? 'trash' : 'check'} size={16} />
+            <span>{t.text}</span>
+            {t.action ? (
+              <button type="button" className="toast-action" onClick={t.action.run}>
+                {t.action.label}
+              </button>
+            ) : (
+              <button type="button" className="toast-close" onClick={() => dismiss(t.id)} aria-label="Kapat">
+                <Icon name="x" size={14} />
+              </button>
+            )}
+          </motion.div>
         ))}
       </AnimatePresence>
     </div>
   );
 }
 
-const guideSeenKey = (k: GuideKey) => `kesit.rehber.${k}`;
+const guideSeenKey = (k: GuideKey) => `kesit.rehber.v2.${k}`;
 
 function guideSeen(k: GuideKey) {
   try {
