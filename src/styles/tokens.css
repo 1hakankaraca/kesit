@@ -1,0 +1,78 @@
+/* Kesit kimliği: zaman çizelgesi şeridi, değişen bir gradyanla. --g1 ve --g2 o anki
+   çalışma alanına göre betikten atanır, tarayıcı aradaki geçişi kendisi yumuşatır. */
+@property --g1 {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #f43f5e;
+}
+
+@property --g2 {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #f97316;
+}
+
+:root {
+  --g1: #f43f5e;
+  --g2: #f97316;
+  transition:
+    --g1 0.9s ease,
+    --g2 0.9s ease;
+
+  --paper: #eef1f4;
+  --surface: #ffffff;
+  --sunken: #e3e7ec;
+  --ink: #10151c;
+  --ink-2: #4b5664;
+  --ink-3: #7c8796;
+  --line: #d6dce3;
+  --line-strong: #b7c0cb;
+
+  --tape: linear-gradient(100deg, var(--g1), var(--g2));
+  --tape-edge: rgb(0 0 0 / 0.2);
+  --tape-ink: #ffffff;
+  --mark: #dc3626;
+  --on-mark: #ffffff;
+
+  --live: #e11d48;
+  --ok: #15803d;
+  --warn: #b45309;
+
+  --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+  --font-display: 'Sofia Sans Extra Condensed Variable', 'Arial Narrow', 'Helvetica Neue', sans-serif;
+  --font-body: 'Instrument Sans Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  --r-s: 8px;
+  --r-m: 14px;
+  --r-l: 22px;
+
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+
+  --shadow: 0 1px 2px rgb(16 21 28 / 0.05), 0 8px 24px -12px rgb(16 21 28 / 0.14);
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #0e1217;
+    --surface: #171c23;
+    --sunken: #090c10;
+    --ink: #f1f3f6;
+    --ink-2: #aab4c1;
+    --ink-3: #7a8594;
+    --line: #262d37;
+    --line-strong: #3a434f;
+
+    --mark: #ff5a48;
+    --on-mark: #1a0502;
+    --live: #fb3b62;
+    --ok: #4ade80;
+    --warn: #fbbf24;
+
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 12px 28px -14px rgb(0 0 0 / 0.7);
+
+    color-scheme: dark;
+  }
+}
