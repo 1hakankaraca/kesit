@@ -19,9 +19,11 @@ interface SystemInfo {
 
 interface CaptionsStatus {
   engine: 'elevenlabs' | 'whisper' | null;
+  platform: string;
   elevenlabs: { connected: boolean; keyHint: string | null };
   whisper: {
     binary: boolean;
+    binaryPath: string | null;
     active: string | null;
     models: { id: string; label: string; hint: string; sizeBytes: number; installed: boolean }[];
     download: { id: string; percent: number } | null;
@@ -225,7 +227,18 @@ export function CaptionsPanel() {
           <p className="muted">İnternet olmadan çalışır. Bir kez indirilir.</p>
           {!s.whisper.binary ? (
             <p className="notice-box">
-              Gerekli program (whisper) bu bilgisayarda kurulu değil. Terminalde <code>brew install whisper-cpp</code> çalıştırıp bu sayfayı yenile.
+              Gerekli program (whisper) bu bilgisayarda kurulu değil.{' '}
+              {s.platform === 'win32' ? (
+                <>
+                  Kesit App'te <b>Ayarlar → Kurulumu yeniden çalıştır</b> de; whisper kendiliğinden indirilir. Sonra sunucuyu yeniden başlatıp bu sayfayı yenile.
+                </>
+              ) : s.platform === 'darwin' ? (
+                <>
+                  Kesit App'te <b>Ayarlar → Kurulumu yeniden çalıştır</b> de (Homebrew varsa kurar) ya da Terminal'de <code>brew install whisper-cpp</code> çalıştır; sonra sunucuyu yeniden başlatıp bu sayfayı yenile.
+                </>
+              ) : (
+                <>whisper.cpp kurup <code>whisper-cli</code> komutunu PATH'e ekle; sonra bu sayfayı yenile.</>
+              )}
             </p>
           ) : (
             <ul className="model-list">

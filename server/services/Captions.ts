@@ -1,9 +1,9 @@
 import axios from 'axios';
-import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Server as IOServer } from 'socket.io';
 import { config } from '../config.ts';
+import { Transcriber } from '../engine.ts';
 import type { Store } from '../db/Store.ts';
 import { HttpError, badRequest } from '../http.ts';
 
@@ -20,9 +20,11 @@ const KEY_MODEL = 'captions.whisper_model';
 
 export interface CaptionsStatus {
   engine: 'elevenlabs' | 'whisper' | null;
+  platform: string;
   elevenlabs: { connected: boolean; keyHint: string | null };
   whisper: {
     binary: boolean;
+    binaryPath: string | null;
     active: ModelId | null;
     models: { id: ModelId; label: string; hint: string; sizeBytes: number; installed: boolean }[];
     download: { id: ModelId; percent: number } | null;
@@ -60,12 +62,15 @@ export class Captions {
     const key = this.store.getAppSetting(KEY_ELEVENLABS, { secret: true });
     const activePath = process.env.WHISPER_MODEL;
     const active = WHISPER_MODELS.find((m) => this.modelPath(m.id) === activePath && fs.existsSync(activePath))?.id ?? null;
-    const binary = this.hasBinary();
+    const binaryPath = this.binaryPath();
+    const binary = !!binaryPath;
     return {
       engine: key ? 'elevenlabs' : binary && active ? 'whisper' : null,
+      platform: process.platform,
       elevenlabs: { connected: !!key, keyHint: key ? `••••${key.slice(-4)}` : null },
       whisper: {
         binary,
+        binaryPath,
         active,
         models: WHISPER_MODELS.map((m) => ({ id: m.id, label: m.label, hint: m.hint, sizeBytes: m.sizeBytes, installed: fs.existsSync(this.modelPath(m.id)) })),
         download: this.download ? { id: this.download.id, percent: this.download.percent } : null,
@@ -106,7 +111,7 @@ export class Captions {
     const model = WHISPER_MODELS.find((m) => m.id === id);
     if (!model) throw badRequest('Bilinmeyen model');
     if (this.download) throw new HttpError(409, 'Zaten bir model iniyor');
-    if (!this.hasBinary()) throw badRequest('whisper-cli bulunamadı — önce whisper.cpp kurulmalı (brew install whisper-cpp)');
+    if (!this.hasBinary()) throw badRequest(process.platform === 'win32' ? 'whisper-cli bulunamadı — Kesit App\'te "Kurulumu yeniden çalıştır" ile indirilir' : 'whisper-cli bulunamadı — Kesit App\'teki kurulum ya da "brew install whisper-cpp" ile kurulmalı');
     const abort = new AbortController();
     this.download = { id: model.id, percent: 0, abort };
     void this.runDownload(model, abort).catch(() => {});
@@ -171,12 +176,12 @@ export class Captions {
     return path.join(this.modelsDir, model.file);
   }
 
+  /** whisper-cli yolu; `which` yerine PATH taranır (Windows'ta da çalışır). */
+  private binaryPath(): string | null {
+    return (Transcriber.findWhisperBin as () => string | null)();
+  }
+
   private hasBinary() {
-    try {
-      execFileSync('which', [process.env.WHISPER_BIN || 'whisper-cli'], { stdio: 'ignore' });
-      return true;
-    } catch {
-      return false;
-    }
+    return !!this.binaryPath();
   }
 }

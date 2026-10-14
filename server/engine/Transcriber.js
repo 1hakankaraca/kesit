@@ -16,6 +16,28 @@ const axios = require('axios');
 // Kesit: ikili ve model yolu çalışma anında okunur — model Ayarlar'dan
 // indirilebildiği için süreç açıkken değişebilir (bkz. server/services/Captions.ts).
 const whisperBin = () => process.env.WHISPER_BIN || 'whisper-cli';
+
+/**
+ * whisper-cli'nin yolu (platformdan bağımsız): WHISPER_BIN tam yolsa o,
+ * değilse PATH dizinlerinde whisper-cli / whisper-cli.exe / whisper-cpp aranır.
+ * `which` kullanılmaz — Windows'ta yok, ayrıca Kesit App PATH'i kendisi kurar.
+ */
+function findWhisperBin() {
+    const env = process.env.WHISPER_BIN;
+    if (env && path.isAbsolute(env)) return fs.existsSync(env) ? env : null;
+    const names = env ? [env] : process.platform === 'win32' ? ['whisper-cli.exe', 'whisper-cli'] : ['whisper-cli', 'whisper-cpp'];
+    const dirs = (process.env.PATH || '').split(path.delimiter).filter(Boolean);
+    if (process.platform === 'darwin') dirs.push('/opt/homebrew/bin', '/usr/local/bin');
+    for (const dir of dirs) {
+        for (const name of names) {
+            const p = path.join(dir, name);
+            try {
+                if (fs.statSync(p).isFile()) return p;
+            } catch { /* yok */ }
+        }
+    }
+    return null;
+}
 const whisperModel = () => process.env.WHISPER_MODEL || '';
 
 const ELEVENLABS_STT_URL = 'https://api.elevenlabs.io/v1/speech-to-text';
@@ -56,12 +78,7 @@ class Transcriber {
 
     static hasWhisper() {
         if (!whisperModel() || !fs.existsSync(whisperModel())) return false;
-        try {
-            require('child_process').execSync(`which ${whisperBin()}`, { stdio: 'ignore' });
-            return true;
-        } catch {
-            return false;
-        }
+        return !!findWhisperBin();
     }
 
     /**
@@ -216,7 +233,7 @@ class Transcriber {
         // klipler 300 sn'yi meşru şekilde aşabilir — süreyle ölçekle
         const whisperTimeout = Math.max(300000, Math.round(durationSec * 8000));
 
-        await this._run(whisperBin(), [
+        await this._run(findWhisperBin() || whisperBin(), [
             '-m', whisperModel(),
             '-f', wavPath,
             '-l', language || 'auto',
@@ -415,5 +432,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         });
     }
 }
+
+Transcriber.findWhisperBin = findWhisperBin;
 
 module.exports = Transcriber;
