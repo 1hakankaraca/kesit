@@ -11,6 +11,9 @@ on:
 permissions:
   contents: write
 
+env:
+  WHISPER_TAG: v1.9.5
+
 jobs:
   # Release'i tek bir iş önceden açar; iki platform aynı anda yükleyince
   # electron-builder aynı etikete iki Release açıyordu.
@@ -32,10 +35,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Her mimari kendi koşucusunda: ffmpeg/ffprobe ve whisper o mimari için gelir.
           - os: macos-latest
-            args: --mac
+            args: --mac --arm64
+            whisper: whisper-mac-arm64
+          - os: macos-13
+            args: --mac --x64
+            whisper: whisper-mac-x64
           - os: windows-latest
             args: --win
+            whisper: whisper-win-x64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -58,9 +67,46 @@ jobs:
       - name: Testler ve tip denetimi
         run: npm test && npm run typecheck
 
-      - name: Paketle ve yayınla
-        run: npm run prepare:all && npx electron-builder ${{ matrix.args }} --publish always
+      - name: Arayüz, sunucu paketi ve ffmpeg
+        run: npm run prepare:all
         working-directory: desktop
+
+      # whisper.cpp kaynaktan derlenir ve whisper-cli paketle gelir; kullanıcı
+      # hiçbir şey indirmez. (Resmi sürümlerde hazır ikili dosya yok.)
+      - name: whisper.cpp derle (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          git clone --depth 1 --branch ${{ env.WHISPER_TAG }} https://github.com/ggml-org/whisper.cpp.git whisper-src
+          cmake -S whisper-src -B whisper-src/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+          cmake --build whisper-src/build --config Release --target whisper-cli --parallel
+          Copy-Item whisper-src/build/bin/Release/whisper-cli.exe desktop/bin/whisper-cli.exe
+          New-Item -ItemType Directory -Force desktop/release | Out-Null
+          Compress-Archive -Path desktop/bin/whisper-cli.exe -DestinationPath desktop/release/${{ matrix.whisper }}.zip -Force
+          & desktop/bin/whisper-cli.exe --help | Select-Object -First 2
+
+      - name: whisper.cpp derle (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          git clone --depth 1 --branch ${{ env.WHISPER_TAG }} https://github.com/ggml-org/whisper.cpp.git whisper-src
+          cmake -S whisper-src -B whisper-src/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
+          cmake --build whisper-src/build --config Release --target whisper-cli --parallel
+          cp whisper-src/build/bin/whisper-cli desktop/bin/whisper-cli
+          chmod +x desktop/bin/whisper-cli
+          mkdir -p desktop/release
+          (cd desktop/bin && zip -q ../release/${{ matrix.whisper }}.zip whisper-cli)
+          desktop/bin/whisper-cli --help | head -2 || true
+          file desktop/bin/whisper-cli
+
+      - name: Paketle ve yayınla
+        run: npx electron-builder ${{ matrix.args }} --publish always
+        working-directory: desktop
+
+      - name: whisper paketini Release'e ekle
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: gh release upload "${GITHUB_REF_NAME}" desktop/release/whisper-*.zip --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # İmza sertifikası yok: macOS'ta imzasız paket üretilir.
@@ -68,7 +114,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: kesit-app-${{ matrix.os }}
+          name: kesit-app-${{ matrix.os }}-${{ matrix.whisper }}
           path: |
             desktop/release/*.dmg
             desktop/release/*.exe

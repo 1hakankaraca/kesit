@@ -27,7 +27,6 @@ const LOG_MAX = 2000;
 const STOP_TIMEOUT_MS = 8000;
 const SHORT_PORT = 80;
 const SHORT_HOST = 'kesit.localhost';
-const WHISPER_REPO = 'ggml-org/whisper.cpp';
 // electron-builder paketlerken package.json'daki "build" alanını atar; depo burada sabit.
 const GITHUB = { owner: '1hakankaraca', repo: 'kesit' };
 const IS_WIN = process.platform === 'win32';
@@ -157,7 +156,7 @@ function publicState() {
     startedAt: server.startedAt,
     lastError: server.lastError,
     ffmpeg: exists(path.join(paths.binDir, `ffmpeg${EXE}`)) ? 'bundled' : 'system',
-    whisper: !!settings.whisperBin || !!findInPath('whisper-cli'),
+    whisper: !!findWhisper(),
     version: app.getVersion(),
     platform: process.platform,
     dataDir: settings.dataDir,
@@ -388,9 +387,12 @@ function findInPath(name) {
 }
 
 function findWhisper() {
-  if (settings.whisperBin && exists(settings.whisperBin)) return settings.whisperBin;
+  // Öncelik: paketle gelen (desktop/bin) → kurulumun indirdiği → ayar → PATH.
+  const bundled = path.join(paths.binDir, `whisper-cli${EXE}`);
+  if (exists(bundled)) return bundled;
   const local = findFile(path.join(paths.toolsDir, 'whisper'), `whisper-cli${EXE}`);
   if (local) return local;
+  if (settings.whisperBin && exists(settings.whisperBin)) return settings.whisperBin;
   return findInPath('whisper-cli') || (IS_MAC ? findInPath('whisper-cpp') : null);
 }
 
@@ -443,23 +445,30 @@ async function downloadFile(url, dest, onProgress) {
   await new Promise((r) => out.end(r));
 }
 
-/** Windows: whisper.cpp'nin hazır derlemesini indirip tools/whisper'a açar. */
-async function installWhisperWindows(s) {
-  const rel = await (await fetch(`https://api.github.com/repos/${WHISPER_REPO}/releases/latest`, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'kesit-app' }, signal: AbortSignal.timeout(15000) })).json();
-  const asset = (rel.assets || []).find((a) => /^whisper-bin-x64\.zip$/i.test(a.name));
-  if (!asset) throw new Error('whisper-bin-x64.zip bulunamadı');
+/**
+ * Kesit'in kendi Release'inden derlenmiş whisper-cli'yi indirir (CI her sürümde
+ * whisper.cpp'yi derleyip whisper-win-x64.zip / whisper-mac-universal.zip ekler).
+ * Normalde gerek kalmaz — ikili dosya paketle gelir; bu yol eski/eksik paket içindir.
+ */
+async function installWhisperFromRelease(s) {
+  const want = IS_WIN ? 'whisper-win-x64.zip' : `whisper-mac-${process.arch}.zip`;
+  const api = `https://api.github.com/repos/${GITHUB.owner}/${GITHUB.repo}/releases/latest`;
+  const rel = await (await fetch(api, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'kesit-app' }, signal: AbortSignal.timeout(15000) })).json();
+  const asset = (rel.assets || []).find((a) => a.name === want);
+  if (!asset) throw new Error(`${want} Release'de yok (${rel.tag_name || 'sürüm bulunamadı'})`);
   const dir = path.join(paths.toolsDir, 'whisper');
   fs.rmSync(dir, { recursive: true, force: true });
+  fs.mkdirSync(dir, { recursive: true });
   const zip = path.join(paths.toolsDir, 'whisper.zip');
   s.note(`${rel.tag_name} indiriliyor…`);
   await downloadFile(asset.browser_download_url, zip, (p) => s.note(`${rel.tag_name} indiriliyor %${p}`));
-  fs.mkdirSync(dir, { recursive: true });
   s.note('Açılıyor…');
-  // Windows 10+ tar.exe zip açabilir.
+  // Windows 10+ tar.exe zip açabilir; macOS'ta da tar zip okur.
   await execFileP('tar', ['-xf', zip, '-C', dir], { windowsHide: true });
   fs.rmSync(zip, { force: true });
-  const bin = findFile(dir, 'whisper-cli.exe', 4);
-  if (!bin) throw new Error('Paket açıldı ama whisper-cli.exe bulunamadı');
+  const bin = findFile(dir, `whisper-cli${EXE}`, 4);
+  if (!bin) throw new Error('Paket açıldı ama whisper-cli bulunamadı');
+  if (!IS_WIN) fs.chmodSync(bin, 0o755);
   return bin;
 }
 
@@ -532,7 +541,14 @@ async function runSetup() {
     if (bin) s.ok(`Hazır · ${bin}`);
     else {
       try {
-        bin = IS_WIN ? await installWhisperWindows(s) : IS_MAC ? await installWhisperMac(s) : null;
+        // Önce Kesit'in kendi derlemesi; macOS'ta o da yoksa Homebrew.
+        try {
+          bin = await installWhisperFromRelease(s);
+        } catch (err) {
+          appLog(`whisper Release'den alınamadı: ${err.message}`, 'err');
+          if (!IS_MAC) throw err;
+          bin = await installWhisperMac(s);
+        }
         if (bin) s.ok(`Kuruldu · ${bin}`);
         else s.skip('Bu sistemde otomatik kurulamıyor; Ayarlar\'da ElevenLabs anahtarı kullanılabilir');
       } catch (err) {
