@@ -22,6 +22,10 @@ const fs = require('fs');
 const path = require('path');
 const CamFull = require('./CamFull');
 
+// Yatay altyazı oranları (bkz. subtitleLayout).
+const HORIZONTAL_FONT_BOOST = 1.55;
+const HORIZONTAL_SUB_MARGIN = 0.07;
+
 // Concat için iki tarafın ses biçimi eşitlenir; ses akışı olmayan taraf
 // (sessiz intro gibi) aynı biçimde sessizlikle doldurulur.
 const SES_BICIMI = 'aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo';
@@ -34,24 +38,27 @@ class HorizontalComposer {
      * @param {string|null} [p.logoPath]
      * @param {string|null} [p.introPath] - başa eklenecek intro videosu (varsa)
      * @param {string|null} [p.outroPath] - sona eklenecek outro videosu (varsa)
+     * @param {string|null} [p.assPath] - kesite gömülecek ASS altyazı (varsa; intro/outro'ya basılmaz)
      * @param {{rect:{x,y,w,h}, face?:{x,y}, ranges:Array<{start,end}>}|null} [p.camFull]
      *   - tam ekran bölgeleri: webcam kutusu (kaynak piksel) + kesit saniyesi aralıkları
      */
-    async compose({ inputPath, outputPath, logoPath = null, introPath = null, outroPath = null, camFull = null,
+    async compose({ inputPath, outputPath, logoPath = null, introPath = null, outroPath = null, assPath = null, camFull = null,
         logoScale = 1, logoOpacity = 1, logoX = 0.92, logoY = 0.08 }) {
         fs.mkdirSync(path.dirname(outputPath), { recursive: true });
         const hasLogo = !!logoPath && fs.existsSync(logoPath);
         const hasIntro = !!introPath && fs.existsSync(introPath);
         const hasOutro = !!outroPath && fs.existsSync(outroPath);
+        const hasAss = !!assPath && fs.existsSync(assPath);
         const hasCamFull = !!(camFull?.rect && Array.isArray(camFull.ranges) && camFull.ranges.length);
 
-        if (!hasLogo && !hasIntro && !hasOutro && !hasCamFull) {
+        if (!hasLogo && !hasIntro && !hasOutro && !hasAss && !hasCamFull) {
             await this._copy(inputPath, outputPath);
         } else {
             await this._render({
                 inputPath, outputPath,
                 introPath: hasIntro ? introPath : null,
                 outroPath: hasOutro ? outroPath : null,
+                assPath: hasAss ? assPath : null,
                 logoPath: hasLogo ? logoPath : null,
                 camFull: hasCamFull ? camFull : null,
                 logoScale, logoOpacity, logoX, logoY,
@@ -74,7 +81,7 @@ class HorizontalComposer {
         ], { timeout: 600000, hataOnek: 'Yatay kesit hazırlama hatası' });
     }
 
-    async _render({ inputPath, outputPath, introPath, outroPath = null, logoPath, camFull, logoScale, logoOpacity, logoX, logoY }) {
+    async _render({ inputPath, outputPath, introPath, outroPath = null, assPath = null, logoPath, camFull, logoScale, logoOpacity, logoX, logoY }) {
         const ana = await this._probe(inputPath);
         if (!ana.width || !ana.height) throw new Error('Kesitin çözünürlüğü okunamadı');
         const ekProbe = async (yol, ad) => {
@@ -90,6 +97,7 @@ class HorizontalComposer {
             main: ana,
             intro,
             outro,
+            assPath,
             logo: logoPath ? HorizontalComposer.logoParams({ width: ana.width, logoScale, logoOpacity, logoX, logoY }) : null,
             camFull,
         });
@@ -119,6 +127,21 @@ class HorizontalComposer {
     }
 
     /* ------------------------------------------------------------- saf yardımcılar (test edilebilir) */
+
+    /**
+     * Yatay altyazı geometrisi (saf fonksiyon). Stiller 1080x1920 düzlem için
+     * yazılı; yatayda yazı yüksekliğin ~%4.6'sı, alt boşluk %7 olur. PlayRes
+     * kesitin kendi ölçüsü olduğundan her çözünürlükte oran aynı kalır.
+     * Arayüz önizlemesi (src/lib/frame.ts) aynı oranları kullanır.
+     */
+    static subtitleLayout({ width, height }) {
+        return {
+            playResX: width,
+            playResY: height,
+            fontScale: (height / 1920) * HORIZONTAL_FONT_BOOST,
+            marginV: Math.round(height * HORIZONTAL_SUB_MARGIN),
+        };
+    }
 
     /** Logo genişliği/opaklık/konum — VOD editöründeki sürükle-bırak değerleriyle aynı sınırlar. */
     static logoParams({ width, logoScale = 1, logoOpacity = 1, logoX = 0.92, logoY = 0.08 }) {
@@ -168,7 +191,7 @@ class HorizontalComposer {
      * @param {{width:number,height:number}|null} [p.output] - kaynaktan farklı çıktı ölçüsü
      * @returns {{filterGraph: string, needsSilence: boolean, introIndex: number|null, outroIndex: number|null, silenceIndex: number|null}}
      */
-    static renderPlan({ main, intro = null, outro = null, logo = null, camFull = null, output = null }) {
+    static renderPlan({ main, intro = null, outro = null, logo = null, camFull = null, output = null, assPath = null }) {
         const W = main.width;
         const H = main.height;
         // Çıktı ölçüsü kaynaktan küçükse (kayıt çıktısı 720p gibi) ana zincirin
@@ -201,6 +224,13 @@ class HorizontalComposer {
             parcalar.push(`[1:v]${HorizontalComposer.logoChain(logo)}[logo]`);
             parcalar.push(`${src}[logo]${HorizontalComposer.overlayExpr(logo)}[lg]`);
             src = '[lg]';
+        }
+
+        // Altyazı logonun üstüne, ölçeklemeden önce (kaynak pikselinde) gömülür.
+        if (assPath) {
+            const kacisli = assPath.replace(/\\/g, '\\\\').replace(/:/g, '\\:').replace(/'/g, "\\'");
+            parcalar.push(`${src}subtitles='${kacisli}'[sub]`);
+            src = '[sub]';
         }
 
         if (!ekler.length) {

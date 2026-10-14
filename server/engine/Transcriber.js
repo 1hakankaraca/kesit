@@ -325,7 +325,11 @@ class Transcriber {
      * Stilize ASS altyazı dosyası üret
      * @param {Array<{start,end,text,score}>} segments
      * @param {string} assPath - çıktı yolu
-     * @param {object} layout - { playResX, playResY, marginV } altyazı konumu
+     * @param {object} layout - { playResX, playResY, marginV, fontScale } altyazı konumu.
+     *   Stil ölçüleri 1080x1920 dikey düzlem için yazılmıştır; başka bir düzlemde
+     *   (yatay) fontScale ile yazı boyutu, kenarlık, gölge ve yan boşluklar
+     *   orantılı ölçeklenir. PlayRes çıktının oranıyla aynı olduğundan libass
+     *   her çözünürlükte (720p, 1080p, 1440p) aynı oranda çizer.
      * @param {object} style - { key: stil anahtarı, accent: marka rengi }
      */
     buildAss(segments, assPath, layout = {}, style = {}) {
@@ -334,10 +338,12 @@ class Transcriber {
         const playResY = layout.playResY || 1920;
         const marginV = layout.marginV || 640;
 
+        const fontScale = Number(layout.fontScale) > 0 ? Number(layout.fontScale) : 1;
         const theme = SubtitleStyles.build(style.key, {
             accent: style.accent || '#53fc18',
             marginV,
         });
+        if (fontScale !== 1) theme.styleLines = Transcriber.scaleStyleLines(theme.styleLines, fontScale);
 
         // Önem eşiği: en üst %25'lik segmentler vurgulu renkte
         const scores = segments.map(s => s.score).sort((a, b) => b - a);
@@ -379,6 +385,25 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         fs.writeFileSync(assPath, ass, 'utf8');
         return assPath;
+    }
+
+    /**
+     * "Style:" satırlarında boyuta bağlı alanları ölçekler (saf fonksiyon):
+     * Fontsize (2), Outline (16), Shadow (17), MarginL (19), MarginR (20).
+     * MarginV ayrıca verildiği için dokunulmaz.
+     */
+    static scaleStyleLines(lines, k) {
+        const SIZE_FIELDS = [2, 16, 17, 19, 20];
+        return String(lines).split('\n').map((line) => {
+            if (!line.startsWith('Style:')) return line;
+            const [head, rest] = [line.slice(0, 6), line.slice(6)];
+            const f = rest.split(',');
+            for (const i of SIZE_FIELDS) {
+                const n = Number(f[i]);
+                if (Number.isFinite(n)) f[i] = String(i === 16 || i === 17 ? Math.round(n * k * 10) / 10 : Math.max(1, Math.round(n * k)));
+            }
+            return head + f.join(',');
+        }).join('\n');
     }
 
     _run(bin, args, timeout = 120000) {

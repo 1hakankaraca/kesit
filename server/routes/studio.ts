@@ -64,7 +64,7 @@ export function studioRoutes({ store, workspaces }: AppContext) {
     const userId = req.user!.id;
     const s = await store.getSettings(userId);
     const saved = parseJson(s.clip_defaults);
-    const read = (group: string) => ClipEditorManager.normalizeClipOptions(ClipEditorManager._extractGroupDefaults(saved, group));
+    const read = (group: string) => ClipEditorManager.groupDefaults(saved, group);
     const defaults = { vertical: read('gezgin'), horizontal: read('horizontal') };
     const ws = await workspaces.get(userId);
     const logo = ws.clipEditor.getLogoPath();
@@ -164,24 +164,20 @@ export function studioRoutes({ store, workspaces }: AppContext) {
     res.json({ ok: true });
   });
 
-  /** Örnek kare: en son hazır klipten bir kare (marka önizlemesinde gerçek görüntü için). */
+  /**
+   * Örnek kare (yatay önizleme): ham kaynaktan — indirilen bir yayından ya da
+   * kayıttan — alınır. Üretilmiş klipler kullanılmaz; onlarda logo ve altyazı
+   * zaten basılıdır ve önizlemeyi yanıltır. Dikey önizleme şematiktir.
+   */
   r.get('/studio/sample-frame', async (req, res) => {
-    const orientation = req.query.orientation === 'vertical' ? 'vertical' : 'horizontal';
-    const jobs = await store.getEditedClips(req.user!.id, 40);
-    const job = jobs.find((j) => {
-      if (j.status !== 'ready') return false;
-      const horizontal = parseJson(j.options).outputFormat === 'horizontal';
-      return orientation === 'horizontal' ? horizontal : !horizontal;
-    });
-    if (!job) throw new HttpError(404, 'Örnek için hazır klip yok');
-    const ws = await workspaces.get(req.user!.id);
-    const video = path.join(ws.clipEditor.outputDir, `${job.id}.mp4`);
-    const frame = path.join(userDir(req.user!.id), `sample-${orientation}.jpg`);
-    if (!fs.existsSync(video)) throw new HttpError(404, 'Örnek klibin dosyası yok');
-    // Logo/altyazı bindirilmemiş ham görüntü yok; klibin ortasından kare alınır.
-    await run('ffmpeg', ['-y', '-loglevel', 'error', '-ss', String(Math.max(1, (job.duration || 4) / 2)), '-i', video, '-frames:v', '1', '-vf', 'scale=720:-2', frame], {
-      timeout: 30_000,
-    }).catch(() => {
+    const userId = req.user!.id;
+    const sources = [
+      ...(await store.getVodScanJobs(userId, 10)).map((j) => j.vod_path),
+      ...(await store.getStreamRecordings(userId, 10)).map((rec) => rec.file_path),
+    ].filter((p): p is string => !!p && fs.existsSync(p));
+    if (!sources.length) throw new HttpError(404, 'Örnek için ham kaynak yok');
+    const frame = path.join(userDir(userId), 'sample-horizontal.jpg');
+    await run('ffmpeg', ['-y', '-loglevel', 'error', '-ss', '60', '-i', sources[0], '-frames:v', '1', '-vf', 'scale=960:-2', frame], { timeout: 30_000 }).catch(() => {
       throw new HttpError(500, 'Kare alınamadı');
     });
     res.sendFile(frame);

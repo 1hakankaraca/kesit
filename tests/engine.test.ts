@@ -76,3 +76,37 @@ test('Kick dönüşü yalnız bu bilgisayara ya da yerel ağa yönlenir', async 
   assert.equal(localOrigin('http://172.40.0.1'), null);
   assert.equal(localOrigin('javascript:alert(1)'), null);
 });
+
+const Transcriber = require('../server/engine/Transcriber.js');
+const ClipEditorManager = require('../server/engine/ClipEditorManager.js');
+
+test('yatay altyazı her çözünürlükte yüksekliğin aynı oranında', () => {
+  for (const [w, h] of [[1280, 720], [1920, 1080], [2560, 1440]]) {
+    const l = HorizontalComposer.subtitleLayout({ width: w, height: h });
+    assert.equal(l.playResX, w);
+    assert.equal(l.playResY, h);
+    assert.ok(Math.abs((58 * l.fontScale) / h - 0.0468) < 0.001, `${h}p yazı oranı`);
+    assert.ok(Math.abs(l.marginV / h - 0.07) < 0.002);
+  }
+});
+
+test('altyazı stili ölçeklenir, MarginV korunur', () => {
+  const line = 'Style: Normal,Arial,58,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,4,2,2,60,60,320,1';
+  const f = Transcriber.scaleStyleLines(line, 0.5).split(',');
+  assert.equal(f[2], '29');
+  assert.equal(f[16], '2');
+  assert.equal(f[19], '30');
+  assert.equal(f[21], '320');
+});
+
+test('yatay varsayılanda altyazı kapalı, dikeyde açık; kayıtlı tercih geçerli', () => {
+  assert.equal(ClipEditorManager.groupDefaults({}, 'horizontal').subtitles, false);
+  assert.equal(ClipEditorManager.groupDefaults({}, 'gezgin').subtitles, true);
+  const saved = { gezgin: {}, vodscan: {}, live: {}, horizontal: { subtitles: true } };
+  assert.equal(ClipEditorManager.groupDefaults(saved, 'horizontal').subtitles, true);
+});
+
+test('yatay kompozisyon altyazıyı logodan sonra, ölçeklemeden önce basar', () => {
+  const plan = HorizontalComposer.renderPlan({ main, assPath: '/tmp/x.ass', logo: { logoW: 200, opacity: 1, x: 0.5, y: 0.5 }, output: { width: 1280, height: 720 } });
+  assert.match(plan.filterGraph, /\[lg\]subtitles='\/tmp\/x\.ass'\[sub\];\[sub\]scale=1280:720/);
+});

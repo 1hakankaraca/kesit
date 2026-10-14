@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
+import { FramePreview } from '../components/FramePreview.tsx';
 import { Icon } from '../components/Icon.tsx';
 import { Field, Segmented, Spinner, Switch, WorkspaceHead } from '../components/basics.tsx';
 import { api } from '../lib/api.ts';
 import { bytes, duration } from '../lib/format.ts';
+import { alignTo, logoBox } from '../lib/frame.ts';
 import { deleteWithUndo, toast, toastError } from '../lib/toast.ts';
 import type { BrandMedia, ClipOptions, RecordingOutput, Studio as StudioData } from '../lib/types.ts';
 import { useResource } from '../lib/useResource.ts';
@@ -13,8 +15,6 @@ const FORMATS: { value: Format; label: string; hint: string }[] = [
   { value: 'vertical', label: 'Dikey 9:16', hint: 'Kliplerden, canlıdan ve geçmiş yayından üretilen dikey videolar' },
   { value: 'horizontal', label: 'Yatay 16:9', hint: 'Geçmiş yayın ve kayıtlardan alınan yatay kesitler' },
 ];
-
-const SAMPLE_LINE = ['Bunu', 'kimse', 'beklemiyordu', 've', 'tam', 'o', 'anda…'];
 
 /** Marka ve şablon: kimlik, önizleme ve üretim varsayılanları. */
 export function Studio() {
@@ -39,6 +39,8 @@ function StudioEditor({ data, reload }: { data: StudioData; reload: () => void }
   const opts = defaults[format];
   const vertical = format === 'vertical';
   const styleKey = opts.subtitleStyle ?? brand.subtitleStyle;
+  const sample = useSampleFrame(format);
+  const logoAspect = useImageAspect(data.logo.url);
 
   // Marka renkleri anında sayfaya yansır; önizleme de bunları kullanır.
   const style = { '--brand': brand.brandColor, '--accent': brand.accentColor } as CSSProperties;
@@ -77,18 +79,22 @@ function StudioEditor({ data, reload }: { data: StudioData; reload: () => void }
           <Segmented label="Biçim" value={format} onChange={setFormat} options={FORMATS.map((f) => ({ value: f.value, label: f.label }))} />
 
           <div className={vertical ? 'proto-stage proto-stage-v' : 'proto-stage'}>
-            {vertical ? (
-              <VerticalProto opts={opts} logoUrl={data.logo.url} styleKey={styleKey} />
-            ) : (
-              <div className="proto-h-col">
-                <HorizontalProto opts={opts} logoUrl={data.logo.url} styleKey={styleKey} onLogoMove={(x, y) => setOpt({ logoPosition: 'custom', logoX: x, logoY: y })} />
-                <SequenceStrip intro={data.intro} outro={data.outro} withIntro={opts.intro} withOutro={opts.outro} />
-              </div>
-            )}
+            <div className="proto-h-col">
+              <FramePreview
+                key={format}
+                format={format}
+                opts={opts}
+                logoUrl={data.logo.url}
+                styleKey={styleKey}
+                sampleUrl={sample}
+                onLogoMove={(x, y) => setOpt({ logoPosition: 'custom', logoX: x, logoY: y })}
+              />
+              {!vertical && <SequenceStrip intro={data.intro} outro={data.outro} withIntro={opts.intro} withOutro={opts.outro} />}
+            </div>
 
             <div className="proto-settings">
               <h3 className="eyebrow">Logo</h3>
-              <Switch checked={opts.logo} onChange={(v) => setOpt({ logo: v })} label="Logoyu bindir" hint={data.logo.exists ? (vertical ? 'Yeri aşağıdan seçilir' : 'Önizlemede sürükleyerek konumla') : 'Sağdaki Kimlik bölümünden logo yükle'} />
+              <Switch checked={opts.logo} onChange={(v) => setOpt({ logo: v })} label="Logoyu bindir" hint={data.logo.exists ? 'Önizlemede sürükle ya da aşağıdan hizala' : 'Sağdaki Kimlik bölümünden logo yükle'} />
               <Field label={`Boyut · ${Math.round(opts.logoScale * 100)}%`}>
                 <input type="range" className="range" min={0.5} max={2} step={0.05} value={opts.logoScale} disabled={!opts.logo} onChange={(e) => setOpt({ logoScale: Number(e.target.value) })} />
               </Field>
@@ -100,18 +106,34 @@ function StudioEditor({ data, reload }: { data: StudioData; reload: () => void }
                   <Segmented
                     size="small"
                     label="Logo yeri"
-                    value={opts.logoPosition === 'top-center' ? 'top-center' : 'seam'}
-                    onChange={(v) => setOpt({ logoPosition: v })}
+                    value={opts.logoPosition}
+                    onChange={(v) => setOpt(v === 'custom' ? { logoPosition: 'custom', logoX: opts.logoX ?? 0.5, logoY: opts.logoY ?? 0.1 } : { logoPosition: v })}
                     options={[
                       { value: 'seam', label: 'Dikiş' },
                       { value: 'top-center', label: 'Üst orta' },
+                      { value: 'custom', label: 'Serbest' },
                     ]}
                   />
                 </Field>
               )}
+              <Field label="Hizala" help="Kenarlarda %5 güvenli pay bırakılır. Sürüklerken merkeze, üçte birlere ve kenarlara yapışır.">
+                <AlignGrid
+                  disabled={!opts.logo}
+                  onAlign={(col, row) => {
+                    const b = logoBox(format, opts, logoAspect, vertical && opts.composition !== 'single');
+                    const p = alignTo(col, row, b.w / 2, b.h / 2);
+                    setOpt({ logoPosition: 'custom', logoX: Math.round(p.x * 1000) / 1000, logoY: Math.round(p.y * 1000) / 1000 });
+                  }}
+                />
+              </Field>
 
               <h3 className="eyebrow pad-top">Video</h3>
-              <Switch checked={opts.subtitles} onChange={(v) => setOpt({ subtitles: v })} label="Altyazı" hint="Konuşma yazıya dökülür (Ayarlar'da altyazı motoru gerekir)" />
+              <Switch
+                checked={opts.subtitles}
+                onChange={(v) => setOpt({ subtitles: v })}
+                label="Altyazı"
+                hint={vertical ? 'Konuşma yazıya dökülür (Ayarlar\'da altyazı motoru gerekir)' : 'Yatayda varsayılan kapalı; açarsan kesite basılır'}
+              />
               <Switch checked={opts.subtitleFollowsTheme} onChange={(v) => setOpt({ subtitleFollowsTheme: v })} label="Vurgu rengi altyazıda" hint="Kapalıyken marka rengi" />
               <Switch checked={opts.censor} onChange={(v) => setOpt({ censor: v })} label="Küfür sansürü" hint="Geçen anlar biplenir" />
               {vertical ? (
@@ -248,13 +270,51 @@ function StudioEditor({ data, reload }: { data: StudioData; reload: () => void }
   );
 }
 
-/* ── Önizlemeler ───────────────────────────────────────────────────────── */
+/* ── Önizleme yardımcıları ─────────────────────────────────────────────── */
 
-function useSampleFrame(orientation: 'vertical' | 'horizontal') {
+/** Logonun en/boy oranı (yükseklik/genişlik); hizalama hesabı için. */
+function useImageAspect(url: string | null) {
+  const [aspect, setAspect] = useState(1 / 3);
+  useEffect(() => {
+    if (!url) return;
+    const img = new Image();
+    img.onload = () => img.naturalWidth && setAspect(img.naturalHeight / img.naturalWidth);
+    img.src = url;
+  }, [url]);
+  return aspect;
+}
+
+const ALIGN_LABELS = [
+  ['Sol üst', 'Üst orta', 'Sağ üst'],
+  ['Sol orta', 'Tam orta', 'Sağ orta'],
+  ['Sol alt', 'Alt orta', 'Sağ alt'],
+];
+
+/** 3x3 hizalama düğmeleri. */
+function AlignGrid({ onAlign, disabled }: { onAlign: (col: 0 | 1 | 2, row: 0 | 1 | 2) => void; disabled: boolean }) {
+  return (
+    <div className="align-grid" role="group" aria-label="Logoyu hizala">
+      {ALIGN_LABELS.map((rowLabels, row) =>
+        rowLabels.map((label, col) => (
+          <button key={label} type="button" className="align-cell" title={label} aria-label={label} disabled={disabled} onClick={() => onAlign(col as 0 | 1 | 2, row as 0 | 1 | 2)}>
+            <span />
+          </button>
+        )),
+      )}
+    </div>
+  );
+}
+
+function useSampleFrame(format: 'vertical' | 'horizontal') {
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
+    // Dikey önizleme şematiktir (kamera / oyun dikişi); yalnız yatay için ham kare istenir.
+    if (format === 'vertical') {
+      setUrl(null);
+      return;
+    }
     let revoke: string | null = null;
-    fetch(`/api/studio/sample-frame?orientation=${orientation}`, { credentials: 'same-origin' })
+    fetch('/api/studio/sample-frame', { credentials: 'same-origin' })
       .then((r) => (r.ok ? r.blob() : null))
       .then((b) => {
         if (b) setUrl((revoke = URL.createObjectURL(b)));
@@ -263,96 +323,8 @@ function useSampleFrame(orientation: 'vertical' | 'horizontal') {
     return () => {
       if (revoke) URL.revokeObjectURL(revoke);
     };
-  }, [orientation]);
+  }, [format]);
   return url;
-}
-
-function SubtitleSample({ styleKey }: { styleKey: string }) {
-  return (
-    <p className={`proto-sub sub-${styleKey}`}>
-      {SAMPLE_LINE.map((w, i) => (i === 2 ? <em key={i}>{w} </em> : `${w} `))}
-    </p>
-  );
-}
-
-function VerticalProto({ opts, logoUrl, styleKey }: { opts: ClipOptions; logoUrl: string | null; styleKey: string }) {
-  const frame = useSampleFrame('vertical');
-  const split = opts.composition !== 'single';
-  return (
-    <figure className="proto proto-v">
-      <div className="proto-frame">
-        {frame ? (
-          <img className="proto-bg" src={frame} alt="" />
-        ) : (
-          <>
-            {split && <div className="proto-cam">Kamera</div>}
-            <div className={split ? 'proto-game' : 'proto-game proto-game-full'}>Oyun / ekran</div>
-          </>
-        )}
-        {opts.logo &&
-          (logoUrl ? (
-            <img
-              className={opts.logoPosition === 'top-center' ? 'proto-logo proto-logo-top' : 'proto-logo proto-logo-seam'}
-              src={logoUrl}
-              alt=""
-              style={{ width: `${22 * opts.logoScale}%`, opacity: opts.logoOpacity }}
-            />
-          ) : (
-            <span
-              className={`proto-logo proto-logo-ghost ${opts.logoPosition === 'top-center' ? 'proto-logo-top' : 'proto-logo-seam'}`}
-              style={{ width: `${22 * opts.logoScale}%`, opacity: opts.logoOpacity }}
-            >
-              LOGO
-            </span>
-          ))}
-        {opts.subtitles && <SubtitleSample styleKey={styleKey} />}
-      </div>
-      <figcaption>Dikey 9:16</figcaption>
-    </figure>
-  );
-}
-
-function HorizontalProto({ opts, logoUrl, styleKey, onLogoMove }: { opts: ClipOptions; logoUrl: string | null; styleKey: string; onLogoMove: (x: number, y: number) => void }) {
-  const frame = useSampleFrame('horizontal');
-  const box = useRef<HTMLDivElement>(null);
-  const dragging = useRef(false);
-  const x = opts.logoX ?? 0.92;
-  const y = opts.logoY ?? 0.08;
-
-  const move = (e: ReactPointerEvent) => {
-    if (!dragging.current || !box.current) return;
-    const r = box.current.getBoundingClientRect();
-    // Logo merkezden konumlanır; kenarlardan taşmasın diye yarı boyutu kadar içeride tutulur.
-    const half = ((1 / 3) * opts.logoScale) / 2;
-    const halfH = ((r.width / 3) * opts.logoScale) / 6 / r.height;
-    const nx = Math.min(1 - half, Math.max(half, (e.clientX - r.left) / r.width));
-    const ny = Math.min(1 - halfH, Math.max(halfH, (e.clientY - r.top) / r.height));
-    onLogoMove(Math.round(nx * 1000) / 1000, Math.round(ny * 1000) / 1000);
-  };
-
-  return (
-    <figure className="proto proto-h">
-      <div className="proto-frame" ref={box} onPointerMove={move} onPointerUp={() => (dragging.current = false)} onPointerLeave={() => (dragging.current = false)}>
-        {frame ? <img className="proto-bg" src={frame} alt="" /> : <div className="proto-game proto-game-full">Yayın görüntüsü</div>}
-        {opts.logo && (
-          <span
-            className={logoUrl ? 'proto-logo proto-logo-free' : 'proto-logo proto-logo-free proto-logo-ghost'}
-            role="img"
-            aria-label="Logo — sürükleyerek konumla"
-            style={{ left: `${x * 100}%`, top: `${y * 100}%`, width: `${(100 / 3) * opts.logoScale}%`, opacity: opts.logoOpacity }}
-            onPointerDown={(e) => {
-              dragging.current = true;
-              (e.currentTarget.parentElement as HTMLElement).setPointerCapture(e.pointerId);
-            }}
-          >
-            {logoUrl ? <img src={logoUrl} alt="" draggable={false} /> : 'LOGO'}
-          </span>
-        )}
-        {opts.subtitles && <SubtitleSample styleKey={styleKey} />}
-      </div>
-      <figcaption>Yatay 16:9 · logoyu sürükle</figcaption>
-    </figure>
-  );
 }
 
 function SequenceStrip({ intro, outro, withIntro, withOutro }: { intro: BrandMedia; outro: BrandMedia; withIntro: boolean; withOutro: boolean }) {

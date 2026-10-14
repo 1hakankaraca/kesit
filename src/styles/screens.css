@@ -2690,3 +2690,227 @@ code {
 .pad-top-s {
   margin-top: 8px;
 }
+
+/* ── Kare önizlemesi (lib/frame.ts oranlarıyla) ─────────────────────────── */
+
+.frame {
+  display: grid;
+  gap: 8px;
+}
+
+.frame figcaption {
+  font-size: 12px;
+  color: var(--ink-3);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.frame-canvas {
+  position: relative;
+  border-radius: 14px;
+  background: #0c0f14;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px var(--line);
+  container-type: inline-size;
+  touch-action: none;
+  user-select: none;
+}
+
+.frame-v .frame-canvas {
+  aspect-ratio: 9 / 16;
+}
+
+.frame-h .frame-canvas {
+  aspect-ratio: 16 / 9;
+}
+
+.frame-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.frame-cam,
+.frame-game {
+  display: grid;
+  place-items: center;
+  color: rgb(255 255 255 / 0.5);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.frame-cam {
+  background: radial-gradient(circle at 50% 60%, #3b3f4a, #1b1e25);
+}
+
+.frame-game {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(160deg, color-mix(in srgb, var(--brand, #f43f5e) 45%, #0c0f14), #0c0f14 70%),
+    repeating-linear-gradient(90deg, rgb(255 255 255 / 0.04) 0 2px, transparent 2px 40px);
+}
+
+.frame-cam + .frame-game-rest {
+  position: absolute;
+  inset: auto 0 0;
+  top: 31.67%;
+  box-shadow: 0 -1px 0 rgb(255 255 255 / 0.25);
+}
+
+.frame-guides {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.frame-canvas:hover .frame-guides,
+.frame-dragging .frame-guides,
+.frame-canvas:focus-within .frame-guides {
+  opacity: 1;
+}
+
+.frame-safe {
+  position: absolute;
+  border: 1px dashed rgb(255 255 255 / 0.35);
+  border-radius: 4px;
+}
+
+.frame-third {
+  position: absolute;
+  background: rgb(255 255 255 / 0.14);
+}
+
+.frame-third-v {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+}
+
+.frame-third-h {
+  left: 0;
+  right: 0;
+  height: 1px;
+}
+
+.frame-snap {
+  position: absolute;
+  z-index: 3;
+  background: #ff3db0;
+  box-shadow: 0 0 6px #ff3db0;
+  pointer-events: none;
+}
+
+.frame-snap-v {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+}
+
+.frame-snap-h {
+  left: 0;
+  right: 0;
+  height: 1px;
+}
+
+.frame-logo {
+  position: absolute;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  translate: -50% -50%;
+  cursor: grab;
+  outline-offset: 2px;
+}
+
+.frame-logo:hover,
+.frame-logo:focus-visible {
+  outline: 1.5px solid rgb(255 255 255 / 0.85);
+}
+
+.frame-dragging .frame-logo {
+  cursor: grabbing;
+  outline: 1.5px solid #ff3db0;
+}
+
+.frame-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.frame-logo-ghost {
+  border: 2px dashed rgb(255 255 255 / 0.75);
+  border-radius: 6px;
+  background: rgb(255 255 255 / 0.12);
+  color: #fff;
+  font-size: 3cqi;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.frame-sub {
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  z-index: 1;
+  margin: 0;
+  text-align: center;
+  font-family: Arial, Helvetica, sans-serif;
+  font-weight: 800;
+  line-height: 1.15;
+  pointer-events: none;
+}
+
+.frame-sub.sub-tiktok {
+  left: 50%;
+  right: auto;
+  translate: -50% 0;
+  width: max-content;
+  max-width: 88%;
+}
+
+.align-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 34px);
+  gap: 4px;
+  padding: 4px;
+  width: max-content;
+  border-radius: 10px;
+  background: var(--sunken);
+}
+
+.align-cell {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+.align-cell span {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--ink-3);
+}
+
+.align-cell:hover:not(:disabled) span {
+  background: var(--g1);
+}
+
+.align-cell:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

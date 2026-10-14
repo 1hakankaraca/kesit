@@ -184,15 +184,26 @@ class ClipEditorManager {
         return isGrouped ? (parsed[group] || {}) : parsed;
     }
 
+    /**
+     * Gruba özgü şema varsayılanları: yatay kesitlerde altyazı varsayılan
+     * olarak kapalıdır (kullanıcı açarsa açılır).
+     */
+    static GROUP_BASE_DEFAULTS = { horizontal: { subtitles: false, outputFormat: 'horizontal' } };
+
+    /** Kayıtlı ayar (clip_defaults JSON) + grup tabanı → normalize edilmiş grup varsayılanları */
+    static groupDefaults(parsed, group) {
+        const saved = ClipEditorManager._extractGroupDefaults(parsed || {}, group);
+        return ClipEditorManager.normalizeClipOptions({ ...(ClipEditorManager.GROUP_BASE_DEFAULTS[group] || {}), ...saved });
+    }
+
     /** Kullanıcı varsayılanları + iş bazlı override → normalize edilmiş seçenekler */
     async resolveOptions(override = {}, group = 'live') {
-        let defaults = {};
+        let parsed = {};
         try {
             const settings = await this.db.getSettings(this.userId);
-            const parsed = JSON.parse(settings?.clip_defaults || '{}') || {};
-            defaults = ClipEditorManager._extractGroupDefaults(parsed, group);
+            parsed = JSON.parse(settings?.clip_defaults || '{}') || {};
         } catch { /* bozuk ayar → şema varsayılanları */ }
-        return ClipEditorManager.normalizeClipOptions({ ...defaults, ...override });
+        return ClipEditorManager.normalizeClipOptions({ ...ClipEditorManager.groupDefaults(parsed, group), ...override });
     }
 
     /**
@@ -977,8 +988,8 @@ class ClipEditorManager {
         // saatlik ham kesitleri salt başlık/açıklama için transkribe etmek
         // gereksiz maliyetli olurdu.
         let transcript = null;
-        const wantsMetadataTranscript = duration <= HORIZONTAL_METADATA_TRANSCRIBE_CAP_SEC;
-        if (Transcriber.isAvailable() && (opts.censor || wantsMetadataTranscript)) {
+        const wantsMetadataTranscript = AUTO_METADATA && duration <= HORIZONTAL_METADATA_TRANSCRIBE_CAP_SEC;
+        if (Transcriber.isAvailable() && (opts.censor || opts.subtitles || wantsMetadataTranscript)) {
             await this._setStep(jobId, 'processing', 'transkript çıkarılıyor');
             transcript = await this.transcriber.transcribe(inputPath, jobWorkDir, {
                 language, durationSec: duration,
@@ -990,6 +1001,17 @@ class ClipEditorManager {
 
         const outputPath = path.join(this.outputDir, `${jobId}.mp4`);
         const logoPath = opts.logo ? this.getLogoPath() : null;
+
+        // Altyazı: kesitin kendi ölçüsünde (PlayRes) üretilir ki her çözünürlükte oran aynı kalsın.
+        let assPath = null;
+        if (opts.subtitles && transcript?.segments?.length && meta.width && meta.height) {
+            const userSettings = await this.db.getSettings(this.userId).catch(() => null);
+            assPath = path.join(jobWorkDir, 'subtitles.ass');
+            this.transcriber.buildAss(transcript.segments, assPath, HorizontalComposer.subtitleLayout(meta), {
+                key: opts.subtitleStyle || userSettings?.subtitle_style || 'classic',
+                accent: (opts.subtitleFollowsTheme ? userSettings?.accent_color : userSettings?.brand_color) || '#53fc18',
+            });
+        }
 
         // Tam ekran bölgeleri: webcam kutusu gerekir — yatay akış normalde
         // facecam tespiti yapmaz, yalnız bölge işaretlendiyse çalıştırılır.
@@ -1017,7 +1039,7 @@ class ClipEditorManager {
             await this._setStep(jobId, 'processing', 'video oluşturuluyor');
         }
         await this.horizontalComposer.compose({
-            inputPath, outputPath, logoPath, introPath, outroPath, camFull,
+            inputPath, outputPath, logoPath, introPath, outroPath, assPath, camFull,
             logoScale: opts.logoScale, logoOpacity: opts.logoOpacity,
             logoX: opts.logoX ?? 0.92, logoY: opts.logoY ?? 0.08,
         });
