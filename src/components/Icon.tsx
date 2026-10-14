@@ -40,6 +40,23 @@ const PATHS = {
   phone: 'M7 2.5h10v19H7zM11 18.5h2',
   wifi: 'M2 8.5a15 15 0 0 1 20 0M5.5 12a10 10 0 0 1 13 0M9 15.5a5 5 0 0 1 6 0M12 19h.01',
   key: 'M15 9a4 4 0 1 1-1.2-2.8M14 10l7 7v3h-3v-2h-2v-2h-2l-1.4-1.4',
+  home: 'M3 11l9-7 9 7M5 10v10h5v-6h4v6h5V10',
+  music: 'M9 18a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 16a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM12 15V5l10-2v10',
+  split: 'M12 3v18M5 8l4 4-4 4M19 8l-4 4 4 4',
+  undo: 'M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3',
+  redo: 'M15 14l5-5-5-5M20 9H10a6 6 0 0 0 0 12h3',
+  volume: 'M4 9v6h4l5 4V5L8 9zM16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11',
+  mute: 'M4 9v6h4l5 4V5L8 9zM16 9l5 6M21 9l-5 6',
+  crop: 'M6 2v16h16M2 6h16v16',
+  move: 'M12 2v20M2 12h20M8 6l4-4 4 4M8 18l4 4 4-4M6 8l-4 4 4 4M18 8l4 4-4 4',
+  cpu: 'M7 7h10v10H7zM4 10h3M4 14h3M17 10h3M17 14h3M10 4v3M14 4v3M10 17v3M14 17v3',
+  disk: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4z',
+  memory: 'M4 8h16v8H4zM8 8v8M12 8v8M16 8v8M4 12h16M6 16v2M18 16v2M6 6v2M18 6v2',
+  export: 'M12 3v12M8 7l4-4 4 4M4 14v6h16v-6',
+  text: 'M4 7V4h16v3M9 20h6M12 4v16',
+  camera: 'M3 7h4l2-3h6l2 3h4v13H3zM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8z',
+  monitor: 'M3 4h18v12H3zM8 20h8M12 16v4',
+  fit: 'M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5',
 } as const;
 
 export type IconName = keyof typeof PATHS;

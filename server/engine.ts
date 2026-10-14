@@ -26,4 +26,7 @@ export const IntroStore = load('IntroStore');
 export const SubtitleStyles = load('SubtitleStyles');
 export const PublishingPolicy = load('PublishingPolicy');
 export const KickClipFetcher = load('KickClipFetcher');
+export const Transcriber = load('Transcriber');
+export const FacecamDetector = load('FacecamDetector');
+export const HorizontalComposer = load('HorizontalComposer');
 export const { BROWSER_HEADERS, SLUG_PATTERN } = KickClipFetcher as { BROWSER_HEADERS: Record<string, string>; SLUG_PATTERN: RegExp };

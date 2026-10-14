@@ -157,7 +157,7 @@ function StudioEditor({ data, reload }: { data: StudioData; reload: () => void }
                 </>
               )}
               {vertical && (
-                <Field label={`Otomatik paylaşım eşiği · ${opts.autoPublishMinScore || 'yok'}`} help="Otomatik takipte paylaşılan kliplerde beğenilme tahmini bunun altında kalanlar paylaşılmaz">
+                <Field label={`Otomatik paylaşım eşiği · ${opts.autoPublishMinScore || 'yok'}`} help="Bot takibinde paylaşılan kliplerde beğenilme tahmini bunun altında kalanlar paylaşılmaz">
                   <input type="range" className="range" min={0} max={100} step={5} value={opts.autoPublishMinScore} onChange={(e) => setOpt({ autoPublishMinScore: Number(e.target.value) })} />
                 </Field>
               )}

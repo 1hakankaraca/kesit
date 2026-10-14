@@ -15,26 +15,28 @@ import { useInterval, useResource } from '../lib/useResource.ts';
 import { api } from '../lib/api.ts';
 import { Archive } from './Archive.tsx';
 import { Clips } from './Clips.tsx';
-import { Library } from './Library.tsx';
+import { Editor } from '../editor/Editor.tsx';
+import { Gallery } from './Gallery.tsx';
+import { Home } from './Home.tsx';
 import { Live } from './Live.tsx';
 import { Nobet } from './Nobet.tsx';
 import { Settings, usePhoneUrl } from './Settings.tsx';
 import { Publish } from './Publish.tsx';
-import { Recordings } from './Recordings.tsx';
 import { Studio } from './Studio.tsx';
 import { Tasks } from './Tasks.tsx';
 import { Vods } from './Vods.tsx';
 
 const NAV: { group: string; items: { id: Section; label: string; icon: IconName }[] }[] = [
   {
-    group: 'Video üret',
+    group: 'Stüdyo',
     items: [
-      { id: 'kutuphane', label: 'Videolarım', icon: 'library' },
-      { id: 'klipler', label: 'Kick klipleri', icon: 'scissors' },
-      { id: 'yayinlar', label: 'Geçmiş yayınlar', icon: 'film' },
+      { id: 'anasayfa', label: 'Anasayfa', icon: 'home' },
       { id: 'canli', label: 'Canlı yayın', icon: 'live' },
-      { id: 'nobet', label: 'Otomatik takip', icon: 'shield' },
-      { id: 'kayitlar', label: 'Yayın kayıtları', icon: 'record' },
+      { id: 'galeri', label: 'Galeri', icon: 'library' },
+      { id: 'klipler', label: 'Dikey klipler', icon: 'vertical' },
+      { id: 'yayinlar', label: 'Yayın geçmişleri', icon: 'film' },
+      { id: 'nobet', label: 'Çevrimdışı bot takip', icon: 'shield' },
+      { id: 'editor', label: 'Editör', icon: 'scissors' },
       { id: 'gorevler', label: 'Görev yöneticisi', icon: 'clock' },
     ],
   },
@@ -147,8 +149,8 @@ export function Shell() {
         <ChannelTabs />
         <div className="shell-top-side">
           {live?.autopilot.config.enabled && (
-            <button type="button" className="pill-button" onClick={() => navigate(sectionPath('nobet'))} title="Otomatik takip açık">
-              <Pill tone={live.autopilot.live ? 'live' : 'on'}>{live.autopilot.live ? 'Takip: yayında' : `Takip: ${live.autopilot.config.channel}`}</Pill>
+            <button type="button" className="pill-button" onClick={() => navigate(sectionPath('nobet'))} title="Çevrimdışı bot takip açık">
+              <Pill tone={live.autopilot.live ? 'live' : 'on'}>{live.autopilot.live ? 'Bot: yayında' : `Bot: ${live.autopilot.config.channel}`}</Pill>
             </button>
           )}
           {live?.recorder.recording && (
@@ -194,7 +196,7 @@ export function Shell() {
                   <span className="rail-label">{item.label}</span>
                   {item.id === 'gorevler' && activeTasks > 0 && <span className="rail-count rail-count-live">{activeTasks}</span>}
                   {item.id === 'canli' && isLiveBusy && <span className="rail-live" aria-label="Canlı işlem sürüyor" />}
-                  {item.id === 'nobet' && live?.autopilot.config.enabled && <span className="rail-live rail-live-calm" aria-label="Otomatik takip açık" />}
+                  {item.id === 'nobet' && live?.autopilot.config.enabled && <span className="rail-live rail-live-calm" aria-label="Çevrimdışı bot takip açık" />}
                 </a>
               );
             })}
@@ -204,9 +206,9 @@ export function Shell() {
         <span className="rail-resize" onPointerDown={startResize} aria-hidden="true" title="Sürükleyerek genişlet" />
       </nav>
 
-      <main className="shell-main" id="main">
+      <main className={route.section === 'editor' && route.sub ? 'shell-main shell-main-editor' : 'shell-main'} id="main">
         <AnimatePresence mode="wait">
-          <motion.div key={route.section} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.22 }}>
+          <motion.div key={route.section === 'editor' ? `editor-${route.sub ?? ''}` : route.section} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.22 }}>
             <SectionView section={route.section} sub={route.sub} />
           </motion.div>
         </AnimatePresence>
@@ -219,6 +221,10 @@ export function Shell() {
 
 function SectionView({ section, sub }: { section: Section; sub: string | null }): ReactNode {
   switch (section) {
+    case 'galeri':
+      return <Gallery focus={sub} />;
+    case 'editor':
+      return <Editor projectId={sub ? Number(sub) : null} />;
     case 'klipler':
       return <Clips />;
     case 'yayinlar':
@@ -231,8 +237,6 @@ function SectionView({ section, sub }: { section: Section; sub: string | null })
       return <Settings />;
     case 'gorevler':
       return <Tasks />;
-    case 'kayitlar':
-      return <Recordings openId={sub ? Number(sub) : null} />;
     case 'paylasim':
       return <Publish />;
     case 'arsiv':
@@ -240,7 +244,7 @@ function SectionView({ section, sub }: { section: Section; sub: string | null })
     case 'marka':
       return <Studio />;
     default:
-      return <Library focusId={sub ? Number(sub) : null} />;
+      return <Home />;
   }
 }
 

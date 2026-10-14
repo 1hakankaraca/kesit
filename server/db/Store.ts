@@ -41,6 +41,7 @@ const SETTINGS_COLUMNS = new Set([
   'language', 'zernio_profile_id', 'zernio_profile_name', 'recording_output', 'autopilot', 'channel_tabs', 'clip_harvest',
 ]);
 const MANUAL_CLIP_COLUMNS = new Set(['status', 'error', 'edited_clip_id']);
+const PROJECT_COLUMNS = new Set(['title', 'format', 'data', 'duration_sec', 'thumb_path', 'last_export_id']);
 
 const EDITED_CLIP_LIST_COLUMNS =
   'id, user_id, source, source_clip_id, title, channel_slug, view_count, status, step, error, video_url, ' +
@@ -499,5 +500,31 @@ export class Store {
   async deleteStreamRecording(id: number, userId: number) {
     this.run('DELETE FROM stream_recordings WHERE id = ? AND user_id = ?', [id, userId]);
     this.archive?.recordingDeleted(userId, id);
+  }
+
+  /* ── Editör projeleri ─────────────────────────────────────────────────── */
+
+  createProject(userId: number, p: { title: string; format: string; data: unknown }) {
+    const res = this.run('INSERT INTO projects (user_id, title, format, data) VALUES (?, ?, ?, ?)', [userId, p.title, p.format, JSON.stringify(p.data)]);
+    return this.getProject(Number(res.lastInsertRowid), userId)!;
+  }
+
+  getProject(id: number, userId: number) {
+    return this.get('SELECT * FROM projects WHERE id = ? AND user_id = ?', [id, userId]);
+  }
+
+  /** Liste: veri gövdesi hariç (büyük JSON her satırda taşınmasın). */
+  getProjects(userId: number, limit = 100) {
+    return this.all('SELECT id, user_id, title, format, duration_sec, thumb_path, last_export_id, created_at, updated_at FROM projects WHERE user_id = ? ORDER BY updated_at DESC LIMIT ?', [userId, limit]);
+  }
+
+  updateProject(id: number, userId: number, data: Row) {
+    const set = this.setClause(data, PROJECT_COLUMNS);
+    if (!set) return;
+    this.run(`UPDATE projects SET ${set.sql}, updated_at = ${NOW_SQL} WHERE id = ? AND user_id = ?`, [...set.values, id, userId]);
+  }
+
+  deleteProject(id: number, userId: number) {
+    return this.run('DELETE FROM projects WHERE id = ? AND user_id = ?', [id, userId]).changes > 0;
   }
 }

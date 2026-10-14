@@ -146,8 +146,8 @@ export function Archive() {
 
 function LedgerRow({ entry: e }: { entry: ArchiveEntry }) {
   const open = () => {
-    if (e.kind === 'clip') navigate(sectionPath('kutuphane', e.refId));
-    else if (e.kind === 'recording') navigate(sectionPath('kayitlar', e.refId));
+    if (e.kind === 'clip') navigate(sectionPath('galeri', e.refId));
+    else if (e.kind === 'recording') navigate(sectionPath('galeri', `k${e.refId}`));
     else navigate(sectionPath('yayinlar', e.refId));
   };
   return (

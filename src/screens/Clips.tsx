@@ -94,7 +94,7 @@ export function Clips() {
       toast(`${res.jobs.length} klip sıraya alındı${res.errors.length ? `, ${res.errors.length} hata` : ''}`, 'ok');
       setSelected(new Map());
       await refreshJobs();
-      navigate(sectionPath('kutuphane'));
+      navigate(sectionPath('galeri'));
     } catch (err) {
       toastError(err);
     } finally {
@@ -124,7 +124,7 @@ export function Clips() {
       await api.post('/api/clips/popular', { channel: channel.trim(), limit: 5, time: time === 'all' ? 'week' : time, options });
       toast('En popüler 5 klip sıraya alındı', 'ok');
       await refreshJobs();
-      navigate(sectionPath('kutuphane'));
+      navigate(sectionPath('galeri'));
     } catch (err) {
       toastError(err);
     } finally {
@@ -134,7 +134,7 @@ export function Clips() {
 
   return (
     <>
-      <WorkspaceHead guide="klipler" title="Kick" tape="klipleri" lead="Kanalın Kick kliplerini getir, beğendiklerini seç; dikey videoya kendiliğinden çevrilsin. Küçük resme tıklayınca izlersin." />
+      <WorkspaceHead guide="klipler" title="Dikey" tape="klipler" lead="Kanalın Kick kliplerini getir, beğendiklerini seç ve işleme gönder; dikey videoya kendiliğinden çevrilip Galeri'ye düşer." />
 
       <div className="toolbar panel">
         <form
@@ -334,7 +334,7 @@ export function Clips() {
             </button>
             <button type="button" className="btn btn-accent" onClick={process} disabled={submitting}>
               {submitting ? <Spinner /> : <Icon name="vertical" size={16} />}
-              Dikey klip üret
+              İşleme gönder
             </button>
           </motion.div>
         )}

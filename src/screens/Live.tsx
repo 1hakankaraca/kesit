@@ -45,9 +45,9 @@ export function Live() {
       {channel && <ChannelBanner info={info.data} loading={info.loading} channel={channel} />}
       {live.autopilot.config.enabled && (
         <p className="notice-box live-note">
-          Otomatik takip açık: {live.autopilot.config.channel} yayına geçince klipler yakalanır, yayın bitince yayın indirilir.{' '}
+          Çevrimdışı bot takip açık: {live.autopilot.config.channel} yayına geçince klipler yakalanır, yayın bitince yayın indirilir.{' '}
           <button type="button" className="link" onClick={() => navigate(sectionPath('nobet'))}>
-            Otomatik takibe git
+            Bot takibine git
           </button>
         </p>
       )}
@@ -111,7 +111,7 @@ function RecorderPanel({ live, channel, isLive }: { live: LiveState; channel: st
     setBusy(true);
     try {
       const res = await api.post<{ finishing?: boolean }>('/api/live/record/stop');
-      toast(res.finishing ? 'Son parçalar iniyor, kayıt birazdan hazır' : 'Kayıt durdu — Yayın kayıtları\'nda', 'ok');
+      toast(res.finishing ? 'Son parçalar iniyor, kayıt birazdan hazır' : 'Kayıt durdu — Galeri\'de', 'ok');
       await refreshLive();
     } catch (err) {
       toastError(err);
@@ -123,7 +123,7 @@ function RecorderPanel({ live, channel, isLive }: { live: LiveState; channel: st
   const captureSoFar = async () => {
     try {
       await api.post('/api/vods/capture-live', { channel });
-      toast('Yayının şu ana kadarki kısmı indiriliyor — Geçmiş yayınlar\'da düzenleyebilirsin', 'ok');
+      toast('Yayının şu ana kadarki kısmı indiriliyor — Yayın geçmişleri\'nde kesebilirsin', 'ok');
     } catch (err) {
       toastError(err);
     }
@@ -136,7 +136,7 @@ function RecorderPanel({ live, channel, isLive }: { live: LiveState; channel: st
           <h2 id="rec-title" className="panel-title">
             <Icon name="record" size={18} /> Canlı kayıt
           </h2>
-          <p className="panel-sub">Yayının tamamını dosyaya alır. Durdurunca Yayın kayıtları'nda düzenlemeye hazır olur.</p>
+          <p className="panel-sub">Yayının tamamını dosyaya alır. Durdurunca Galeri'de düzenlemeye hazır olur.</p>
         </div>
         {rec.recording && <Pill tone="live">{rec.finishing ? 'Bitiriliyor' : 'Kayıtta'}</Pill>}
       </header>
@@ -256,7 +256,7 @@ function WatcherPanel({ live, channel }: { live: LiveState; channel: string }) {
           </button>
         </div>
       )}
-      {managedByAutopilot && <p className="field-help">Otomatik takip açıkken klip yakalamayı o yönetir.</p>}
+      {managedByAutopilot && <p className="field-help">Bot takibi açıkken klip yakalamayı o yönetir.</p>}
 
       <HarvestList />
 
@@ -270,7 +270,7 @@ function WatcherPanel({ live, channel }: { live: LiveState; channel: string }) {
                 {f.error && <span className="field-error"> — {f.error}</span>}
               </span>
               {f.jobId ? (
-                <button type="button" className="link" onClick={() => navigate(sectionPath('kutuphane', f.jobId))}>
+                <button type="button" className="link" onClick={() => navigate(sectionPath('galeri', f.jobId))}>
                   Klibi aç
                 </button>
               ) : (
@@ -377,7 +377,7 @@ function HarvestList() {
   const edit = async (clip: HarvestClip) => {
     try {
       await api.post(`/api/harvest/${clip.id}/edit`);
-      toast('Dikey videoya çevriliyor — Videolarım\'da görünecek', 'ok');
+      toast('Dikey videoya çevriliyor — Galeri\'de görünecek', 'ok');
       void refreshJobs();
       void state.reload();
     } catch (err) {
@@ -415,8 +415,8 @@ function HarvestList() {
                 )}
                 {c.status === 'ready' &&
                   (c.jobId ? (
-                    <button type="button" className="btn btn-quiet btn-small" onClick={() => navigate(sectionPath('kutuphane', c.jobId))}>
-                      Videolarım'da
+                    <button type="button" className="btn btn-quiet btn-small" onClick={() => navigate(sectionPath('galeri', c.jobId))}>
+                      Galeri'de
                     </button>
                   ) : (
                     <button type="button" className="btn btn-secondary btn-small" onClick={() => void edit(c)}>

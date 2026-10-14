@@ -5,6 +5,9 @@ import './styles/base.css';
 import './styles/shell.css';
 import './styles/components.css';
 import './styles/screens.css';
+import './styles/gallery.css';
+import './styles/home.css';
+import './styles/editor.css';
 
 import { MotionConfig } from 'motion/react';
 import { StrictMode, useEffect } from 'react';

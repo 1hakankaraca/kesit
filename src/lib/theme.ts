@@ -9,12 +9,13 @@ interface Theme {
 /** Her çalışma alanının kendi şerit gradyanı; geçiş CSS'te yumuşatılır. */
 export const THEMES: Record<Section | 'gate', Theme> = {
   gate: { g1: '#f43f5e', g2: '#f97316' },
-  kutuphane: { g1: '#f43f5e', g2: '#f97316' },
+  anasayfa: { g1: '#f43f5e', g2: '#f97316' },
+  canli: { g1: '#dc2626', g2: '#ea580c' },
+  galeri: { g1: '#e11d48', g2: '#f59e0b' },
   klipler: { g1: '#7c3aed', g2: '#db2777' },
   yayinlar: { g1: '#2563eb', g2: '#0891b2' },
-  canli: { g1: '#dc2626', g2: '#ea580c' },
   nobet: { g1: '#4f46e5', g2: '#9333ea' },
-  kayitlar: { g1: '#0d9488', g2: '#65a30d' },
+  editor: { g1: '#0ea5e9', g2: '#6366f1' },
   gorevler: { g1: '#0f766e', g2: '#2563eb' },
   paylasim: { g1: '#16a34a', g2: '#0891b2' },
   arsiv: { g1: '#334155', g2: '#2563eb' },

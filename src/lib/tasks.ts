@@ -5,7 +5,7 @@ import { createStore } from './store.ts';
 export interface Task {
   key: string;
   group: 'iniyor' | 'hazirlaniyor' | 'bitti' | 'hata';
-  kind: 'yayin' | 'klip-indir' | 'video' | 'kayit' | 'hazir-video' | 'model';
+  kind: 'yayin' | 'klip-indir' | 'video' | 'kayit' | 'hazir-video' | 'model' | 'proje';
   title: string;
   channel: string | null;
   step: string;
@@ -13,7 +13,7 @@ export interface Task {
   sizeBytes: number | null;
   error: string | null;
   at: string;
-  link: { section: string; sub: number | null; label: string } | null;
+  link: { section: string; sub: number | string | null; label: string } | null;
   vodJobId?: number;
 }
 
@@ -76,7 +76,7 @@ export function wireTaskEvents() {
       }
       soon();
     });
-    for (const ev of ['clipedit:update', 'recorder:final', 'recorder:status', 'recorder:finished', 'harvest:update', 'captions:download', 'recorder:segments']) {
+    for (const ev of ['clipedit:update', 'recorder:final', 'recorder:status', 'recorder:finished', 'harvest:update', 'captions:download', 'recorder:segments', 'project:render']) {
       s.on(ev, soon);
     }
     s.on('connect', soon);

@@ -291,3 +291,49 @@ export interface ArchiveDay {
   shared: number;
   deleted: number;
 }
+
+/* ── Editör projeleri ─────────────────────────────────────────────────── */
+
+export interface ProjectSummary {
+  id: number;
+  title: string;
+  format: 'horizontal' | 'vertical';
+  durationSec: number;
+  thumbUrl: string | null;
+  lastExportId: number | null;
+  createdAt: string;
+  updatedAt: string;
+  rendering: RenderStatus | null;
+}
+
+export interface RenderStatus {
+  projectId: number;
+  title: string;
+  percent: number;
+  startedAt: number;
+  error: string | null;
+  jobId: number | null;
+  done?: boolean;
+  failed?: boolean;
+}
+
+/* ── Sistem görev yöneticisi ──────────────────────────────────────────── */
+
+export interface SystemProcess {
+  pid: number;
+  name: string;
+  label: string;
+  cpu: number;
+  memBytes: number;
+  elapsed: string;
+  self: boolean;
+}
+
+export interface SystemReport {
+  cpu: { percent: number; cores: number; load: number };
+  memory: { total: number; used: number; percent: number };
+  disk: { total: number; free: number; used: number; percent: number } | null;
+  kesit: { pid: number; uptimeSec: number; memBytes: number; queue: QueueStatus };
+  processes: SystemProcess[];
+  sampledAt: number;
+}

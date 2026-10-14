@@ -4,23 +4,26 @@ import { Empty, Progress, Segmented, Spinner, WorkspaceHead } from '../component
 import { api } from '../lib/api.ts';
 import { bytes, relative } from '../lib/format.ts';
 import { navigate, sectionPath, type Section } from '../lib/router.ts';
+import { useSession } from '../lib/session.ts';
 import { isActiveTask, refreshTasks, tasksStore, type Task } from '../lib/tasks.ts';
-import { toastError } from '../lib/toast.ts';
-import { useInterval } from '../lib/useResource.ts';
+import { toast, toastError } from '../lib/toast.ts';
+import type { SystemReport } from '../lib/types.ts';
+import { useInterval, useResource } from '../lib/useResource.ts';
 import { etaLabel, speedLabel, stepLabel } from '../lib/words.ts';
 
 type Filter = 'hepsi' | Task['group'];
 
 const KIND: Record<Task['kind'], { icon: IconName; label: string }> = {
-  yayin: { icon: 'film', label: 'Geçmiş yayın indirme' },
+  yayin: { icon: 'film', label: 'Yayın indirme' },
   'klip-indir': { icon: 'download', label: 'Kick klibi indirme' },
   video: { icon: 'vertical', label: 'Video hazırlama' },
   kayit: { icon: 'record', label: 'Canlı kayıt' },
   'hazir-video': { icon: 'sparkle', label: 'Paylaşıma hazır video' },
   model: { icon: 'download', label: 'Altyazı modeli indirme' },
+  proje: { icon: 'scissors', label: 'Editör dışa aktarma' },
 };
 
-/** Görev yöneticisi: inen, hazırlanan, biten ve hatalı işler; her biri gideceği yere bağlı. */
+/** Görev yöneticisi: bilgisayarın durumu, Kesit'in süreçleri ve süren işler. */
 export function Tasks() {
   const { loaded, tasks, live } = tasksStore.use();
   const [filter, setFilter] = useState<Filter>('hepsi');
@@ -28,7 +31,6 @@ export function Tasks() {
   useEffect(() => {
     void refreshTasks();
   }, []);
-  // Kalan süre ve göreli zamanlar akarken ekran tazelensin.
   const [, tick] = useState(0);
   useInterval(() => tick((n) => n + 1), tasks.some(isActiveTask) ? 1000 : null);
 
@@ -43,7 +45,10 @@ export function Tasks() {
 
   return (
     <>
-      <WorkspaceHead guide="gorevler" title="Görev" tape="yöneticisi" lead="İnen yayınlar, hazırlanan videolar ve son bir günde bitenler. Bir işe tıklayıp ilgili yere gidebilirsin." />
+      <WorkspaceHead guide="gorevler" title="Görev" tape="yöneticisi" lead="Bilgisayarın işlemci, bellek ve disk durumu; Kesit'in çalıştırdığı işlemler ve süren işler." />
+
+      <SystemPanel />
+
       <div className="toolbar panel">
         <Segmented
           label="Bölüm"
@@ -80,6 +85,106 @@ export function Tasks() {
   );
 }
 
+/** İşletim sistemi görev yöneticisi gibi: göstergeler + süreç listesi. */
+function SystemPanel() {
+  const { local } = useSession();
+  const sys = useResource(() => api.get<SystemReport>('/api/system/monitor'));
+  useInterval(() => void sys.reload(), 2500);
+  const [killing, setKilling] = useState<number | null>(null);
+  const d = sys.data;
+
+  const kill = async (pid: number) => {
+    setKilling(pid);
+    try {
+      await api.post('/api/system/kill', { pid });
+      toast('İşlem sonlandırıldı', 'ok');
+      await sys.reload();
+    } catch (err) {
+      toastError(err);
+    } finally {
+      setKilling(null);
+    }
+  };
+
+  return (
+    <section className="sys panel" aria-label="Sistem">
+      <div className="sys-gauges">
+        <Gauge icon="cpu" label="İşlemci" percent={d?.cpu.percent ?? null} note={d ? `${d.cpu.cores} çekirdek · yük ${d.cpu.load}` : ''} />
+        <Gauge icon="memory" label="Bellek" percent={d?.memory.percent ?? null} note={d ? `${bytes(d.memory.used)} / ${bytes(d.memory.total)}` : ''} />
+        <Gauge icon="disk" label="Disk" percent={d?.disk?.percent ?? null} note={d?.disk ? `${bytes(d.disk.free)} boş` : 'okunamadı'} />
+        <div className="sys-kesit">
+          <span className="eyebrow">Kesit</span>
+          <b>{d ? bytes(d.kesit.memBytes) : '—'}</b>
+          <span className="muted">
+            {d ? `${Math.floor(d.kesit.uptimeSec / 3600)} sa ${Math.floor((d.kesit.uptimeSec % 3600) / 60)} dk açık · ${d.kesit.queue.running} işleniyor, ${d.kesit.queue.waiting} sırada` : 'okunuyor'}
+          </span>
+        </div>
+      </div>
+      <table className="sys-table">
+        <thead>
+          <tr>
+            <th>İşlem</th>
+            <th>Ne yapıyor</th>
+            <th className="num">İşlemci</th>
+            <th className="num">Bellek</th>
+            <th className="num">Süre</th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          {(d?.processes ?? []).map((p) => (
+            <tr key={p.pid} className={p.self ? 'sys-self' : undefined}>
+              <td>
+                <b>{p.name}</b> <span className="muted">#{p.pid}</span>
+              </td>
+              <td>{p.label}</td>
+              <td className="num">
+                <span className="sys-bar" aria-hidden="true">
+                  <i style={{ width: `${Math.min(100, p.cpu)}%` }} />
+                </span>
+                %{Math.round(p.cpu)}
+              </td>
+              <td className="num">{bytes(p.memBytes)}</td>
+              <td className="num">{p.elapsed}</td>
+              <td className="num">
+                {!p.self && local && (
+                  <button type="button" className="btn btn-quiet btn-small" disabled={killing === p.pid} onClick={() => void kill(p.pid)}>
+                    {killing === p.pid ? <Spinner size={12} /> : 'Sonlandır'}
+                  </button>
+                )}
+              </td>
+            </tr>
+          ))}
+          {d && d.processes.length <= 1 && (
+            <tr>
+              <td colSpan={6} className="muted">
+                Şu an Kesit'in başlattığı başka işlem yok.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
+function Gauge({ icon, label, percent, note }: { icon: IconName; label: string; percent: number | null; note: string }) {
+  const p = percent === null ? 0 : Math.max(0, Math.min(100, percent));
+  const tone = p > 90 ? 'hot' : p > 70 ? 'warm' : 'cool';
+  return (
+    <div className={`gauge gauge-${tone}`}>
+      <span className="gauge-head">
+        <Icon name={icon} size={16} /> {label}
+      </span>
+      <b className="gauge-value">{percent === null ? '—' : `%${Math.round(p)}`}</b>
+      <span className="gauge-bar" aria-hidden="true">
+        <i style={{ width: `${p}%` }} />
+      </span>
+      <span className="gauge-note">{note}</span>
+    </div>
+  );
+}
+
 function TaskRow({ task: t, live }: { task: Task; live?: { progress: number | null; bytes: number | null; speedBps: number | null; startedAt: number } }) {
   const [busy, setBusy] = useState(false);
   const running = isActiveTask(t);
@@ -96,6 +201,18 @@ function TaskRow({ task: t, live }: { task: Task; live?: { progress: number | nu
     try {
       if (action === 'remove') await api.del(`/api/vod-jobs/${t.vodJobId}`);
       else await api.post(`/api/vod-jobs/${t.vodJobId}/${action}`);
+      await refreshTasks();
+    } catch (err) {
+      toastError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const cancelRender = async () => {
+    setBusy(true);
+    try {
+      await api.post(`/api/projects/${t.key.replace('proje-', '')}/render/cancel`);
       await refreshTasks();
     } catch (err) {
       toastError(err);
@@ -142,6 +259,11 @@ function TaskRow({ task: t, live }: { task: Task; live?: { progress: number | nu
         {t.kind === 'yayin' && t.group === 'hata' && (
           <button type="button" className="btn btn-quiet btn-small" disabled={busy} onClick={() => void vodAction('remove')}>
             Listeden kaldır
+          </button>
+        )}
+        {t.kind === 'proje' && t.group === 'hazirlaniyor' && (
+          <button type="button" className="btn btn-quiet btn-small" disabled={busy} onClick={() => void cancelRender()}>
+            İptal
           </button>
         )}
         {t.link && (

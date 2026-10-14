@@ -1,7 +1,10 @@
 import { useSyncExternalStore } from 'react';
 
-export const SECTIONS = ['kutuphane', 'klipler', 'yayinlar', 'canli', 'nobet', 'kayitlar', 'gorevler', 'paylasim', 'arsiv', 'marka', 'ayarlar'] as const;
+export const SECTIONS = ['anasayfa', 'canli', 'galeri', 'klipler', 'yayinlar', 'nobet', 'editor', 'gorevler', 'paylasim', 'arsiv', 'marka', 'ayarlar'] as const;
 export type Section = (typeof SECTIONS)[number];
+
+/** Eski adresler yeni bölümlere yönlenir (yer imleri bozulmasın). */
+const ALIASES: Record<string, Section> = { kutuphane: 'galeri', kayitlar: 'editor' };
 
 const listeners = new Set<() => void>();
 
@@ -29,7 +32,7 @@ export interface Route {
 
 function parse(path: string): Route {
   const [, first = '', second = null] = path.split('/');
-  const section = (SECTIONS as readonly string[]).includes(first) ? (first as Section) : 'kutuphane';
+  const section = (SECTIONS as readonly string[]).includes(first) ? (first as Section) : (ALIASES[first] ?? 'anasayfa');
   return { section, sub: second || null };
 }
 
@@ -39,5 +42,5 @@ export function useRoute(): Route {
 }
 
 export function sectionPath(section: Section, sub?: string | number | null) {
-  return section === 'kutuphane' && !sub ? '/' : `/${section}${sub ? `/${sub}` : ''}`;
+  return section === 'anasayfa' && !sub ? '/' : `/${section}${sub ? `/${sub}` : ''}`;
 }

@@ -16,7 +16,9 @@ import { accountRoutes } from './routes/account.ts';
 import { clipRoutes } from './routes/clips.ts';
 import { liveRoutes } from './routes/live.ts';
 import { recordingRoutes } from './routes/recordings.ts';
+import { projectRoutes } from './routes/projects.ts';
 import { publicKickRoutes, settingsRoutes } from './routes/settings.ts';
+import { systemRoutes } from './routes/system.ts';
 import { studioRoutes } from './routes/studio.ts';
 import { taskRoutes } from './routes/tasks.ts';
 import { vodRoutes } from './routes/vods.ts';
@@ -29,7 +31,9 @@ import { KickChat } from './services/KickChat.ts';
 import { LanAccess } from './services/LanAccess.ts';
 import { Retention } from './services/Retention.ts';
 import { Storage } from './services/Storage.ts';
+import { Projects } from './services/Projects.ts';
 import { Publishing } from './services/Publishing.ts';
+import { SystemMonitor } from './services/SystemMonitor.ts';
 import { Workspaces } from './services/Workspaces.ts';
 
 const app = express();
@@ -56,8 +60,11 @@ const ctx: AppContext = {
   storage: new Storage(store, workspaces, vodScanner, exporter),
   kickChat: new KickChat(store),
   harvester,
+  projects: new Projects(store, io),
+  system: new SystemMonitor(),
 };
 ctx.captions.apply();
+ctx.system.start();
 const lan = new LanAccess(store);
 const retention = new Retention(store);
 const LAN_COOKIE = 'kesit_lan';
@@ -144,7 +151,7 @@ app.delete('/api/lan/devices', requireLocal, (_req, res) => res.json(lan.revokeA
 app.use('/api', publicKickRoutes());
 
 app.use('/api', requireUser);
-for (const routes of [accountRoutes, settingsRoutes, taskRoutes, clipRoutes, studioRoutes, vodRoutes, liveRoutes, recordingRoutes]) {
+for (const routes of [accountRoutes, settingsRoutes, taskRoutes, clipRoutes, studioRoutes, vodRoutes, liveRoutes, recordingRoutes, projectRoutes, systemRoutes]) {
   app.use('/api', routes(ctx));
 }
 
@@ -223,6 +230,7 @@ async function shutdown(signal: string) {
   ctx.autopilot.stopAll();
   ctx.harvester.stopAll();
   retention.stop();
+  ctx.system.stop();
   await workspaces.destroyAll().catch(() => {});
   await vodScanner.close().catch(() => {});
   io.close();

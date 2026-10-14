@@ -16,11 +16,12 @@ import { takeSnapshot } from '../lib/snapshot.ts';
 import { speedLabel } from '../lib/words.ts';
 import { ChannelScopeToggle } from '../components/ChannelScopeToggle.tsx';
 import type { Frame, Highlight, Job, VodJob, VodVideo } from '../lib/types.ts';
-import { JobStatusLine, jobTitle } from './Library.tsx';
+import { JobStatusLine, jobTitle } from './Gallery.tsx';
+import { openInEditor } from '../lib/editorOpen.ts';
 
 const QUALITIES = ['1080p', '720p', '480p'] as const;
 
-/** Geçmiş yayınlar: listeden indir, zaman çizelgesinde kes. */
+/** Yayın geçmişleri: listeden indir, zaman çizelgesinde kes ya da editörde aç. */
 export function Vods({ openId }: { openId: number | null }) {
   return openId ? <VodEditor id={openId} /> : <VodList />;
 }
@@ -70,7 +71,7 @@ function VodList() {
 
   return (
     <>
-      <WorkspaceHead guide="yayinlar" title="Geçmiş" tape="yayınlar" lead="Kick'in sakladığı yayınları bilgisayarına indir, sonra editörde istediğin anları kes." actions={<ChannelScopeToggle />} />
+      <WorkspaceHead guide="yayinlar" title="Yayın" tape="geçmişleri" lead="Kick'in sakladığı yayınları bilgisayarına indir; sonra hızlıca kes ya da editörde aç." actions={<ChannelScopeToggle />} />
 
       {downloading.length > 0 && (
         <button type="button" className="notice-box notice-link live-note" onClick={() => navigate(sectionPath('gorevler'))}>
@@ -104,7 +105,10 @@ function VodList() {
                   </p>
                   <div className="row-gap">
                     <button type="button" className="btn btn-accent btn-small" onClick={() => navigate(sectionPath('yayinlar', j.id))}>
-                      <Icon name="scissors" size={14} /> Düzenle
+                      <Icon name="scissors" size={14} /> Kes
+                    </button>
+                    <button type="button" className="btn btn-secondary btn-small" onClick={() => void openInEditor({ type: 'vod', id: j.id }, { title: j.title || undefined })}>
+                      Editörde aç
                     </button>
                     <button type="button" className="btn btn-quiet btn-icon" onClick={() => remove(j)} aria-label="Sil">
                       <Icon name="trash" size={14} />
@@ -186,7 +190,7 @@ function VodList() {
                     </p>
                     {job?.status === 'downloaded' ? (
                       <button type="button" className="btn btn-accent btn-small" onClick={() => navigate(sectionPath('yayinlar', job.id))}>
-                        <Icon name="scissors" size={14} /> Düzenle
+                        <Icon name="scissors" size={14} /> Kes
                       </button>
                     ) : job ? (
                       <button type="button" className="btn btn-secondary btn-small" onClick={() => navigate(sectionPath('gorevler'))}>
@@ -326,7 +330,7 @@ function VodEditor({ id }: { id: number }) {
               <ul className="mini-list">
                 {produced.map((j) => (
                   <li key={j.id}>
-                    <button type="button" className="clip-row" onClick={() => navigate(sectionPath('kutuphane', j.id))}>
+                    <button type="button" className="clip-row" onClick={() => navigate(sectionPath('galeri', j.id))}>
                       <span className="clip-row-thumb clip-row-thumb-h">{j.thumbnail_url ? <img src={j.thumbnail_url} alt="" /> : <Icon name="film" />}</span>
                       <span className="clip-row-body">
                         <span className="clip-row-title">{jobTitle(j)}</span>
@@ -361,6 +365,9 @@ function VodEditor({ id }: { id: number }) {
                 {busy ? <Spinner /> : <Icon name="scissors" size={16} />}
                 {cuts.length ? `${cuts.length} kesiti üret` : 'Kesit işaretle'}
               </button>
+              <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => void openInEditor({ type: 'vod', id }, { title: job.title || undefined, ranges: cuts.length ? cuts.map((c) => ({ start: c.start, end: c.end })) : undefined })}>
+                <Icon name="layers" size={16} /> {cuts.length ? 'Kesitleri editörde aç' : 'Editörde aç'}
+              </button>
             </div>
           </section>
 
@@ -388,7 +395,7 @@ function VodEditor({ id }: { id: number }) {
 function BackLink() {
   return (
     <button type="button" className="link" onClick={() => navigate(sectionPath('yayinlar'))}>
-      ← Geçmiş yayınlar
+      ← Yayın geçmişleri
     </button>
   );
 }

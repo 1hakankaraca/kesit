@@ -1,0 +1,456 @@
+/* ── Anasayfa ───────────────────────────────────────────────────────────── */
+
+.home-quick {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin-bottom: 22px;
+}
+
+.quick-tile {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-m);
+  background: var(--surface);
+  text-align: left;
+  box-shadow: var(--shadow);
+}
+
+.quick-tile b {
+  font-size: 16px;
+}
+
+.quick-tile > span:last-child {
+  font-size: 13px;
+  color: var(--ink-3);
+}
+
+.quick-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 6px;
+  border-radius: 12px;
+  background: var(--tape);
+  color: #fff;
+  box-shadow: 0 10px 22px -12px var(--g1);
+}
+
+.home-live {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 22px;
+}
+
+.home-section {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 26px;
+  min-width: 0;
+}
+
+.home-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.home-idle {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 20px 22px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-l);
+}
+
+.home-idle p {
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+.home-idle-orb {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--tape);
+  animation: breathe 3s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    transform: scale(0.92);
+    opacity: 0.75;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 1;
+  }
+}
+
+.now-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+}
+
+.now-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-m);
+  background: var(--surface);
+  text-align: left;
+  box-shadow: var(--shadow);
+}
+
+.now-body {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.now-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+}
+
+.now-kind,
+.now-details {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.now-step {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--g1);
+}
+
+.now-details {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+}
+
+.pipeline {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.pipe {
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+  flex: 1;
+  font-size: 10px;
+  color: var(--ink-3);
+}
+
+.pipe i {
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--sunken);
+}
+
+.pipe-done i {
+  background: var(--ok);
+}
+
+.pipe-now {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.pipe-now i {
+  background: var(--tape);
+  animation: pipe-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pipe-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.ring {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+
+.ring svg {
+  position: absolute;
+  inset: 0;
+  transform: rotate(-90deg);
+}
+
+.ring-track {
+  fill: none;
+  stroke: var(--sunken);
+  stroke-width: 6;
+}
+
+.ring-fill {
+  fill: none;
+  stroke: var(--g1);
+  stroke-width: 6;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.6s var(--ease-out);
+}
+
+.ring b {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ring-spin svg {
+  animation: spin 1.4s linear infinite;
+}
+
+.home-bottom {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 24px;
+  align-items: start;
+}
+
+.recent-row {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  scrollbar-width: thin;
+}
+
+.recent-card {
+  display: grid;
+  gap: 5px;
+  width: 190px;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+}
+
+.recent-thumb {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 9;
+  border-radius: 12px;
+  background: var(--sunken);
+  color: var(--ink-3);
+  overflow: hidden;
+}
+
+.recent-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+.recent-card-h .recent-thumb img {
+  object-fit: cover;
+}
+
+.recent-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.recent-meta {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.home-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.home-stats > div {
+  display: grid;
+  gap: 2px;
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--sunken);
+}
+
+.home-stats b {
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.home-stats span {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+@media (max-width: 900px) {
+  .home-bottom {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ── Sistem görev yöneticisi ───────────────────────────────────────────── */
+
+.sys {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.sys-gauges {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+.gauge {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--sunken);
+}
+
+.gauge-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.gauge-value {
+  font-family: var(--font-display);
+  font-size: 34px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.gauge-bar {
+  display: block;
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--line-strong) 60%, transparent);
+  overflow: hidden;
+}
+
+.gauge-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--tape);
+  transition: width 0.8s var(--ease-out);
+}
+
+.gauge-warm .gauge-bar i {
+  background: var(--warn);
+}
+
+.gauge-hot .gauge-bar i {
+  background: var(--mark);
+}
+
+.gauge-note {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.sys-kesit {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--sunken);
+}
+
+.sys-kesit b {
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.sys-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.sys-table th,
+.sys-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.sys-table th {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.sys-table .num {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.sys-self td {
+  color: var(--ink-2);
+}
+
+.sys-bar {
+  display: inline-block;
+  width: 60px;
+  height: 6px;
+  margin-right: 8px;
+  border-radius: 999px;
+  background: var(--sunken);
+  vertical-align: middle;
+  overflow: hidden;
+}
+
+.sys-bar i {
+  display: block;
+  height: 100%;
+  background: var(--tape);
+  transition: width 0.6s;
+}

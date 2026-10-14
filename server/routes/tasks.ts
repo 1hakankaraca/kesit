@@ -14,7 +14,7 @@ const RECENT_MS = 24 * 60 * 60_000;
 export interface Task {
   key: string;
   group: 'iniyor' | 'hazirlaniyor' | 'bitti' | 'hata';
-  kind: 'yayin' | 'klip-indir' | 'video' | 'kayit' | 'hazir-video' | 'model';
+  kind: 'yayin' | 'klip-indir' | 'video' | 'kayit' | 'hazir-video' | 'model' | 'proje';
   title: string;
   channel: string | null;
   step: string;
@@ -23,7 +23,7 @@ export interface Task {
   error: string | null;
   at: string;
   /** Kullanıcının gideceği yer: bölüm + alt kimlik ve düğme metni. */
-  link: { section: string; sub: number | null; label: string } | null;
+  link: { section: string; sub: number | string | null; label: string } | null;
   /** Yayın indirme işinin kimliği (duraklat/sürdür/iptal için). */
   vodJobId?: number;
 }
@@ -32,7 +32,7 @@ const iso = (v: unknown) => (v instanceof Date ? v.toISOString() : String(v ?? n
 const recent = (v: unknown) => !!v && Date.now() - new Date(v as string).getTime() < RECENT_MS;
 
 /** Görev yöneticisi ve ekran görüntüsü uçları. */
-export function taskRoutes({ store, workspaces, captions, exporter, harvester }: AppContext) {
+export function taskRoutes({ store, workspaces, captions, exporter, harvester, projects }: AppContext) {
   const r = express.Router();
 
   r.get('/tasks', async (req, res) => {
@@ -61,7 +61,7 @@ export function taskRoutes({ store, workspaces, captions, exporter, harvester }:
         sizeBytes: j.vod_file_size_bytes ?? null,
         error: j.error ?? null,
         at: iso(j.created_at),
-        link: j.status === 'downloaded' ? { section: 'yayinlar', sub: j.id, label: 'Editöre git' } : { section: 'yayinlar', sub: null, label: 'Yayınlara git' },
+        link: j.status === 'downloaded' ? { section: 'yayinlar', sub: j.id, label: 'Kesmeye git' } : { section: 'yayinlar', sub: null, label: 'Yayın geçmişine git' },
         vodJobId: j.id,
       });
     }
@@ -79,7 +79,7 @@ export function taskRoutes({ store, workspaces, captions, exporter, harvester }:
         sizeBytes: c.sizeBytes ?? null,
         error: c.error ?? null,
         at: c.createdAt,
-        link: c.jobId ? { section: 'kutuphane', sub: c.jobId, label: 'Videoyu gör' } : { section: 'canli', sub: null, label: 'Klibi gör' },
+        link: c.jobId ? { section: 'galeri', sub: c.jobId, label: 'Videoyu gör' } : { section: 'canli', sub: null, label: 'Klibi gör' },
       });
     }
 
@@ -97,7 +97,7 @@ export function taskRoutes({ store, workspaces, captions, exporter, harvester }:
         sizeBytes: j.file_size_bytes ?? null,
         error: j.error ?? null,
         at: iso(j.created_at),
-        link: { section: 'kutuphane', sub: j.id, label: j.status === 'ready' ? 'Videoyu gör' : 'Videoya git' },
+        link: { section: 'galeri', sub: j.id, label: j.status === 'ready' ? 'Videoyu gör' : 'Videoya git' },
       });
     }
 
@@ -132,9 +132,26 @@ export function taskRoutes({ store, workspaces, captions, exporter, harvester }:
           sizeBytes: rec.final_size ?? null,
           error: rec.final_error ?? null,
           at: iso(rec.completed_at ?? rec.started_at),
-          link: { section: 'kayitlar', sub: rec.id, label: 'Kayda git' },
+          link: { section: 'galeri', sub: `k${rec.id}`, label: 'Kayda git' },
         });
       }
+    }
+
+    for (const r of projects.renderStatus(userId)) {
+      const done = r.jobId !== null;
+      tasks.push({
+        key: `proje-${r.projectId}`,
+        group: r.error ? 'hata' : done ? 'bitti' : 'hazirlaniyor',
+        kind: 'proje',
+        title: r.title,
+        channel: null,
+        step: r.error ? 'Dışa aktarılamadı' : done ? 'Hazır' : 'Dışa aktarılıyor',
+        progress: done || r.error ? null : r.percent,
+        sizeBytes: null,
+        error: r.error,
+        at: new Date(r.startedAt).toISOString(),
+        link: done ? { section: 'galeri', sub: r.jobId, label: 'Videoyu gör' } : { section: 'editor', sub: r.projectId, label: 'Projeye git' },
+      });
     }
 
     const model = captions.status().whisper.download;

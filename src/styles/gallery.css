@@ -1,0 +1,237 @@
+/* ── Galeri ─────────────────────────────────────────────────────────────── */
+
+.gallery-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  padding: 12px 14px;
+}
+
+.gallery-search {
+  flex: 1 1 220px;
+  min-width: 180px;
+}
+
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(236px, 1fr));
+  gap: 24px 18px;
+}
+
+.gallery-grid > li {
+  position: relative;
+  min-width: 0;
+}
+
+.gcard {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.gcard-thumb {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 9;
+  border-radius: 14px;
+  background: var(--sunken);
+  color: var(--ink-3);
+  overflow: hidden;
+  transition: transform 0.25s var(--ease-out), box-shadow 0.25s;
+}
+
+.gcard:hover .gcard-thumb {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 34px -20px rgb(0 0 0 / 0.5);
+}
+
+.gcard-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.gcard-vertical .gcard-thumb img {
+  object-fit: contain;
+  background: #000;
+}
+
+.gcard-preview {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+  animation: fade 0.25s ease;
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+.gcard-busy {
+  position: absolute;
+  inset: auto 8px 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgb(0 0 0 / 0.72);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+}
+
+.gcard-busy i {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--tape);
+  transition: width 0.5s;
+}
+
+.gcard-kind {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: rgb(0 0 0 / 0.6);
+  color: #fff;
+}
+
+.gcard-body {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.gcard-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.gcard-meta {
+  font-size: 13px;
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gcard-x {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 8px;
+  background: rgb(0 0 0 / 0.6);
+  color: #fff;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.gallery-grid > li:hover .gcard-x {
+  opacity: 1;
+}
+
+/* İzleme sayfası */
+
+.watch {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.watch-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 340px);
+  gap: 28px;
+  align-items: start;
+  min-width: 0;
+}
+
+.watch-main {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.watch-stage-v {
+  width: auto;
+  height: min(66dvh, 720px);
+  max-height: none;
+  margin: 0;
+}
+
+.watch-title {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(28px, 3.4vw, 42px);
+  line-height: 0.98;
+  overflow-wrap: anywhere;
+}
+
+.watch-sub {
+  font-size: 14px;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.watch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.watch-side {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.watch-list {
+  display: grid;
+  gap: 2px;
+}
+
+.watch .copy-block p,
+.watch .inspector-note {
+  overflow-wrap: anywhere;
+}
+
+.watch .rec-panels {
+  margin-top: 8px;
+}
+
+@media (max-width: 1100px) {
+  .watch-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

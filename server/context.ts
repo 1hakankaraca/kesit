@@ -7,7 +7,9 @@ import type { ClipHarvester } from './services/ClipHarvester.ts';
 import type { Exporter } from './services/Exporter.ts';
 import type { KickChat } from './services/KickChat.ts';
 import type { Storage } from './services/Storage.ts';
+import type { Projects } from './services/Projects.ts';
 import type { Publishing } from './services/Publishing.ts';
+import type { SystemMonitor } from './services/SystemMonitor.ts';
 import type { Workspaces } from './services/Workspaces.ts';
 
 /** Rotaların ortak bağımlılıkları — server/index.ts bir kez kurar. */
@@ -24,4 +26,6 @@ export interface AppContext {
   storage: Storage;
   kickChat: KickChat;
   harvester: ClipHarvester;
+  projects: Projects;
+  system: SystemMonitor;
 }

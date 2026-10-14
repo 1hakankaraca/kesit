@@ -277,4 +277,23 @@ export const MIGRATIONS: { id: string; sql: string }[] = [
       ALTER TABLE user_settings ADD COLUMN kick_app_enc TEXT;
     `,
   },
+  {
+    id: '007-editor-projeleri',
+    sql: `
+      -- Editör projeleri: zaman çizelgesi, varlıklar ve ayarlar JSON (shared/project.ts).
+      CREATE TABLE projects (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        title TEXT NOT NULL DEFAULT 'Yeni proje',
+        format TEXT NOT NULL DEFAULT 'horizontal',
+        data TEXT NOT NULL DEFAULT '{}',
+        duration_sec REAL DEFAULT 0,
+        thumb_path TEXT,
+        last_export_id INTEGER,
+        created_at TEXT NOT NULL DEFAULT ${NOW},
+        updated_at TEXT NOT NULL DEFAULT ${NOW}
+      );
+      CREATE INDEX idx_projects_user ON projects (user_id, updated_at DESC);
+    `,
+  },
 ];

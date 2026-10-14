@@ -15,7 +15,7 @@ import { ChannelBanner } from './Live.tsx';
 const STEPS = [
   { icon: 'clock', title: 'Yoklar', text: 'Sunucu kanalı belirli aralıklarla kontrol eder. Tarayıcın kapalı olabilir.' },
   { icon: 'live', title: 'Yayın açılınca', text: 'Chat\'e düşen klipler yakalanır ve istersen dikey videoya çevrilir.' },
-  { icon: 'download', title: 'Yayın bitince', text: 'Yayının tamamı indirilir, Geçmiş yayınlar\'da editörde seni bekler.' },
+  { icon: 'download', title: 'Yayın bitince', text: 'Yayının tamamı indirilir, Yayın geçmişleri\'nde seni bekler.' },
 ] as const;
 
 /** Nöbet: bilgisayar başında değilken takip edilen kanalı izler. */
@@ -32,7 +32,7 @@ export function Nobet() {
 
   return (
     <>
-      <WorkspaceHead title="Otomatik" tape="takip" lead="Sen yokken kanalı izler: yayın açılınca kayda ve klip yakalamaya başlar, yayın bitince her şeyi toparlar." guide="nobet" />
+      <WorkspaceHead title="Çevrimdışı" tape="bot takip" lead="Sen yokken bot kanalı izler: yayın açılınca klip yakalamaya başlar, yayın bitince yayını indirir ve her şeyi toparlar." guide="nobet" />
       <ol className="flow">
         {STEPS.map((s, i) => (
           <li key={s.title} className="flow-step">
@@ -71,7 +71,7 @@ function AutopilotPanel({ live, fallbackChannel }: { live: LiveState; fallbackCh
       const res = await api.put<LiveState['autopilot']>('/api/autopilot', next);
       liveStore.set((s) => (s ? { ...s, autopilot: res } : s));
       setDraft(res.config);
-      toast(res.config.enabled ? 'Otomatik takip açık' : 'Otomatik takip kapatıldı', 'ok');
+      toast(res.config.enabled ? 'Bot takibi açık' : 'Bot takibi kapatıldı', 'ok');
     } catch (err) {
       toastError(err);
     } finally {
@@ -99,7 +99,7 @@ function AutopilotPanel({ live, fallbackChannel }: { live: LiveState; fallbackCh
       <header className="panel-head">
         <div>
           <h2 id="ap-title" className="panel-title">
-            <Icon name="shield" size={18} /> Otomatik takip
+            <Icon name="shield" size={18} /> Çevrimdışı bot takip
           </h2>
           <p className="panel-sub">Bilgisayar başında değilken kanalı yoklar; yayın açılınca devreye girer, kapanınca toparlar.</p>
         </div>
@@ -121,10 +121,10 @@ function AutopilotPanel({ live, fallbackChannel }: { live: LiveState; fallbackCh
           checked={draft.downloadVod}
           onChange={(v) => patch({ downloadVod: v })}
           label="Yayın bitince yayını indir"
-          hint="Kick yayın kaydını yayımlayınca indirilir ve Geçmiş yayınlar'a düşer; editörde sen düzenlersin, otomatik işlenmez"
+          hint="Kick yayın kaydını yayımlayınca indirilir ve Yayın geçmişleri'ne düşer; editörde sen düzenlersin, otomatik işlenmez"
         />
         <Switch checked={draft.clips} onChange={(v) => patch({ clips: v })} label="Chat kliplerini yakala" hint="Sohbete düşen kick.com ve kickbot.com klip bağlantıları" />
-        {draft.clips && <Switch checked={draft.autoEdit} onChange={(v) => patch({ autoEdit: v })} label="Yakalananları otomatik düzenle" hint="Dikey video + altyazı, Videolarım'a düşer" />}
+        {draft.clips && <Switch checked={draft.autoEdit} onChange={(v) => patch({ autoEdit: v })} label="Yakalananları otomatik düzenle" hint="Dikey video + altyazı, Galeri'ye düşer" />}
         {draft.clips && draft.autoEdit && <Switch checked={draft.subtitles} onChange={(v) => patch({ subtitles: v })} label="Altyazı" />}
         {draft.clips && draft.autoEdit && (
           <Switch checked={draft.autoPublish} onChange={(v) => patch({ autoPublish: v })} label="Otomatik paylaş" hint="Hazır klipler saatte bir Zernio ile paylaşılır" />

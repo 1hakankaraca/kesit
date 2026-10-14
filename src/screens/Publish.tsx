@@ -54,8 +54,8 @@ export function Publish() {
                 icon="share"
                 title="Henüz paylaşım yok"
                 action={
-                  <button type="button" className="btn btn-secondary" onClick={() => navigate(sectionPath('kutuphane'))}>
-                    Videolarım'dan paylaş
+                  <button type="button" className="btn btn-secondary" onClick={() => navigate(sectionPath('galeri'))}>
+                    Galeri'den paylaş
                   </button>
                 }
               />
@@ -89,7 +89,7 @@ const HOWTO = [
   },
   {
     title: 'Paylaş',
-    text: 'Videolarım\'da bir video seç, "Paylaş"a bas, hesapları işaretle. "Hemen" ya da "Planla" ile tarih/saat seç. Otomatik takipte otomatik paylaşımı da açabilirsin.',
+    text: 'Galeri\'de bir video seç, "Paylaş"a bas, hesapları işaretle. "Hemen" ya da "Planla" ile tarih/saat seç. Bot takibite otomatik paylaşımı da açabilirsin.',
   },
 ];
 
@@ -140,7 +140,7 @@ function EntryList({ entries, onRefresh }: { entries: ScheduleEntry[]; onRefresh
     <ul className="schedule">
       {entries.map((e) => (
         <li key={e.jobId} className="schedule-item">
-          <button type="button" className="schedule-thumb" onClick={() => navigate(sectionPath('kutuphane', e.jobId))} aria-label={`${e.title} klibini aç`}>
+          <button type="button" className="schedule-thumb" onClick={() => navigate(sectionPath('galeri', e.jobId))} aria-label={`${e.title} klibini aç`}>
             {e.thumbnailUrl ? <img src={e.thumbnailUrl} alt="" loading="lazy" /> : <Icon name="vertical" />}
           </button>
           <div className="schedule-body">

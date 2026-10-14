@@ -57,7 +57,7 @@ function attachJobEvents(s: Socket) {
     else if (!known) void refreshJob(e.jobId);
   });
   s.on('clipedit:published', (e: { jobId: number }) => void refreshJob(e.jobId));
-  // Kayıttan kesit aktarımı: yeni işler Kütüphane'ye düşer.
+  // Kayıttan kesit aktarımı: yeni işler Galeri'ye düşer.
   s.on('recorder:segments', () => void refreshJobs().catch(() => {}));
   s.on('connect', () => void refreshJobs().catch(() => {}));
 }

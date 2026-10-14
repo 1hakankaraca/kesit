@@ -57,12 +57,25 @@ server/db/              SQLite şeması (sıralı göçler) ve Store (motorun be
 server/services/        Workspaces (kullanıcı başına motor), Autopilot (Nöbet), ClipHarvester (klip takibi),
                         Publishing (Zernio), KickChat (anlık klip), Captions (altyazı motoru),
                         Exporter (İndirilenler'e kopya), Storage (disk/temizlik), Retention (saklama),
-                        LanAccess (telefon eşleme), ArchiveLedger (arşiv defteri)
+                        LanAccess (telefon eşleme), ArchiveLedger (arşiv defteri),
+                        Projects + ProjectRenderer (editör projeleri ve ffmpeg dışa aktarma),
+                        SystemMonitor (görev yöneticisi: işlemci/bellek/disk/süreçler)
 server/routes/          Alan başına API uçları
 server/engine/          Klip motoru (LivoBot'tan taşındı, CommonJS)
 shared/                 İstemci ve sunucunun ortak tipleri
 src/                    React arayüzü (screens, components, lib — lib/frame.ts önizleme oranları)
+src/editor/             Editör: proje modeli işlemleri (model.ts), önizleme sahnesi (Stage), çok yollu
+                        zaman çizelgesi (Tracks), paneller ve dışa aktarma akışı
 ```
+
+### Editör
+
+Proje modeli `shared/project.ts`'te tanımlıdır; tüm konumlar karenin oranı (0–1) olarak tutulur.
+Önizleme tarayıcıda DOM katmanlarıyla çizilir (video/görsel/yazı + CSS süzgeçleri); dışa aktarmada
+aynı proje `ProjectRenderer.buildRenderPlan` ile tek bir ffmpeg `filter_complex` komutuna çevrilir
+(crop → scale → eq/hue → overlay; sesler adelay + amix; altyazı en üstte). Yazı parçaları dışa
+aktarmadan önce tarayıcıda çıktı çözünürlüğünde PNG'ye çizilip görsel varlık olarak yüklenir — böylece
+sunucu yazı tipine bağımlı değildir. Çıktı Galeri'ye hazır video (`edited_clips`, source=editor) olarak düşer.
 
 ### Klip motoru
 
