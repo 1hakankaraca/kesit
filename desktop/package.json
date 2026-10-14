@@ -48,17 +48,26 @@
       "package.json"
     ],
     "extraResources": [
-      { "from": "dist-server", "to": "server" },
-      { "from": "../dist", "to": "web" },
-      { "from": "bin", "to": "bin" }
+      {
+        "from": "dist-server",
+        "to": "server"
+      },
+      {
+        "from": "../dist",
+        "to": "web"
+      },
+      {
+        "from": "bin",
+        "to": "bin"
+      }
     ],
     "asar": true,
     "npmRebuild": false,
     "mac": {
       "category": "public.app-category.video",
       "target": [
-        { "target": "dmg", "arch": ["arm64", "x64"] },
-        { "target": "zip", "arch": ["arm64", "x64"] }
+        "dmg",
+        "zip"
       ],
       "icon": "build/icon.png",
       "hardenedRuntime": false,
@@ -68,12 +77,27 @@
     "dmg": {
       "title": "Kesit App",
       "contents": [
-        { "x": 140, "y": 180 },
-        { "x": 400, "y": 180, "type": "link", "path": "/Applications" }
+        {
+          "x": 140,
+          "y": 180
+        },
+        {
+          "x": 400,
+          "y": 180,
+          "type": "link",
+          "path": "/Applications"
+        }
       ]
     },
     "win": {
-      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "icon": "build/icon.png",
       "verifyUpdateCodeSignature": false
     },
@@ -86,7 +110,12 @@
       "deleteAppDataOnUninstall": false
     },
     "publish": [
-      { "provider": "github", "owner": "1hakankaraca", "repo": "kesit", "releaseType": "release" }
+      {
+        "provider": "github",
+        "owner": "1hakankaraca",
+        "repo": "kesit",
+        "releaseType": "release"
+      }
     ]
   }
 }
