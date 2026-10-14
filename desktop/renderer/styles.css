@@ -483,45 +483,44 @@ h2 {
 
 .cover-art {
   position: relative;
+  display: grid;
+  place-items: center;
   height: 120px;
   border-radius: 12px;
-  background: linear-gradient(135deg, #1b1f2a, #2a1f3d);
+  /* Locavise marka renkleri: mor #713ceb / #7c3aed → pembe #ec4899 */
+  background: linear-gradient(135deg, #f3eefe, #fbe7f3);
+  border: 1px solid #e4d9fb;
   overflow: hidden;
 }
 
-.cover-tile {
+.cover-art::after {
+  content: '';
   position: absolute;
-  border-radius: 8px;
-  background: var(--tape);
-  box-shadow: 0 10px 20px -10px rgb(0 0 0 / 0.6);
+  inset: auto -30px -40px auto;
+  width: 110px;
+  height: 110px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgb(124 58 237 / 0.18), transparent 70%);
 }
 
-.cover-tile.t1 {
-  left: 14px;
-  top: 18px;
-  width: 64px;
-  height: 40px;
-  transform: rotate(-8deg);
-  opacity: 0.9;
+.cover-logo {
+  width: 92px;
+  height: auto;
+  position: relative;
+  z-index: 1;
 }
 
-.cover-tile.t2 {
-  left: 40px;
-  top: 44px;
-  width: 64px;
-  height: 40px;
-  transform: rotate(4deg);
-  background: linear-gradient(100deg, #8b5cf6, #ec4899);
+.btn-locavise {
+  background: linear-gradient(100deg, #713ceb, #ec4899);
+  color: #fff;
+  box-shadow: 0 10px 22px -12px #7c3aed;
 }
 
-.cover-tile.t3 {
-  left: 24px;
-  top: 72px;
-  width: 64px;
-  height: 40px;
-  transform: rotate(-3deg);
-  background: linear-gradient(100deg, #06b6d4, #3b82f6);
-  opacity: 0.85;
+@media (prefers-color-scheme: dark) {
+  .cover-art {
+    background: linear-gradient(135deg, #1e1535, #2a1631);
+    border-color: #3b2b5e;
+  }
 }
 
 .cover-body {

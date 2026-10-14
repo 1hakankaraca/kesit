@@ -63,7 +63,7 @@ const DEFAULT_SETTINGS = {
   /** http://kesit.localhost kısa adresi (80 portu) de açılsın. */
   shortAddress: true,
   /** Kapak üretimi bağlantısı. */
-  coverUrl: 'https://locavise.com',
+  coverUrl: 'https://locavise.co',
   /** İlk kurulum tamamlandı mı. */
   setupDone: false,
   /** Kurulumun bulduğu whisper-cli yolu (boşsa yok). */
@@ -72,7 +72,10 @@ const DEFAULT_SETTINGS = {
 
 function loadSettings() {
   try {
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(fs.readFileSync(paths.settings, 'utf8')) };
+    const saved = { ...DEFAULT_SETTINGS, ...JSON.parse(fs.readFileSync(paths.settings, 'utf8')) };
+    // 0.2.0'da yanlış alan adı kaydedilmişti.
+    if (saved.coverUrl === 'https://locavise.com') saved.coverUrl = DEFAULT_SETTINGS.coverUrl;
+    return saved;
   } catch {
     return { ...DEFAULT_SETTINGS };
   }
