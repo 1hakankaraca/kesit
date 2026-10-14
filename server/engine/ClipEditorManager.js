@@ -140,7 +140,42 @@ class ClipEditorManager {
         introAsk: true,             // true → panel her kesit alımında intro eklensin mi diye sorar (yalnız yatay)
         outro: true,                // yatay kesitlerin sonuna kullanıcı outrosu eklensin mi (outro yüklüyse)
         camFullRanges: [],          // [{start,end}] klip saniyesi — bu anlarda webcam kadrajı doldurur ("tam ekran bölgesi")
+        manualLayout: null,         // { cam:{x,y,w,h}, content:{x,y,w,h} } 0-1 oranlı — kullanıcı kadrajı elle çizdi, tespit atlanır
     };
+
+    /** 0-1 oranlı dikdörtgen; en az %5 genişlik/yükseklik, kare içine kıstırılır. */
+    static normalizeRect(raw) {
+        if (!raw || typeof raw !== 'object') return null;
+        const n = (v) => (Number.isFinite(Number(v)) ? Number(v) : NaN);
+        let x = n(raw.x), y = n(raw.y), w = n(raw.w), h = n(raw.h);
+        if ([x, y, w, h].some(Number.isNaN)) return null;
+        x = Math.min(1, Math.max(0, x));
+        y = Math.min(1, Math.max(0, y));
+        w = Math.min(1 - x, Math.max(0, w));
+        h = Math.min(1 - y, Math.max(0, h));
+        if (w < 0.05 || h < 0.05) return null;
+        const r = (v) => Math.round(v * 10000) / 10000;
+        return { x: r(x), y: r(y), w: r(w), h: r(h) };
+    }
+
+    /** Elle çizilmiş yerleşim: iki dikdörtgen de geçerli olmalı. */
+    static normalizeManualLayout(raw) {
+        if (!raw || typeof raw !== 'object') return null;
+        const cam = ClipEditorManager.normalizeRect(raw.cam);
+        const content = ClipEditorManager.normalizeRect(raw.content);
+        return cam && content ? { cam, content } : null;
+    }
+
+    /** 0-1 oranlı yerleşimi kaynak piksellerine (çift sayı) çevirir. */
+    static manualRects(layout, meta) {
+        const even = (v) => Math.max(2, Math.round(v / 2) * 2);
+        const toPx = (r) => {
+            const x = even(r.x * meta.width);
+            const y = even(r.y * meta.height);
+            return { x, y, w: even(Math.min(meta.width - x, r.w * meta.width)), h: even(Math.min(meta.height - y, r.h * meta.height)) };
+        };
+        return { cam: toPx(layout.cam), content: toPx(layout.content) };
+    }
 
     /** Dış kaynaklı options nesnesini doğrula ve varsayılanlarla doldur */
     static normalizeClipOptions(raw = {}) {
@@ -166,6 +201,7 @@ class ClipEditorManager {
             introAsk: raw.introAsk === undefined ? d.introAsk : raw.introAsk !== false,
             outro: raw.outro === undefined ? d.outro : raw.outro !== false,
             camFullRanges: CamFull.normalizeCamFullRanges(raw.camFullRanges),
+            manualLayout: ClipEditorManager.normalizeManualLayout(raw.manualLayout),
         };
     }
 
@@ -755,18 +791,34 @@ class ClipEditorManager {
                 return;
             }
 
-            // 2. Facecam tespiti — kompozisyon tercihi tespiti ezebilir ('single')
-            await this._setStep(jobId, 'processing', 'facecam tespiti');
-            const facecam = await this.detector.detect(inputPath);
+            // 2. Facecam tespiti — kompozisyon tercihi tespiti ezebilir ('single').
+            // Kullanıcı kadrajı elle çizdiyse (manuel hizalama) tespit ve
+            // hareket analizi atlanır: kamera kutusu ve içerik alanı onundur.
+            let facecam;
+            let contentRect = null;
+            if (opts.manualLayout) {
+                await this._setStep(jobId, 'processing', 'kadraj hazırlanıyor');
+                const meta = await this.detector.probe(inputPath);
+                const manual = ClipEditorManager.manualRects(opts.manualLayout, meta);
+                facecam = { found: true, fullCam: false, rect: manual.cam, meta, method: 'manual', face: null };
+                contentRect = manual.content;
+                opts.composition = 'split';
+            } else {
+                await this._setStep(jobId, 'processing', 'facecam tespiti');
+                facecam = await this.detector.detect(inputPath);
+            }
             const isSplit = VerticalComposer.isSplit(facecam, opts.composition);
 
             // 3. Odak belirleme: bölünmüş düzende hareket analizi; tek parça
             // düzende konuşan kişiye (tespit edilen yüze) odaklan
-            await this._setStep(jobId, 'processing', 'hareket analizi');
             let focus;
-            if (!isSplit && facecam.face) {
+            if (contentRect) {
+                focus = { focusX: contentRect.x + contentRect.w / 2, focusY: contentRect.y + contentRect.h / 2 };
+            } else if (!isSplit && facecam.face) {
+                await this._setStep(jobId, 'processing', 'hareket analizi');
                 focus = { focusX: facecam.face.x, focusY: facecam.face.y };
             } else {
+                await this._setStep(jobId, 'processing', 'hareket analizi');
                 focus = await this.cropper.findFocus(
                     inputPath, facecam.meta,
                     isSplit ? facecam.rect : null
@@ -831,7 +883,7 @@ class ClipEditorManager {
             await this._setStep(jobId, 'processing', 'video oluşturuluyor');
             const outputPath = path.join(this.outputDir, `${jobId}.mp4`);
             await this.composer.compose({
-                inputPath, outputPath, facecam, focus, faceTrack, assPath, logoPath,
+                inputPath, outputPath, facecam, focus, faceTrack, assPath, logoPath, contentRect,
                 composition: opts.composition,
                 logoPosition: opts.logoPosition,
                 logoScale: opts.logoScale,

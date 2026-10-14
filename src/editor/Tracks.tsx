@@ -86,8 +86,9 @@ export function Tracks({
 
   const toSec = useCallback(
     (clientX: number) => {
+      // Satırların solunda HEADER_W genişliğinde yol başlığı var; zaman ekseni ondan sonra başlar.
       const r = lanes.current!.getBoundingClientRect();
-      return Math.max(0, (clientX - r.left) / pps);
+      return Math.max(0, (clientX - r.left - HEADER_W) / pps);
     },
     [pps],
   );

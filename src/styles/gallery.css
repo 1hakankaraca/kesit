@@ -105,13 +105,42 @@
   position: absolute;
   top: 8px;
   left: 8px;
-  display: grid;
-  place-items: center;
-  width: 24px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   height: 24px;
+  padding: 0 9px 0 7px;
   border-radius: 7px;
-  background: rgb(0 0 0 / 0.6);
+  background: var(--kind, rgb(0 0 0 / 0.6));
   color: #fff;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.35);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.3);
+}
+
+.gcard-kind-vertical {
+  --kind: #e11d48;
+}
+
+.gcard-kind-horizontal {
+  --kind: #2563eb;
+}
+
+.gcard-kind-recording {
+  --kind: #d97706;
+}
+
+.gcard-kind-project {
+  --kind: #7c3aed;
+}
+
+/* Seçim modunda onay dairesi sol üstte; etiket onun sağına kayar. */
+.gallery-selecting .gcard-kind {
+  left: 38px;
 }
 
 .gcard-body {

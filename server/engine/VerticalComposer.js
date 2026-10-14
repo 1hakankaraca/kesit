@@ -63,7 +63,7 @@ class VerticalComposer {
      */
     async compose({ inputPath, outputPath, facecam, focus, faceTrack = null, assPath, logoPath,
         composition = 'auto', logoPosition = 'seam', logoScale = 1, logoOpacity = 1, logoX = null, logoY = null,
-        camFullRanges = [] }) {
+        camFullRanges = [], contentRect = null }) {
         fs.mkdirSync(path.dirname(outputPath), { recursive: true });
         const meta = facecam.meta;
         const even = v => Math.max(2, Math.round(v / 2) * 2);
@@ -81,26 +81,19 @@ class VerticalComposer {
             // === Bölünmüş düzen: facecam üstte, içerik altta ===
             // Tespit kutusunu her kenardan minik payla içe kırp — sınır
             // çizgisi/dış kalıntı üstte ince boşluk bırakmasın.
-            const cam = this._insetRect(facecam.rect, 0.01, meta, even);
+            // Elle çizilen kutu olduğu gibi kullanılır; tespit kutusu içe kırpılır.
+            const cam = facecam.method === 'manual' ? facecam.rect : this._insetRect(facecam.rect, 0.01, meta, even);
 
             // Kişi-merkezli pencere + camH — computeLayout ile AYNI hesap
             // (altyazı hizası kaymasın diye tek yardımcıda)
             const { camView, camFace, camH } = this._camLayout(facecam, cam, even);
             const contentH = OUT_H - camH;
 
-            // İçerik kırpması: kaynak tam yükseklik, genişlik hedef orana göre.
-            // ORTALI kırpılır — eskiden odak noktasına (hareket ağırlık merkezi)
-            // hizalanıp ayrıca facecam'den kaçınmak için kaydırılıyordu; sonuçta
-            // yayın ekranı SOLA DAYALI çıkıyordu. Yayıncı ekranın ortasını ister.
-            const contentAspect = OUT_W / contentH;
-            let cropH = meta.height;
-            let cropW = even(cropH * contentAspect);
-            if (cropW > meta.width) {
-                cropW = meta.width;
-                cropH = even(cropW / contentAspect);
-            }
-            const cropX = even(Math.max(0, (meta.width - cropW) / 2));
-            const cropY = even(Math.max(0, (meta.height - cropH) / 2));
+            // İçerik kırpması: kullanıcı "yayın alanı" çizdiyse o bölge hedef
+            // orana "cover" sığdırılır; yoksa kaynak tam yükseklik, ORTALI.
+            // (Eskiden odak noktasına hizalanıp facecam'den kaçınılıyordu; sonuçta
+            // yayın ekranı SOLA DAYALI çıkıyordu. Yayıncı ekranın ortasını ister.)
+            const { cropW, cropH, cropX, cropY } = VerticalComposer.contentCrop(meta, contentH, contentRect, even);
 
             // Altyazı iki bölümün birleşim yerinin biraz altında dursun
             seamY = camH;
@@ -317,6 +310,28 @@ class VerticalComposer {
             };
         }
         return { playResX: OUT_W, playResY: OUT_H, marginV: 320, split: false, camH: 0 };
+    }
+
+    /**
+     * Bölünmüş düzenin alt (içerik) bölümü için kaynak kırpma penceresi.
+     * `region` verilirse (manuel "yayın alanı") pencere o bölgenin içinde,
+     * hedef orana göre en büyük ve ortalı kutudur; verilmezse tüm kare ortalı.
+     * @returns {{cropW:number, cropH:number, cropX:number, cropY:number}}
+     */
+    static contentCrop(meta, contentH, region = null, even = v => Math.max(2, Math.round(v / 2) * 2)) {
+        const contentAspect = OUT_W / contentH;
+        const box = region
+            ? { x: Math.max(0, region.x), y: Math.max(0, region.y), w: Math.min(region.w, meta.width - region.x), h: Math.min(region.h, meta.height - region.y) }
+            : { x: 0, y: 0, w: meta.width, h: meta.height };
+        let cropH = box.h;
+        let cropW = even(cropH * contentAspect);
+        if (cropW > box.w) {
+            cropW = even(box.w);
+            cropH = even(cropW / contentAspect);
+        }
+        const cropX = even(Math.max(0, box.x + (box.w - cropW) / 2));
+        const cropY = even(Math.max(0, box.y + (box.h - cropH) / 2));
+        return { cropW, cropH, cropX, cropY };
     }
 
     /**

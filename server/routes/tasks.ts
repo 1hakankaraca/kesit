@@ -78,7 +78,7 @@ export function taskRoutes({ store, workspaces, captions, exporter, harvester, p
         progress: c.status === 'downloading' ? null : null,
         sizeBytes: c.sizeBytes ?? null,
         error: c.error ?? null,
-        at: c.createdAt,
+        at: iso(c.createdAt),
         link: c.jobId ? { section: 'galeri', sub: c.jobId, label: 'Videoyu gör' } : { section: 'canli', sub: null, label: 'Klibi gör' },
       });
     }
@@ -171,7 +171,7 @@ export function taskRoutes({ store, workspaces, captions, exporter, harvester, p
       });
     }
 
-    tasks.sort((a, b) => b.at.localeCompare(a.at));
+    tasks.sort((a, b) => String(b.at).localeCompare(String(a.at)));
     res.json({ tasks });
   });
 

@@ -186,6 +186,9 @@ function toItems(jobs: Job[], recordings: Recording[], projects: ProjectSummary[
 
 const KIND_WORD: Record<Item['kind'], string> = { video: 'Video', recording: 'Kayıt', project: 'Proje' };
 
+/** Kartın sol üst etiketi: ne tür bir öğe olduğunu renkli ve okunur yazar. */
+const kindLabel = (i: Item) => (i.kind === 'recording' ? 'Yayın kaydı' : i.kind === 'project' ? 'Editör projesi' : i.format === 'vertical' ? 'Dikey video' : 'Yatay video');
+
 /** Hazırlanmakta olan öğeler sunucuda silinemez; seçime de alınmaz. */
 const canDelete = (i: Item) => i.status !== 'busy';
 
@@ -491,8 +494,8 @@ function GalleryCard({ item, progress, selecting, selected, onToggle }: { item: 
           </span>
         )}
         {item.duration > 0 && <span className="clip-badge clip-badge-dur">{duration(item.duration)}</span>}
-        <span className="gcard-kind" title={item.kind === 'recording' ? 'Yayın kaydı' : item.kind === 'project' ? 'Editör projesi' : item.format === 'vertical' ? 'Dikey video' : 'Yatay video'}>
-          <Icon name={kindIcon} size={13} />
+        <span className={`gcard-kind gcard-kind-${item.kind === 'video' ? item.format : item.kind}`}>
+          <Icon name={kindIcon} size={12} /> {kindLabel(item)}
         </span>
       </span>
       <span className="gcard-body">

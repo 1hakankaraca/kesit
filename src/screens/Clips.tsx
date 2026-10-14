@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useState, type FormEvent } from 'react';
+import { AlignDialog, type ManualLayout } from '../components/AlignDialog.tsx';
 import { HlsVideo } from '../components/HlsVideo.tsx';
 import { Icon } from '../components/Icon.tsx';
 import { Empty, Modal, Segmented, Spinner, Switch, WorkspaceHead } from '../components/basics.tsx';
@@ -38,6 +39,7 @@ export function Clips() {
   const [link, setLink] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [preview, setPreview] = useState<KickClip | null>(null);
+  const [aligning, setAligning] = useState(false);
 
   const browse = async (append = false, override?: string) => {
     const slug = (override ?? channel).trim();
@@ -49,7 +51,9 @@ export function Clips() {
       setClips((prev) => (append ? [...prev, ...typed] : typed));
       setCursor(page.nextCursor);
       setSearched(page.channel);
-      if (!append) setSelected(new Map());
+      // Seçim yalnız kanal değişince sıfırlanır; aynı kanalın geç biten
+      // yüklemesi kullanıcının o sırada yaptığı seçimi silmesin.
+      if (!append && page.channel !== searched) setSelected(new Map());
     } catch (err) {
       toastError(err);
     } finally {
@@ -60,7 +64,8 @@ export function Clips() {
   // Üstteki kanal sekmesi değişince liste o kanala geçer.
   useEffect(() => {
     const slug = user?.channelSlug;
-    if (!slug || slug === searched) return;
+    // İlk yüklemede süzgeç etkisi zaten tarar; yalnız sekme gerçekten değişince.
+    if (!slug || slug === searched || slug === channel.trim()) return;
     setChannel(slug);
     void browse(false, slug);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -83,16 +88,18 @@ export function Clips() {
 
   const options = { subtitles, composition, outputFormat: 'vertical' };
 
-  const process = async () => {
+  /** Otomatik: yüz kamerası tespitle. Manuel: kullanıcının çizdiği kadrajla (bölünmüş düzen). */
+  const process = async (manualLayout?: ManualLayout) => {
     setSubmitting(true);
     try {
       const res = await api.post<{ jobs: unknown[]; errors: string[] }>('/api/clips/process', {
         channel: searched,
         clips: [...selected.values()].map((c) => ({ id: c.id, type: c.type, title: c.title })),
-        options,
+        options: manualLayout ? { ...options, composition: 'split', manualLayout } : options,
       });
-      toast(`${res.jobs.length} klip sıraya alındı${res.errors.length ? `, ${res.errors.length} hata` : ''}`, 'ok');
+      toast(`${res.jobs.length} klip sıraya alındı${res.errors.length ? `, ${res.errors.length} hata` : ''}${manualLayout ? ' (manuel kadraj)' : ''}`, 'ok');
       setSelected(new Map());
+      setAligning(false);
       await refreshJobs();
       navigate(sectionPath('galeri'));
     } catch (err) {
@@ -332,13 +339,18 @@ export function Clips() {
             <button type="button" className="btn btn-quiet btn-small" onClick={() => setSelected(new Map())}>
               Temizle
             </button>
-            <button type="button" className="btn btn-accent" onClick={process} disabled={submitting}>
-              {submitting ? <Spinner /> : <Icon name="vertical" size={16} />}
-              İşleme gönder
+            <button type="button" className="btn btn-secondary" onClick={() => setAligning(true)} disabled={submitting} title="Kamera ve yayın alanını kendin çiz">
+              <Icon name="crop" size={16} /> Manuel hizala
+            </button>
+            <button type="button" className="btn btn-accent" onClick={() => void process()} disabled={submitting} title="Yüz kamerası otomatik bulunur">
+              {submitting ? <Spinner /> : <Icon name="sparkle" size={16} />}
+              Otomatik işle
             </button>
           </motion.div>
         )}
       </AnimatePresence>
+
+      <AlignDialog open={aligning} clips={[...selected.values()]} submitting={submitting} onClose={() => setAligning(false)} onSubmit={(layout) => void process(layout)} />
     </>
   );
 }

@@ -127,6 +127,7 @@ export function Modal({
   children,
   footer,
   wide = false,
+  className = '',
 }: {
   open: boolean;
   title: ReactNode;
@@ -134,6 +135,8 @@ export function Modal({
   children: ReactNode;
   footer?: ReactNode;
   wide?: boolean;
+  /** Ek pencere sınıfı (ör. daha geniş çalışma alanı). */
+  className?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -152,7 +155,7 @@ export function Modal({
             tabIndex={-1}
             role="dialog"
             aria-modal="true"
-            className={wide ? 'modal modal-wide' : 'modal'}
+            className={['modal', wide && 'modal-wide', className].filter(Boolean).join(' ')}
             initial={{ opacity: 0, y: 24, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 12, scale: 0.98 }}

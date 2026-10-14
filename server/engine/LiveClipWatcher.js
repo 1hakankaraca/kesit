@@ -2,8 +2,8 @@
  * LiveClipWatcher — Canlı bir kanalın chat'ini takip edip klip linklerini yakalar
  *
  * Kullanıcının kendi kanalı yerine İSTENEN herhangi bir canlı kanalı takip eder:
- *  1. Kanalın chatroom ID'sini alır (Kick v1/v2 API)
- *  2. Pusher üzerinden canlı chat'e abone olur
+ *  1. Kanalın kimliğini ve chatroom ID'sini alır (Kick v2 API)
+ *  2. Kick'in gerçek zamanlı sunucusuna (Centrifugo, bkz. KickRealtime) abone olur
  *  3. Mesajlarda klip linki (kick.com/.../clips/clip_xxx, kickbot.com) tespit eder
  *  4. Yayın durumunu (canlı/kapalı + izleyici sayısı) periyodik izler
  *  5. Yakalanan klipleri canlı akışa ekler; otomatik editleme açıksa
@@ -13,8 +13,8 @@
  *  - clipwatch:status   { watching, channel, chatConnected, isLive, viewerCount, autoEdit }
  *  - clipwatch:detected { clipId, url, sender, time, autoQueued, jobId }
  */
-const Pusher = require('pusher-js');
 const axios = require('axios');
+const { KickRealtime } = require('./KickRealtime');
 
 const BROWSER_HEADERS = {
     'Accept': 'application/json',
@@ -37,12 +37,13 @@ class LiveClipWatcher {
         this.broadcasterUserId = null; // hızlı klip için gerekli — kick.com/api/v2 user_id
         this.autoEdit = false;
         this.subtitles = true;
-        this.pusher = null;
+        this.realtime = null;
         this.chatConnected = false;
         this.isLive = false;
         this.viewerCount = 0;
 
         this._chatroomId = null;
+        this._channelId = null;
         this._livePoll = null;
         this._seenClips = new Set();
         this._feed = []; // son yakalamalar (yeniden eskiye)
@@ -77,7 +78,7 @@ class LiveClipWatcher {
         }
 
         // Aynı anda iki başlatma (ör. nöbet yoklaması + kullanıcı tıklaması) iki
-        // Pusher bağlantısı kurmasın: ağ çağrısı sürerken ikinci istek reddedilir.
+        // chat bağlantısı kurmasın: ağ çağrısı sürerken ikinci istek reddedilir.
         if (this._starting) throw new Error('Takip zaten başlatılıyor');
         this._starting = true;
         try {
@@ -93,7 +94,7 @@ class LiveClipWatcher {
 
         // Chatroom ID + ilk yayın durumu
         const info = await this._fetchChannelInfo(slug);
-        if (!info.chatroomId) {
+        if (!info.chatroomId || !info.channelId) {
             throw new Error('Kanal bulunamadı veya chatroom ID alınamadı');
         }
 
@@ -102,6 +103,7 @@ class LiveClipWatcher {
         this.autoEdit = !!autoEdit;
         this.subtitles = subtitles !== false;
         this._chatroomId = info.chatroomId;
+        this._channelId = info.channelId;
         this.isLive = info.isLive;
         this.viewerCount = info.viewerCount;
         this._seenClips.clear();
@@ -120,9 +122,9 @@ class LiveClipWatcher {
      */
     unwatch() {
         if (this._livePoll) { clearInterval(this._livePoll); this._livePoll = null; }
-        if (this.pusher) {
-            try { this.pusher.disconnect(); } catch { /* ignore */ }
-            this.pusher = null;
+        if (this.realtime) {
+            try { this.realtime.stop(); } catch { /* ignore */ }
+            this.realtime = null;
         }
         const wasWatching = this.isWatching;
         this.channelSlug = null;
@@ -131,6 +133,7 @@ class LiveClipWatcher {
         this.isLive = false;
         this.viewerCount = 0;
         this._chatroomId = null;
+        this._channelId = null;
         this.autoPublish = false;
         this.clipEditor?.setAutoPublish({ enabled: false, accounts: [] });
         if (wasWatching) {
@@ -176,26 +179,19 @@ class LiveClipWatcher {
     // ==========================================
 
     _connectChat() {
-        this.pusher = new Pusher('32cbd69e4b950bf97679', {
-            cluster: 'us2',
-            wsHost: 'ws-us2.pusher.com',
-            forceTLS: true,
+        this.realtime = new KickRealtime({
+            channelId: this._channelId,
+            channels: [`chatrooms.${this._chatroomId}.v2`],
+            onEvent: (event, data) => {
+                if (event === 'App\\Events\\ChatMessageEvent') this._onChatMessage(data);
+            },
+            onState: (connected) => {
+                this.chatConnected = connected;
+                this._emitStatus();
+            },
+            log: (msg, err) => console.warn(`[LiveWatch:${this.userId}] Chat bağlantısı: ${msg}`, err ? err.message : ''),
         });
-
-        const channel = this.pusher.subscribe(`chatrooms.${this._chatroomId}.v2`);
-        channel.bind('App\\Events\\ChatMessageEvent', (data) => this._onChatMessage(data));
-
-        this.pusher.connection.bind('connected', () => {
-            this.chatConnected = true;
-            this._emitStatus();
-        });
-        this.pusher.connection.bind('disconnected', () => {
-            this.chatConnected = false;
-            this._emitStatus();
-        });
-        this.pusher.connection.bind('error', (err) => {
-            console.error(`[LiveWatch:${this.userId}] Pusher hatası:`, err?.message || err);
-        });
+        this.realtime.start();
     }
 
     _onChatMessage(data) {
@@ -297,6 +293,7 @@ class LiveClipWatcher {
         const d = res.data || {};
         return {
             chatroomId: chatroom ? (d.chatroom?.id || d.chatroom_id || null) : this._chatroomId,
+            channelId: d.id || this._channelId || null,
             broadcasterUserId: d.user_id || null,
             isLive: !!d.livestream,
             viewerCount: d.livestream?.viewer_count || d.livestream?.viewers || 0,
@@ -308,7 +305,7 @@ class LiveClipWatcher {
      * kendi `!clip` komutu yalnız bot sahibinin kendi kanalında çalışır —
      * bu, takip edilen kanalda VARSA üçüncü parti bir klip botunu tetiklemek
      * içindir. Yanıtı (klip linki) yakalamak için yeni kod GEREKMEZ — bu chat
-     * zaten Pusher üzerinden dinleniyor, gelen klip linki mevcut
+     * zaten gerçek zamanlı sunucudan dinleniyor, gelen klip linki mevcut
      * `_handleDetectedClip` mekanizmasıyla otomatik yakalanır.
      */
     async sendQuickClip(durationSec, botService, opts = {}) {
