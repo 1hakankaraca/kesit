@@ -101,16 +101,16 @@ jobs:
       - name: Paketle ve yayınla
         run: npx electron-builder ${{ matrix.args }} --publish always
         working-directory: desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # İmza sertifikası yok: macOS'ta imzasız paket üretilir.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
       - name: whisper paketini Release'e ekle
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: gh release upload "${GITHUB_REF_NAME}" desktop/release/whisper-*.zip --clobber
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # İmza sertifikası yok: macOS'ta imzasız paket üretilir.
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
       - uses: actions/upload-artifact@v4
         with:
