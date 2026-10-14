@@ -72,6 +72,7 @@ export function Library({ focusId }: { focusId: number | null }) {
   return (
     <>
       <WorkspaceHead
+        guide="kutuphane"
         title="Kütüphane"
         tape="stüdyo"
         lead="Ürettiğin tüm dikey klipler ve yatay kesitler. Önizle, metni düzenle, indir ya da paylaş."

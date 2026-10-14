@@ -4,6 +4,7 @@ import express from 'express';
 import { createHash, randomBytes } from 'node:crypto';
 import { config, kickLoginEnabled } from './config.ts';
 import type { Row, Store } from './db/Store.ts';
+import { fetchChannel, normalizeSlug } from './lib/kick.ts';
 
 export const SESSION_COOKIE = 'kesit_sid';
 const OAUTH_COOKIE = 'kesit_oauth';
@@ -105,6 +106,29 @@ export function authRouter(store: Store): Router {
     }
     const suffix = randomBytes(2).toString('hex').toUpperCase();
     const user = store.createGuestUser(`Misafir ${suffix}`);
+    startSession(store, res, user.id);
+    res.json({ user: toSessionUser(user) });
+  });
+
+  /**
+   * Kick hesabını kanal adıyla bağlama. Kesit kurulduğu bilgisayarda
+   * çalıştığı ve Kick'e hiçbir şey yazmadığı için geliştirici uygulaması
+   * (OAuth) gerektirmeyen yol budur: kanal Kick'ten doğrulanır, profil
+   * bilgileri herkese açık uçtan alınır.
+   */
+  router.post('/kick/link', async (req, res) => {
+    const slug = normalizeSlug(req.body?.channel);
+    if (!slug) {
+      res.status(400).json({ error: 'Geçerli bir Kick kanal adı yaz' });
+      return;
+    }
+    const info = await fetchChannel(slug).catch(() => null);
+    if (!info) {
+      res.status(404).json({ error: 'Bu adla bir Kick kanalı bulunamadı' });
+      return;
+    }
+    const user = store.upsertKickUser({ kickUserId: `kanal:${slug}`, username: info.username, avatarUrl: info.avatarUrl, channelSlug: slug });
+    endSession(store, req, res);
     startSession(store, res, user.id);
     res.json({ user: toSessionUser(user) });
   });

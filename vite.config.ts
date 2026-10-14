@@ -11,7 +11,7 @@ export default defineConfig({
     proxy: {
       '/api': SERVER,
       '/auth': SERVER,
-      '/media': SERVER,
+      '/clips': SERVER,
       '/socket.io': { target: SERVER, ws: true },
     },
   },

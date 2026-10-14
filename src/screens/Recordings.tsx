@@ -42,7 +42,7 @@ export function Recordings({ openId }: { openId: number | null }) {
 
   return (
     <>
-      <WorkspaceHead title="Kayıtlar" tape="işle" lead="Canlıdan aldığın kayıtlar. Yayına hazır çıktı üret, istediğin kesitleri ayır, gereksiz kısımları at ya da YouTube'a gönder." />
+      <WorkspaceHead guide="kayitlar" title="Kayıtlar" tape="işle" lead="Canlıdan aldığın kayıtlar. Yayına hazır çıktı üret, istediğin kesitleri ayır, gereksiz kısımları at ya da YouTube'a gönder." />
       {list.loading && !list.data ? (
         <div className="center-pad">
           <Spinner size={24} />

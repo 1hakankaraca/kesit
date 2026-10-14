@@ -1741,3 +1741,643 @@
     display: contents;
   }
 }
+
+/* ── Yazı logosu ────────────────────────────────────────────────────────── */
+
+.wordmark-text {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 32px;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+}
+
+.wordmark-text-large {
+  font-size: 44px;
+}
+
+/* ── Kanal sekmeleri (üst orta) ─────────────────────────────────────────── */
+
+.shell-top {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.ctabs {
+  position: relative;
+  justify-self: center;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.ctabs-list {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--sunken);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.ctab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: none;
+  border-radius: 10px;
+}
+
+.ctab-main {
+  position: relative;
+  height: 34px;
+  padding: 0 30px 0 14px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--ink-2);
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.ctab-on .ctab-main {
+  color: var(--ink);
+}
+
+.ctab-thumb {
+  position: absolute;
+  inset: 0;
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.12), 0 0 0 1px var(--line);
+}
+
+.ctab-on .ctab-thumb::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 0;
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+  background: var(--tape);
+}
+
+.ctab-label {
+  position: relative;
+}
+
+.ctab-close {
+  position: absolute;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink-3);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.ctab:hover .ctab-close,
+.ctab-close:focus-visible {
+  opacity: 1;
+}
+
+.ctab-close:hover {
+  background: var(--sunken);
+  color: var(--ink);
+}
+
+.ctab-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  height: 34px;
+  min-width: 34px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--tape);
+  color: #fff;
+  font-weight: 600;
+  font-size: 14px;
+  box-shadow: 0 6px 14px -8px var(--g1);
+}
+
+.ctabs-menu {
+  left: 50%;
+  right: auto;
+  width: min(420px, 92vw);
+  translate: -50% 0;
+  gap: 8px;
+  padding: 10px;
+}
+
+.ctabs-pending {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px;
+}
+
+.ctabs-pending img,
+.ctabs-pending .csearch-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+}
+
+.ctabs-pending b {
+  flex: 1;
+}
+
+@media (max-width: 860px) {
+  .shell-top {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+
+  .wordmark-text {
+    font-size: 26px;
+  }
+
+  .ctab-main {
+    padding: 0 26px 0 10px;
+    font-size: 13px;
+  }
+
+  .ctab-close {
+    opacity: 1;
+  }
+
+  .shell-top-side .pill-button {
+    display: none;
+  }
+}
+
+/* ── Kanal arayıcı ──────────────────────────────────────────────────────── */
+
+.csearch {
+  position: relative;
+}
+
+.csearch-large .search {
+  height: 52px;
+}
+
+.csearch-list {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 50;
+  display: grid;
+  max-height: 340px;
+  padding: 6px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-m);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.csearch-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  text-align: left;
+}
+
+[aria-selected='true'] > .csearch-item {
+  background: var(--sunken);
+}
+
+.csearch-item img,
+.csearch-avatar {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--sunken);
+  object-fit: cover;
+}
+
+.csearch-name {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+}
+
+.csearch-name small {
+  color: var(--ink-3);
+}
+
+.csearch-live {
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--live);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.csearch-empty {
+  padding: 12px;
+  color: var(--ink-3);
+  font-size: 14px;
+}
+
+/* ── Rehber ─────────────────────────────────────────────────────────────── */
+
+.guide {
+  overflow: hidden;
+  margin-bottom: 24px;
+}
+
+.guide-inner {
+  display: grid;
+  gap: 18px;
+  padding: 22px;
+  border: 1.5px solid color-mix(in srgb, var(--g1) 35%, var(--line));
+  border-radius: var(--r-l);
+  background:
+    linear-gradient(120deg, color-mix(in srgb, var(--g1) 8%, var(--surface)), var(--surface) 55%);
+}
+
+.guide-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.guide-title {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 34px;
+  line-height: 1;
+  margin-top: 2px;
+}
+
+.guide-intro {
+  max-width: 70ch;
+  margin-top: 8px;
+  color: var(--ink-2);
+}
+
+.guide-steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 14px;
+}
+
+.guide-steps li {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line);
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+.guide-steps b {
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.guide-num {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  background: var(--tape);
+  color: #fff;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 18px;
+}
+
+.guide-tips {
+  display: grid;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+.guide-tips li {
+  display: flex;
+  gap: 8px;
+}
+
+.guide-tips .icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--g1);
+}
+
+.guide-inner > .btn {
+  justify-self: start;
+}
+
+/* ── Nöbet akışı ────────────────────────────────────────────────────────── */
+
+.flow {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.flow-step {
+  position: relative;
+  display: grid;
+  gap: 4px;
+  padding: 16px 16px 16px 52px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-m);
+  background: var(--surface);
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+.flow-step b {
+  color: var(--ink);
+}
+
+.flow-step .icon {
+  position: absolute;
+  right: 14px;
+  top: 14px;
+  color: var(--g1);
+}
+
+.flow-num {
+  position: absolute;
+  left: 14px;
+  top: 14px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--tape);
+  color: #fff;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 17px;
+}
+
+.flow + .channel-banner + .panel,
+.autopilot {
+  max-width: 760px;
+}
+
+@media (max-width: 760px) {
+  .flow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.live-note {
+  margin-bottom: 20px;
+}
+
+.rail-live-calm {
+  background: var(--g1);
+  animation: none;
+}
+
+/* ── Ray altı: telefon notu ─────────────────────────────────────────────── */
+
+.rail-foot {
+  display: grid;
+  gap: 12px;
+}
+
+.rail-phone {
+  display: flex;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 12px;
+  background: var(--sunken);
+  color: var(--ink-2);
+  line-height: 1.35;
+}
+
+.rail-phone .icon {
+  flex: none;
+  margin-top: 1px;
+}
+
+.rail-phone b {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink);
+  word-break: break-all;
+}
+
+/* ── Ayarlar ────────────────────────────────────────────────────────────── */
+
+.big-url {
+  margin: 10px 0 12px;
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--tape);
+  color: #fff;
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 600;
+  word-break: break-all;
+  user-select: all;
+}
+
+.path-box {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--sunken);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  word-break: break-all;
+  user-select: all;
+}
+
+code {
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--sunken);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+.engine-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.engine {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: 16px;
+  border-radius: var(--r-m);
+  background: var(--sunken);
+}
+
+.engine h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+}
+
+.model-list {
+  display: grid;
+  gap: 8px;
+}
+
+.model {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.model-on {
+  border-color: var(--ok);
+}
+
+.model-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.model .btn {
+  justify-self: start;
+}
+
+.steps-tight {
+  margin: 0;
+  gap: 4px;
+}
+
+/* ── Zernio anlatımı ────────────────────────────────────────────────────── */
+
+.howto {
+  display: grid;
+  gap: 14px;
+}
+
+.howto-title {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 34px;
+  line-height: 1;
+}
+
+.howto-steps {
+  display: grid;
+  gap: 2px;
+}
+
+.howto-steps li {
+  display: flex;
+  gap: 14px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+
+.howto-steps p {
+  margin-top: 2px;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+/* ── Marka: logo ayarları ───────────────────────────────────────────────── */
+
+.logo-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  align-items: end;
+  gap: 14px 20px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.logo-controls .switch {
+  padding: 0;
+}
+
+.range:disabled {
+  opacity: 0.4;
+}
+
+.proto-logo-ghost {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 3 / 1;
+  border: 2px dashed rgb(255 255 255 / 0.75);
+  border-radius: 8px;
+  background: rgb(255 255 255 / 0.12);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.proto-logo-free {
+  position: absolute;
+  translate: -50% -50%;
+  touch-action: none;
+}
+
+.proto-logo-free img {
+  display: block;
+  width: 100%;
+  pointer-events: none;
+}
+
+.start-local {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--sunken);
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.start-local .icon {
+  flex: none;
+  margin-top: 2px;
+}

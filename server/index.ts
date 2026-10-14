@@ -15,10 +15,12 @@ import { accountRoutes } from './routes/account.ts';
 import { clipRoutes } from './routes/clips.ts';
 import { liveRoutes } from './routes/live.ts';
 import { recordingRoutes } from './routes/recordings.ts';
+import { publicKickRoutes, settingsRoutes } from './routes/settings.ts';
 import { studioRoutes } from './routes/studio.ts';
 import { vodRoutes } from './routes/vods.ts';
 import { ArchiveLedger } from './services/ArchiveLedger.ts';
 import { Autopilot } from './services/Autopilot.ts';
+import { Captions } from './services/Captions.ts';
 import { Publishing } from './services/Publishing.ts';
 import { Workspaces } from './services/Workspaces.ts';
 
@@ -39,7 +41,9 @@ const ctx: AppContext = {
   archive,
   publishing: new Publishing(store),
   autopilot: new Autopilot(store, io, workspaces),
+  captions: new Captions(store, io),
 };
+ctx.captions.apply();
 
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
@@ -66,11 +70,12 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 app.use('/auth', authRouter(store));
 
 app.get('/api/session', (req, res) => {
-  res.json({ user: req.user ?? null, kickLogin: kickLoginEnabled() });
+  res.json({ user: req.user ?? null, kickOAuth: kickLoginEnabled() });
 });
+app.use('/api', publicKickRoutes());
 
 app.use('/api', requireUser);
-for (const routes of [accountRoutes, clipRoutes, studioRoutes, vodRoutes, liveRoutes, recordingRoutes]) {
+for (const routes of [accountRoutes, settingsRoutes, clipRoutes, studioRoutes, vodRoutes, liveRoutes, recordingRoutes]) {
   app.use('/api', routes(ctx));
 }
 
@@ -133,7 +138,7 @@ purge.unref();
 
 server.listen(config.port, () => {
   console.log(`[Kesit] Sunucu hazır → http://localhost:${config.port}`);
-  if (!kickLoginEnabled()) console.log('[Kesit] KICK_CLIENT_ID/SECRET yok — yalnız misafir girişi açık');
+  if (!kickLoginEnabled()) console.log('[Kesit] Kick OAuth tanımlı değil — Kick hesabı kanal adıyla bağlanır');
 });
 
 let closing = false;

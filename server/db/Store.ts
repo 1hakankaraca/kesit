@@ -30,7 +30,7 @@ const STREAM_RECORDING_COLUMNS = new Set([
 ]);
 const SETTINGS_COLUMNS = new Set([
   'auto_edit_clips', 'clip_defaults', 'clip_next_publish_at', 'subtitle_style', 'brand_color', 'accent_color',
-  'language', 'zernio_profile_id', 'zernio_profile_name', 'recording_output', 'autopilot',
+  'language', 'zernio_profile_id', 'zernio_profile_name', 'recording_output', 'autopilot', 'channel_tabs',
 ]);
 const MANUAL_CLIP_COLUMNS = new Set(['status', 'error', 'edited_clip_id']);
 
@@ -178,6 +178,26 @@ export class Store {
 
   purgeExpiredSessions() {
     this.run(`DELETE FROM sessions WHERE expires_at <= ${NOW_SQL}`);
+  }
+
+  /* ── Uygulama ayarları (bilgisayar geneli) ────────────────────────────── */
+
+  getAppSetting(key: string, { secret = false } = {}): string | null {
+    const row = this.get('SELECT value FROM app_settings WHERE key = ?', [key]);
+    if (!row?.value) return null;
+    return secret ? unseal(row.value) : row.value;
+  }
+
+  setAppSetting(key: string, value: string | null, { secret = false } = {}) {
+    if (value === null) {
+      this.run('DELETE FROM app_settings WHERE key = ?', [key]);
+      return;
+    }
+    this.run(
+      `INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ${NOW_SQL})
+       ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+      [key, secret ? seal(value) : value],
+    );
   }
 
   /* ── Ayarlar ──────────────────────────────────────────────────────────── */

@@ -31,9 +31,10 @@ export function Publish() {
 
   return (
     <>
-      <WorkspaceHead title="Paylaşım" tape="zernio" lead="Zernio hesabını bağla; TikTok, YouTube, Instagram ve diğer hesaplarına Kesit'ten paylaş ya da planla." />
+      <WorkspaceHead guide="paylasim" title="Paylaşım" tape="zernio" lead="Zernio hesabını bağla; TikTok, YouTube, Instagram ve diğer hesaplarına Kesit'ten paylaş ya da planla." />
       <div className="ws-grid">
         <div className="ws-stack">
+          {zernio.data && !zernio.data.connected && <ZernioHowTo />}
           <section className="panel">
             <span className="panel-tape" aria-hidden="true" />
             <header className="panel-head">
@@ -66,6 +67,59 @@ export function Publish() {
         </aside>
       </div>
     </>
+  );
+}
+
+const HOWTO = [
+  {
+    title: 'Zernio hesabı aç',
+    text: 'zernio.com\'a gir ve hesap oluştur. Zernio, tek bağlantıyla TikTok, YouTube, Instagram, Facebook, X ve diğer platformlara gönderi yapan bir hizmettir.',
+  },
+  {
+    title: 'Sosyal hesaplarını Zernio\'ya bağla',
+    text: 'Zernio panelinde hesap bağlama bölümünden paylaşım yapacağın platformlara giriş yap. Hesaplar bir profilin altında toplanır; ilk profil kendiliğinden oluşur.',
+  },
+  {
+    title: 'API anahtarı oluştur',
+    text: 'Zernio panelindeki ayarlarda API anahtarları bölümünden yeni bir anahtar oluştur ve kopyala. Anahtar bir kez gösterilir, güvenli bir yere not et.',
+  },
+  {
+    title: 'Kesit\'e bağla',
+    text: 'Sağdaki kutuya anahtarı yapıştır, "Anahtarı doğrula"ya bas, açılan listeden profilini seç ve "Bağla". Bağlı hesapların hemen listelenir.',
+  },
+  {
+    title: 'Paylaş',
+    text: 'Kütüphane\'de bir klip seç, "Paylaş"a bas, hesapları işaretle. "Hemen" ya da "Planla" ile tarih/saat seç. Nöbet\'te otomatik paylaşımı da açabilirsin.',
+  },
+];
+
+/** Zernio bağlı değilken gösterilen adım adım kurulum anlatımı. */
+function ZernioHowTo() {
+  return (
+    <section className="panel howto" aria-labelledby="howto-title">
+      <span className="panel-tape" aria-hidden="true" />
+      <p className="eyebrow">Kurulum</p>
+      <h2 id="howto-title" className="howto-title">
+        Zernio ile paylaşım nasıl kurulur
+      </h2>
+      <ol className="howto-steps">
+        {HOWTO.map((h, i) => (
+          <li key={h.title}>
+            <span className="guide-num">{i + 1}</span>
+            <div>
+              <b>{h.title}</b>
+              <p>{h.text}</p>
+            </div>
+          </li>
+        ))}
+      </ol>
+      <div className="row-gap">
+        <a className="btn btn-accent" href="https://zernio.com" target="_blank" rel="noreferrer">
+          zernio.com'u aç
+        </a>
+        <span className="muted">Anahtar yalnız bu bilgisayarda, şifreli saklanır.</span>
+      </div>
+    </section>
   );
 }
 
@@ -227,18 +281,9 @@ function ConnectionPanel({ zernio, loading, onChange }: { zernio: ZernioSummary 
     <section className="panel">
       <span className="panel-tape" aria-hidden="true" />
       <h2 className="panel-title">Zernio'yu bağla</h2>
-      <ol className="steps">
-        <li>
-          <a className="link" href="https://zernio.com" target="_blank" rel="noreferrer">
-            zernio.com
-          </a>
-          'da sosyal hesaplarını bağla.
-        </li>
-        <li>Ayarlar → API bölümünden bir anahtar oluştur.</li>
-        <li>Anahtarı buraya yapıştır, profilini seç.</li>
-      </ol>
+      <p className="panel-sub">Nasıl yapılacağı soldaki adımlarda. Anahtarı aldıysan buraya yapıştır.</p>
       <form className="stack" onSubmit={verify}>
-        <Field label="API anahtarı" help="Anahtar sunucuda şifreli saklanır, sana bir daha gösterilmez." htmlFor="z-key">
+        <Field label="API anahtarı" help="Anahtar bu bilgisayarda şifreli saklanır, bir daha gösterilmez." htmlFor="z-key">
           <input id="z-key" className="input" type="password" autoComplete="off" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="sk_…" />
         </Field>
         {!profiles ? (

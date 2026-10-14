@@ -59,7 +59,7 @@ export function Archive() {
 
   return (
     <>
-      <WorkspaceHead title="Arşiv" tape="defter" lead="Her gün ne üretildi, ne paylaşıldı, ne silindi. Dosyası silinmiş içeriklerin izi de burada durur." />
+      <WorkspaceHead guide="arsiv" title="Arşiv" tape="defter" lead="Her gün ne üretildi, ne paylaşıldı, ne silindi. Dosyası silinmiş içeriklerin izi de burada durur." />
 
       <section className="panel heat-panel">
         <Heatmap days={data.data?.days ?? []} selected={onlyDay} onSelect={setOnlyDay} />

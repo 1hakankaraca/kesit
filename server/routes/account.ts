@@ -2,19 +2,10 @@ import express from 'express';
 import fs from 'node:fs';
 import type { AppContext } from '../context.ts';
 import { badRequest, notFound, oneOf } from '../http.ts';
-import { normalizeSlug } from '../lib/kick.ts';
 
 /** Hesap, Zernio bağlantısı ve arşiv uçları. */
-export function accountRoutes({ store, publishing, archive }: AppContext) {
+export function accountRoutes({ publishing, archive }: AppContext) {
   const r = express.Router();
-
-  r.put('/me/channel', (req, res) => {
-    const raw = req.body?.channel;
-    const slug = raw ? normalizeSlug(raw) : null;
-    if (raw && !slug) throw badRequest('Geçersiz kanal adı');
-    store.setUserChannel(req.user!.id, slug);
-    res.json({ user: { ...req.user, channelSlug: slug } });
-  });
 
   /* ── Zernio ──────────────────────────────────────────────────────────── */
 

@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 
-export const SECTIONS = ['kutuphane', 'klipler', 'yayinlar', 'canli', 'kayitlar', 'paylasim', 'arsiv', 'marka'] as const;
+export const SECTIONS = ['kutuphane', 'klipler', 'yayinlar', 'canli', 'nobet', 'kayitlar', 'paylasim', 'arsiv', 'marka', 'ayarlar'] as const;
 export type Section = (typeof SECTIONS)[number];
 
 const listeners = new Set<() => void>();

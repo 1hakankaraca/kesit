@@ -1,5 +1,6 @@
 import { api } from './api.ts';
-import { connectSocket } from './socket.ts';
+import type { Socket } from 'socket.io-client';
+import { onEverySocket } from './socket.ts';
 import { createStore } from './store.ts';
 import type { AutopilotStatus, LiveState, RecorderStatus, WatcherStatus } from './types.ts';
 
@@ -12,11 +13,11 @@ export async function refreshLive() {
   return next;
 }
 
-let wired = false;
 export function wireLiveEvents() {
-  if (wired) return;
-  wired = true;
-  const s = connectSocket();
+  onEverySocket(attachLiveEvents);
+}
+
+function attachLiveEvents(s: Socket) {
   const patch = (p: Partial<LiveState>) => liveStore.set((prev) => (prev ? { ...prev, ...p } : prev));
   s.on('autopilot:status', (autopilot: AutopilotStatus) => patch({ autopilot }));
   s.on('clipwatch:status', (watcher: WatcherStatus) => patch({ watcher }));

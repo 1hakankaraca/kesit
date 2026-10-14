@@ -34,6 +34,9 @@ const {
 } = require('./PublishingPolicy');
 const ViralScorer = require('./ViralScorer');
 
+// Kesit: otomatik başlık/açıklama üretimi kapalı (ürün kararı) — kod yerinde, açmak tek satır.
+const AUTO_METADATA = false;
+
 const PUBLISH_INTERVAL_MS = 60 * 60 * 1000; // otomatik paylaşımlar arası 1 saat
 // Otomatik (canlı yakalama) paylaşımlarda plan saati sunucu tarafında mutlak
 // zaman damgası olarak hesaplanır; panelde de UTC olarak gösterilir.
@@ -864,7 +867,7 @@ class ClipEditorManager {
             // 7. Paylaşım metadatası — transkriptten makara açıklama + hashtag (Gemini)
             //    Başlık ÜRETİLMEZ; kanal adı bilerek gönderilmez.
             let meta = null;
-            if (MetadataGenerator.isAvailable()) {
+            if (AUTO_METADATA && MetadataGenerator.isAvailable()) {
                 await this._setStep(jobId, 'processing', 'açıklama üretiliyor');
                 meta = await this.metadata.generate({
                     segments: transcript?.segments || [],
@@ -1035,7 +1038,7 @@ class ClipEditorManager {
         await this.horizontalComposer.thumbnail(outputPath, thumbPath, { offsetSec: introDuration + 1 }).catch(() => null);
 
         let meta2 = null;
-        if (MetadataGenerator.isAvailable()) {
+        if (AUTO_METADATA && MetadataGenerator.isAvailable()) {
             await this._setStep(jobId, 'processing', 'açıklama üretiliyor');
             meta2 = await this.metadata.generate({
                 segments: transcript?.segments || [], sourceTitle: jobRow?.title || '', language,

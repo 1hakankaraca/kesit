@@ -37,8 +37,8 @@ export function Clips() {
   const [link, setLink] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const browse = async (append = false) => {
-    const slug = channel.trim();
+  const browse = async (append = false, override?: string) => {
+    const slug = (override ?? channel).trim();
     if (!slug) return;
     setLoading(true);
     try {
@@ -54,6 +54,15 @@ export function Clips() {
       setLoading(false);
     }
   };
+
+  // Üstteki kanal sekmesi değişince liste o kanala geçer.
+  useEffect(() => {
+    const slug = user?.channelSlug;
+    if (!slug || slug === searched) return;
+    setChannel(slug);
+    void browse(false, slug);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.channelSlug]);
 
   useEffect(() => {
     if (channel.trim()) void browse();
@@ -123,7 +132,7 @@ export function Clips() {
 
   return (
     <>
-      <WorkspaceHead title="Klipler" tape="tara" lead="Kanalın kliplerini getir, beğendiklerini seç. Yüz kamerası, altyazı ve dikey kompozisyon otomatik yapılır." />
+      <WorkspaceHead guide="klipler" title="Klipler" tape="tara" lead="Kanalın kliplerini getir, beğendiklerini seç. Yüz kamerası, altyazı ve dikey kompozisyon otomatik yapılır." />
 
       <div className="toolbar panel">
         <form

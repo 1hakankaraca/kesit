@@ -1,40 +1,12 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { useEffect, useId, useRef, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { GUIDES, type GuideKey } from '../lib/guides.ts';
 import { dismiss, useToasts } from '../lib/toast.ts';
 import { Icon, type IconName } from './Icon.tsx';
 
-/** Logo: cetvel çentikli kare içinde makas kesiği — bir şeritten kesilmiş parça. */
-export function LogoMark({ size = 34 }: { size?: number }) {
-  return (
-    <svg className="logo-mark" width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
-      <defs>
-        <linearGradient id="kesit-g" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" className="logo-stop-1" />
-          <stop offset="1" className="logo-stop-2" />
-        </linearGradient>
-      </defs>
-      <rect width="64" height="64" rx="18" fill="url(#kesit-g)" />
-      <g stroke="#fff" strokeLinecap="round" opacity="0.55" strokeWidth="2.6">
-        <path d="M15 7v7M23.5 7v4M32 7v7M40.5 7v4M49 7v7" />
-      </g>
-      <path d="M18 24v26M18 37l16-13M24.5 32 40 50" fill="none" stroke="#fff" strokeWidth="6.4" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M46 26v24" stroke="#fff" strokeWidth="6.4" strokeLinecap="round" strokeDasharray="0.1 8.5" />
-    </svg>
-  );
-}
-
-/** "Kes" düz, "it" kesilmiş bir şerit parçasının üstünde durur. */
+/** Yazı logosu: düz "Kesit". */
 export function Wordmark({ large = false }: { large?: boolean }) {
-  return (
-    <span className={large ? 'logotype logotype-large' : 'logotype'} aria-label="Kesit">
-      <LogoMark size={large ? 44 : 32} />
-      <span className="logotype-plain">Kes</span>
-      <span className="logotype-tag">
-        <span className="logotype-ticks" aria-hidden="true" />
-        it
-      </span>
-    </span>
-  );
+  return <span className={large ? 'wordmark-text wordmark-text-large' : 'wordmark-text'}>Kesit</span>;
 }
 
 export function Ticks({ className = '' }: { className?: string }) {
@@ -227,17 +199,91 @@ export function Toasts() {
   );
 }
 
-/** Çalışma alanı başlığı: dev başlık, bir kelimesi şerit üstünde. */
-export function WorkspaceHead({ title, tape, lead, actions }: { title: string; tape: string; lead?: ReactNode; actions?: ReactNode }) {
+const guideSeenKey = (k: GuideKey) => `kesit.rehber.${k}`;
+
+function guideSeen(k: GuideKey) {
+  try {
+    return localStorage.getItem(guideSeenKey(k)) === '1';
+  } catch {
+    return true;
+  }
+}
+
+function markGuideSeen(k: GuideKey) {
+  try {
+    localStorage.setItem(guideSeenKey(k), '1');
+  } catch {
+    /* tarayıcı depolaması kapalı — rehber her seferinde açılır */
+  }
+}
+
+/** Çalışma alanı başlığı: dev başlık, bir kelimesi şerit üstünde; isteğe bağlı rehber. */
+export function WorkspaceHead({ title, tape, lead, actions, guide }: { title: string; tape: string; lead?: ReactNode; actions?: ReactNode; guide?: GuideKey }) {
+  const [open, setOpen] = useState(() => !!guide && !guideSeen(guide));
+  const close = () => {
+    setOpen(false);
+    if (guide) markGuideSeen(guide);
+  };
   return (
-    <header className="ws-head">
-      <div>
-        <h1 className="ws-title">
-          {title} <span className="ws-title-tape">{tape}</span>
-        </h1>
-        {lead && <p className="ws-lead">{lead}</p>}
+    <>
+      <header className="ws-head">
+        <div>
+          <h1 className="ws-title">
+            {title} <span className="ws-title-tape">{tape}</span>
+          </h1>
+          {lead && <p className="ws-lead">{lead}</p>}
+        </div>
+        <div className="ws-actions">
+          {guide && (
+            <button type="button" className="btn btn-secondary" onClick={() => (open ? close() : setOpen(true))} aria-expanded={open}>
+              <Icon name="help" size={16} /> Nasıl kullanılır
+            </button>
+          )}
+          {actions}
+        </div>
+      </header>
+      <AnimatePresence initial={false}>{guide && open && <GuidePanel guideKey={guide} onClose={close} />}</AnimatePresence>
+    </>
+  );
+}
+
+function GuidePanel({ guideKey, onClose }: { guideKey: GuideKey; onClose: () => void }) {
+  const g = GUIDES[guideKey];
+  return (
+    <motion.section className="guide" aria-label={g.title} initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
+      <div className="guide-inner">
+        <header className="guide-head">
+          <div>
+            <p className="eyebrow">Rehber</p>
+            <h2 className="guide-title">{g.title}</h2>
+            <p className="guide-intro">{g.intro}</p>
+          </div>
+          <button type="button" className="btn btn-quiet btn-icon" onClick={onClose} aria-label="Rehberi kapat">
+            <Icon name="x" />
+          </button>
+        </header>
+        <ol className="guide-steps">
+          {g.steps.map((st, i) => (
+            <li key={st.title}>
+              <span className="guide-num">{i + 1}</span>
+              <b>{st.title}</b>
+              <span>{st.text}</span>
+            </li>
+          ))}
+        </ol>
+        {'tips' in g && g.tips && (
+          <ul className="guide-tips">
+            {g.tips.map((t) => (
+              <li key={t}>
+                <Icon name="bolt" size={14} /> {t}
+              </li>
+            ))}
+          </ul>
+        )}
+        <button type="button" className="btn btn-primary btn-small" onClick={onClose}>
+          Anladım
+        </button>
       </div>
-      {actions && <div className="ws-actions">{actions}</div>}
-    </header>
+    </motion.section>
   );
 }

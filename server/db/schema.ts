@@ -210,4 +210,19 @@ export const MIGRATIONS: { id: string; sql: string }[] = [
       CREATE INDEX idx_archive_user_day ON archive_entries (user_id, produced_at DESC);
     `,
   },
+  {
+    id: '002-uygulama-ayarlari',
+    sql: `
+      -- Bilgisayar genelindeki ayarlar (ör. altyazı motoru anahtarı). Gizli
+      -- değerler secrets.seal ile şifreli tutulur.
+      CREATE TABLE app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT,
+        updated_at TEXT NOT NULL DEFAULT ${NOW}
+      );
+
+      -- Üst şeritteki kanal sekmeleri (JSON dizi); etkin sekme users.channel_slug.
+      ALTER TABLE user_settings ADD COLUMN channel_tabs TEXT DEFAULT '[]';
+    `,
+  },
 ];

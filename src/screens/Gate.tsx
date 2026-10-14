@@ -1,13 +1,13 @@
 import { motion } from 'motion/react';
 import { useEffect, useState } from 'react';
+import { ChannelSearch } from '../components/ChannelSearch.tsx';
 import { Icon, type IconName } from '../components/Icon.tsx';
 import { Ticks, Wordmark } from '../components/basics.tsx';
-import { enterAsGuest, useSession } from '../lib/session.ts';
+import { enterAsGuest, linkKick, useSession } from '../lib/session.ts';
 import { useTheme } from '../lib/theme.ts';
 import { toastError } from '../lib/toast.ts';
 
 const LOGIN_ERRORS: Record<string, string> = {
-  'kick-kapali': 'Kick ile giriş bu sunucuda henüz yapılandırılmadı. Misafir olarak devam edebilirsin.',
   gecersiz: 'Giriş isteğinin süresi doldu ya da yarıda kaldı. Tekrar dene.',
   hata: 'Kick girişi tamamlanamadı. Biraz sonra tekrar dene.',
 };
@@ -22,8 +22,9 @@ const FEATURES: { icon: IconName; title: string; text: string }[] = [
 /** Giriş kapısı: Kick hesabıyla ya da kayıtsız misafir olarak. */
 export function Gate() {
   useTheme('gate');
-  const { kickLogin } = useSession();
+  const { kickOAuth } = useSession();
   const [busy, setBusy] = useState(false);
+  const [kickOpen, setKickOpen] = useState(false);
   const reason = new URLSearchParams(location.search).get('giris');
 
   useEffect(() => {
@@ -34,6 +35,17 @@ export function Gate() {
     setBusy(true);
     try {
       await enterAsGuest();
+      history.replaceState(null, '', '/');
+    } catch (err) {
+      toastError(err);
+      setBusy(false);
+    }
+  };
+
+  const link = async (slug: string) => {
+    setBusy(true);
+    try {
+      await linkKick(slug);
       history.replaceState(null, '', '/');
     } catch (err) {
       toastError(err);
@@ -86,17 +98,34 @@ export function Gate() {
               {LOGIN_ERRORS[reason]}
             </p>
           )}
-          <a className={`btn btn-accent btn-large${kickLogin ? '' : ' is-disabled'}`} href={kickLogin ? '/auth/kick' : undefined} aria-disabled={!kickLogin}>
-            <KickGlyph />
-            Kick ile giriş yap
-          </a>
-          <p className="start-note">Yalnız kullanıcı adın ve kanalın okunur. Kesit senin adına yazmaz, yayın yapmaz.</p>
+          {kickOAuth ? (
+            <a className="btn btn-accent btn-large" href="/auth/kick">
+              <KickGlyph />
+              Kick ile giriş yap
+            </a>
+          ) : kickOpen ? (
+            <div className="stack-s">
+              <ChannelSearch large autoFocus placeholder="Kick kullanıcı adını yaz" onPick={(h) => void link(h.slug)} />
+              {busy && <p className="start-note">Hesap bağlanıyor…</p>}
+            </div>
+          ) : (
+            <button type="button" className="btn btn-accent btn-large" onClick={() => setKickOpen(true)}>
+              <KickGlyph />
+              Kick ile giriş yap
+            </button>
+          )}
+          <p className="start-note">
+            {kickOAuth ? 'Yalnız kullanıcı adın ve kanalın okunur.' : 'Kick kanalını seç, hesabın bağlansın.'} Kesit senin adına yazmaz, yayın yapmaz.
+          </p>
           <div className="start-or">ya da</div>
           <button type="button" className="btn btn-secondary btn-large" onClick={guest} disabled={busy}>
             <Icon name="user" />
             {busy ? 'Hazırlanıyor…' : 'Misafir olarak devam et'}
           </button>
-          <p className="start-note">Kayıt yok. Çalışmaların bu tarayıcıdaki oturumda saklanır; istediğin kanalı takip edebilirsin.</p>
+          <p className="start-note">Kayıt yok. İstediğin kanalı takip edebilirsin.</p>
+          <p className="start-local">
+            <Icon name="folder" size={14} /> Tüm veriler — klipler, kayıtlar, ayarlar — yalnız bu bilgisayarda saklanır.
+          </p>
         </motion.section>
       </main>
     </div>

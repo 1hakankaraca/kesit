@@ -57,7 +57,7 @@ function StudioEditor({ data, reload }: { data: StudioData; reload: () => void }
 
   return (
     <div style={style}>
-      <WorkspaceHead title="Marka ve" tape="şablon" lead="Logo, intro, outro ve renklerini bir kez ayarla; her klip ve kayıt bu kimlikle çıksın. Önizleme gerçek yerleşimi gösterir." />
+      <WorkspaceHead guide="marka" title="Marka ve" tape="şablon" lead="Logo, intro, outro ve renklerini bir kez ayarla; her klip ve kayıt bu kimlikle çıksın. Önizleme gerçek yerleşimi gösterir." />
 
       <div className="studio-grid">
         <section className="panel studio-preview" aria-label="Önizleme">
@@ -78,6 +78,28 @@ function StudioEditor({ data, reload }: { data: StudioData; reload: () => void }
               <HorizontalProto opts={opts} logoUrl={data.logo.url} styleKey={opts.subtitleStyle ?? brand.subtitleStyle} onLogoMove={(x, y) => setOpt({ logoPosition: 'custom', logoX: x, logoY: y })} />
               <SequenceStrip intro={data.intro} outro={data.outro} withIntro={opts.intro} withOutro={opts.outro} />
             </div>
+          </div>
+
+          <div className="logo-controls">
+            <Switch checked={opts.logo} onChange={(v) => setOpt({ logo: v })} label="Logo" hint={data.logo.exists ? 'Videoya bindirilir' : 'Sağdan logo yükle'} />
+            <Field label={`Boyut · ${Math.round(opts.logoScale * 100)}%`}>
+              <input type="range" className="range" min={0.5} max={2} step={0.05} value={opts.logoScale} disabled={!opts.logo} onChange={(e) => setOpt({ logoScale: Number(e.target.value) })} />
+            </Field>
+            <Field label={`Opaklık · ${Math.round(opts.logoOpacity * 100)}%`}>
+              <input type="range" className="range" min={0.05} max={1} step={0.05} value={opts.logoOpacity} disabled={!opts.logo} onChange={(e) => setOpt({ logoOpacity: Number(e.target.value) })} />
+            </Field>
+            <Field label="Dikeyde yeri">
+              <Segmented
+                size="small"
+                label="Dikeyde logo yeri"
+                value={opts.logoPosition === 'top-center' ? 'top-center' : 'seam'}
+                onChange={(v) => setOpt({ logoPosition: v })}
+                options={[
+                  { value: 'seam', label: 'Dikiş' },
+                  { value: 'top-center', label: 'Üst orta' },
+                ]}
+              />
+            </Field>
           </div>
         </section>
 
@@ -142,7 +164,6 @@ function StudioEditor({ data, reload }: { data: StudioData; reload: () => void }
           <div className="settings-grid pad-top">
             <Switch checked={opts.subtitles} onChange={(v) => setOpt({ subtitles: v })} label="Altyazı" hint="Konuşma yazıya dökülür" />
             <Switch checked={opts.subtitleFollowsTheme} onChange={(v) => setOpt({ subtitleFollowsTheme: v })} label="Altyazı vurgusu vurgu renginde" hint="Kapalıyken marka rengi" />
-            <Switch checked={opts.logo} onChange={(v) => setOpt({ logo: v })} label="Logo bindir" hint={data.logo.exists ? 'Yüklü logo kullanılır' : 'Önce logo yükle'} />
             <Switch checked={opts.censor} onChange={(v) => setOpt({ censor: v })} label="Küfür sansürü" hint="Geçen anlar biplenir" />
             <Switch checked={opts.intro} onChange={(v) => setOpt({ intro: v })} label="Intro ekle" hint="Yalnız yatay çıktılar" />
             <Switch checked={opts.outro} onChange={(v) => setOpt({ outro: v })} label="Outro ekle" hint="Yalnız yatay çıktılar" />
@@ -158,24 +179,6 @@ function StudioEditor({ data, reload }: { data: StudioData; reload: () => void }
                   { value: 'single', label: 'Tek kare' },
                 ]}
               />
-            </Field>
-            <Field label="Dikeyde logo yeri">
-              <Segmented
-                size="small"
-                label="Logo yeri"
-                value={opts.logoPosition === 'top-center' ? 'top-center' : 'seam'}
-                onChange={(v) => setOpt({ logoPosition: v })}
-                options={[
-                  { value: 'seam', label: 'Dikiş' },
-                  { value: 'top-center', label: 'Üst orta' },
-                ]}
-              />
-            </Field>
-            <Field label={`Logo boyutu · ${Math.round(opts.logoScale * 100)}%`}>
-              <input type="range" className="range" min={0.5} max={2} step={0.05} value={opts.logoScale} onChange={(e) => setOpt({ logoScale: Number(e.target.value) })} />
-            </Field>
-            <Field label={`Logo opaklığı · ${Math.round(opts.logoOpacity * 100)}%`}>
-              <input type="range" className="range" min={0.05} max={1} step={0.05} value={opts.logoOpacity} onChange={(e) => setOpt({ logoOpacity: Number(e.target.value) })} />
             </Field>
             {group === 'live' && (
               <Field label={`Otomatik paylaşım eşiği · ${opts.autoPublishMinScore || 'yok'}`} help="Viral skoru bunun altında kalan klipler otomatik paylaşılmaz">
@@ -286,14 +289,22 @@ function VerticalProto({ opts, logoUrl, styleKey }: { opts: ClipOptions; logoUrl
             <div className={split ? 'proto-game' : 'proto-game proto-game-full'}>Oyun / ekran</div>
           </>
         )}
-        {opts.logo && logoUrl && (
-          <img
-            className={opts.logoPosition === 'top-center' ? 'proto-logo proto-logo-top' : 'proto-logo proto-logo-seam'}
-            src={logoUrl}
-            alt=""
-            style={{ width: `${22 * opts.logoScale}%`, opacity: opts.logoOpacity }}
-          />
-        )}
+        {opts.logo &&
+          (logoUrl ? (
+            <img
+              className={opts.logoPosition === 'top-center' ? 'proto-logo proto-logo-top' : 'proto-logo proto-logo-seam'}
+              src={logoUrl}
+              alt=""
+              style={{ width: `${22 * opts.logoScale}%`, opacity: opts.logoOpacity }}
+            />
+          ) : (
+            <span
+              className={`proto-logo proto-logo-ghost ${opts.logoPosition === 'top-center' ? 'proto-logo-top' : 'proto-logo-seam'}`}
+              style={{ width: `${22 * opts.logoScale}%`, opacity: opts.logoOpacity }}
+            >
+              LOGO
+            </span>
+          ))}
         {opts.subtitles && <SubtitleSample styleKey={styleKey} />}
       </div>
       <figcaption>Dikey 9:16</figcaption>
@@ -320,22 +331,23 @@ function HorizontalProto({ opts, logoUrl, styleKey, onLogoMove }: { opts: ClipOp
     <figure className="proto proto-h">
       <div className="proto-frame" ref={box} onPointerMove={move} onPointerUp={() => (dragging.current = false)} onPointerLeave={() => (dragging.current = false)}>
         {frame ? <img className="proto-bg" src={frame} alt="" /> : <div className="proto-game proto-game-full">Yayın görüntüsü</div>}
-        {opts.logo && logoUrl && (
-          <img
-            className="proto-logo proto-logo-free"
-            src={logoUrl}
-            alt="Logo — sürükleyerek konumla"
-            draggable={false}
+        {opts.logo && (
+          <span
+            className={logoUrl ? 'proto-logo proto-logo-free' : 'proto-logo proto-logo-free proto-logo-ghost'}
+            role="img"
+            aria-label="Logo — sürükleyerek konumla"
             style={{ left: `${x * 100}%`, top: `${y * 100}%`, width: `${(100 / 3) * opts.logoScale}%`, opacity: opts.logoOpacity }}
             onPointerDown={(e) => {
               dragging.current = true;
               (e.currentTarget.parentElement as HTMLElement).setPointerCapture(e.pointerId);
             }}
-          />
+          >
+            {logoUrl ? <img src={logoUrl} alt="" draggable={false} /> : 'LOGO'}
+          </span>
         )}
         {opts.subtitles && <SubtitleSample styleKey={styleKey} />}
       </div>
-      <figcaption>Yatay 16:9 {logoUrl ? '· logoyu sürükle' : ''}</figcaption>
+      <figcaption>Yatay 16:9 · logoyu sürükle</figcaption>
     </figure>
   );
 }

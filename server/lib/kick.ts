@@ -36,3 +36,29 @@ export async function fetchChannel(slug: string): Promise<ChannelInfo> {
     startedAt: live?.start_time || live?.created_at || null,
   };
 }
+
+export interface ChannelHit {
+  slug: string;
+  username: string;
+  avatarUrl: string | null;
+  followers: number;
+  isLive: boolean;
+  verified: boolean;
+}
+
+/** Kick'in herkese açık kanal araması (kanal seçici için). */
+export async function searchChannels(q: string): Promise<ChannelHit[]> {
+  const res = await axios.get('https://kick.com/api/search', { params: { searched_word: q }, headers: BROWSER_HEADERS, timeout: 8_000 });
+  const channels: any[] = res.data?.channels ?? [];
+  return channels
+    .filter((c) => c?.slug && !c.is_banned)
+    .slice(0, 8)
+    .map((c) => ({
+      slug: c.slug,
+      username: c.user?.username || c.slug,
+      avatarUrl: c.user?.profilePic || c.user?.profile_pic || null,
+      followers: c.followers_count ?? c.followersCount ?? 0,
+      isLive: !!c.isLive,
+      verified: !!c.verified,
+    }));
+}

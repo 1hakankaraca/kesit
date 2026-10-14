@@ -1,7 +1,6 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useRef, useState } from 'react';
 import { Icon } from '../components/Icon.tsx';
-import { platformLabel } from '../components/PublishDialog.tsx';
 import { Empty, Field, Pill, Segmented, Spinner, Switch, WorkspaceHead } from '../components/basics.tsx';
 import { api, query } from '../lib/api.ts';
 import { bytes, count, duration, relative, time } from '../lib/format.ts';
@@ -10,14 +9,14 @@ import { liveStore, refreshLive } from '../lib/live.ts';
 import { navigate, sectionPath } from '../lib/router.ts';
 import { useSession } from '../lib/session.ts';
 import { toast, toastError } from '../lib/toast.ts';
-import type { AutopilotConfig, ChannelInfo, LiveState, ZernioSummary } from '../lib/types.ts';
+import type { ChannelInfo, LiveState } from '../lib/types.ts';
 import { useInterval, useResource } from '../lib/useResource.ts';
 
 /** Canlı: nöbet, kayıt ve chat'ten klip yakalama. */
 export function Live() {
   const { user } = useSession();
   const live = liveStore.use();
-  const channel = live?.autopilot.config.channel || live?.watcher.channel || live?.recorder.channel || user?.channelSlug || '';
+  const channel = live?.watcher.channel || live?.recorder.channel || user?.channelSlug || '';
   const info = useResource(() => (channel ? api.get<ChannelInfo>(`/api/live/channel${query({ channel })}`) : Promise.resolve(null)), [channel]);
   useInterval(() => channel && void info.reload(), 45_000);
 
@@ -35,20 +34,30 @@ export function Live() {
 
   return (
     <>
-      <WorkspaceHead title="Canlı" tape="nöbet" lead="Yayın açılınca kaydı başlat, chat'e düşen klipleri yakala ve işle. Nöbetçiyi açarsan bunların hepsi sen yokken de olur." />
+      <WorkspaceHead
+        title="Canlı"
+        tape="yayın"
+        lead="Şu an süren yayını kaydet, chat'e düşen klipleri yakala, yayının o ana kadarki kısmını kesmek için al."
+        guide="canli"
+      />
       {channel && <ChannelBanner info={info.data} loading={info.loading} channel={channel} />}
+      {live.autopilot.config.enabled && (
+        <p className="notice-box live-note">
+          Nöbet açık: {live.autopilot.config.channel} yayına geçince kayıt ve klip yakalama kendiliğinden başlar.{' '}
+          <button type="button" className="link" onClick={() => navigate(sectionPath('nobet'))}>
+            Nöbet'e git
+          </button>
+        </p>
+      )}
       <div className="live-grid">
-        <AutopilotPanel live={live} fallbackChannel={channel} />
-        <div className="ws-stack">
-          <RecorderPanel live={live} channel={channel} isLive={!!info.data?.isLive} />
-          <WatcherPanel live={live} channel={channel} />
-        </div>
+        <RecorderPanel live={live} channel={channel} isLive={!!info.data?.isLive} />
+        <WatcherPanel live={live} channel={channel} />
       </div>
     </>
   );
 }
 
-function ChannelBanner({ info, loading, channel }: { info: ChannelInfo | null; loading: boolean; channel: string }) {
+export function ChannelBanner({ info, loading, channel }: { info: ChannelInfo | null; loading: boolean; channel: string }) {
   return (
     <section className={info?.isLive ? 'channel-banner channel-banner-live' : 'channel-banner'}>
       {info?.avatarUrl ? <img className="channel-avatar" src={info.avatarUrl} alt="" /> : <span className="channel-avatar" />}
@@ -64,127 +73,6 @@ function ChannelBanner({ info, loading, channel }: { info: ChannelInfo | null; l
         )}
       </div>
       <Pill tone={info?.isLive ? 'live' : 'neutral'}>{info?.isLive ? 'CANLI' : 'Çevrimdışı'}</Pill>
-    </section>
-  );
-}
-
-/* ── Nöbetçi ───────────────────────────────────────────────────────────── */
-
-function AutopilotPanel({ live, fallbackChannel }: { live: LiveState; fallbackChannel: string }) {
-  const status = live.autopilot;
-  const [draft, setDraft] = useState<AutopilotConfig>(() => ({ ...status.config, channel: status.config.channel || fallbackChannel || null }));
-  const [busy, setBusy] = useState(false);
-  const [zernio, setZernio] = useState<ZernioSummary | null>(null);
-
-  useEffect(() => {
-    if (draft.autoPublish && !zernio) api.get<ZernioSummary>('/api/zernio').then(setZernio).catch(() => {});
-  }, [draft.autoPublish, zernio]);
-
-  const save = async (next: AutopilotConfig) => {
-    setBusy(true);
-    try {
-      const res = await api.put<LiveState['autopilot']>('/api/autopilot', next);
-      liveStore.set((s) => (s ? { ...s, autopilot: res } : s));
-      setDraft(res.config);
-      toast(res.config.enabled ? 'Nöbetçi açık' : 'Nöbetçi kapatıldı', 'ok');
-    } catch (err) {
-      toastError(err);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const patch = (p: Partial<AutopilotConfig>) => {
-    const next = { ...draft, ...p };
-    setDraft(next);
-    if (status.config.enabled) void save(next);
-  };
-
-  const accounts = (zernio?.accounts ?? []).filter((a) => a.platform !== 'tiktok');
-  const toggleAccount = (platform: string, accountId: string) => {
-    const has = draft.publishAccounts.some((a) => a.accountId === accountId && a.platform === platform);
-    patch({ publishAccounts: has ? draft.publishAccounts.filter((a) => !(a.accountId === accountId && a.platform === platform)) : [...draft.publishAccounts, { platform, accountId }] });
-  };
-
-  const on = status.config.enabled;
-
-  return (
-    <section className={on ? 'panel autopilot autopilot-on' : 'panel autopilot'} aria-labelledby="ap-title">
-      <span className="panel-tape" aria-hidden="true" />
-      <header className="panel-head">
-        <div>
-          <h2 id="ap-title" className="panel-title">
-            <Icon name="shield" size={18} /> Nöbetçi
-          </h2>
-          <p className="panel-sub">Bilgisayar başında değilken kanalı yoklar; yayın açılınca devreye girer, kapanınca toparlar.</p>
-        </div>
-        {on && <Pill tone={status.live ? 'live' : 'on'}>{status.live ? 'Yayın sürüyor' : 'Bekliyor'}</Pill>}
-      </header>
-
-      <div className="stack">
-        <Field label="Takip edilen kanal" htmlFor="ap-channel">
-          <input
-            id="ap-channel"
-            className="input"
-            value={draft.channel ?? ''}
-            onChange={(e) => setDraft({ ...draft, channel: e.target.value.trim() || null })}
-            placeholder="kanal adı"
-            disabled={on}
-          />
-        </Field>
-        <Switch checked={draft.record} onChange={(v) => patch({ record: v })} label="Yayını baştan sona kaydet" hint="Yayın bitince kayıt kapanır; intro, outro ve logo eklenmiş çıktı otomatik hazırlanır" />
-        <Switch checked={draft.clips} onChange={(v) => patch({ clips: v })} label="Chat kliplerini yakala" hint="Sohbete düşen kick.com ve kickbot.com klip bağlantıları" />
-        {draft.clips && <Switch checked={draft.autoEdit} onChange={(v) => patch({ autoEdit: v })} label="Yakalananları otomatik düzenle" hint="Dikey klip + altyazı, Kütüphane'ye düşer" />}
-        {draft.clips && draft.autoEdit && <Switch checked={draft.subtitles} onChange={(v) => patch({ subtitles: v })} label="Altyazı" />}
-        {draft.clips && draft.autoEdit && (
-          <Switch checked={draft.autoPublish} onChange={(v) => patch({ autoPublish: v })} label="Otomatik paylaş" hint="Hazır klipler saatte bir Zernio ile paylaşılır" />
-        )}
-        {draft.autoPublish && (
-          <div className="subtle-box">
-            {!zernio ? (
-              <Spinner />
-            ) : !zernio.connected ? (
-              <button type="button" className="link" onClick={() => navigate(sectionPath('paylasim'))}>
-                Önce Zernio hesabını bağla
-              </button>
-            ) : (
-              <div className="account-grid">
-                {accounts.map((a) => {
-                  const checked = draft.publishAccounts.some((x) => x.accountId === a.id && x.platform === a.platform);
-                  return (
-                    <label key={a.id} className={checked ? 'account account-on' : 'account'}>
-                      <input type="checkbox" checked={checked} onChange={() => toggleAccount(a.platform, a.id)} />
-                      <span className={`platform-badge platform-${a.platform}`}>{platformLabel(a.platform).slice(0, 2)}</span>
-                      <span>
-                        <b>{a.displayName}</b>
-                        <small>{platformLabel(a.platform)}</small>
-                      </span>
-                    </label>
-                  );
-                })}
-                <p className="field-help">TikTok her gönderide açık onay istediği için otomatik paylaşılamaz.</p>
-              </div>
-            )}
-          </div>
-        )}
-
-        <button type="button" className={on ? 'btn btn-secondary btn-large' : 'btn btn-accent btn-large'} disabled={busy || (!on && !draft.channel)} onClick={() => save({ ...draft, enabled: !on })}>
-          {busy ? <Spinner /> : <Icon name={on ? 'stop' : 'shield'} size={16} />}
-          {on ? 'Nöbeti kapat' : 'Nöbeti başlat'}
-        </button>
-        {on && status.nextCheckAt && <p className="field-help">Son yoklama {time(status.lastCheckAt)} · sonraki {time(status.nextCheckAt)}</p>}
-      </div>
-
-      {status.events.length > 0 && (
-        <ol className="event-log" aria-label="Nöbet günlüğü">
-          {status.events.map((e, i) => (
-            <li key={`${e.at}-${i}`} className={`event event-${e.kind}`}>
-              <span className="event-time">{time(e.at)}</span>
-              <span>{e.text}</span>
-            </li>
-          ))}
-        </ol>
-      )}
     </section>
   );
 }

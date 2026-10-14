@@ -34,6 +34,9 @@ function VodList() {
   const { user } = useSession();
   const [channel, setChannel] = useState(user?.channelSlug ?? '');
   const [quality, setQuality] = useState<(typeof QUALITIES)[number]>('720p');
+  useEffect(() => {
+    if (user?.channelSlug) setChannel(user.channelSlug);
+  }, [user?.channelSlug]);
   const videos = useResource(() => (channel ? api.get<{ videos: VodVideo[] }>(`/api/vods${query({ channel })}`).then((r) => r.videos) : Promise.resolve([])), [channel]);
   const jobs = useResource(() => api.get<{ jobs: VodJob[] }>('/api/vod-jobs').then((r) => r.jobs));
   const [busy, setBusy] = useState<string | null>(null);
@@ -69,7 +72,7 @@ function VodList() {
 
   return (
     <>
-      <WorkspaceHead title="Geçmiş" tape="yayınlar" lead="Kick'in sakladığı yayınları indir; zaman çizelgesinde istediğin anı kes ya da en iyi anları otomatik buldur." />
+      <WorkspaceHead guide="yayinlar" title="Geçmiş" tape="yayınlar" lead="Kick'in sakladığı yayınları indir; zaman çizelgesinde istediğin anı kes ya da en iyi anları otomatik buldur." />
 
       <div className="ws-grid">
         <section className="ws-stack" aria-labelledby="vod-list-title">
@@ -84,7 +87,7 @@ function VodList() {
             >
               <div className="search search-large">
                 <Icon name="search" size={18} />
-                <input name="channel" className="search-input" defaultValue={channel} placeholder="Kanal adı" aria-label="Kanal" />
+                <input key={channel} name="channel" className="search-input" defaultValue={channel} placeholder="Kanal adı" aria-label="Kanal" />
               </div>
               <button type="submit" className="btn btn-primary">
                 Yayınları getir
@@ -102,7 +105,7 @@ function VodList() {
           {!channel ? (
             <div className="panel">
               <Empty icon="film" title="Önce bir kanal seç">
-                Üst şeritten çalıştığın kanalı belirle ya da buraya bir kanal adı yaz.
+                Üst ortadaki kanal sekmelerinden birini seç ya da buraya bir kanal adı yaz.
               </Empty>
             </div>
           ) : videos.loading && !videos.data ? (
@@ -288,7 +291,7 @@ function VodEditor({ id }: { id: number }) {
       <div className="crumb">
         <BackLink />
       </div>
-      <WorkspaceHead title={job.title || 'Yayın'} tape="kes" lead={`${job.channel_slug} · ${duration(job.duration_sec)} · ${dateTime(job.created_at)} tarihinde indirildi`} />
+      <WorkspaceHead guide="yayinlar" title={job.title || 'Yayın'} tape="kes" lead={`${job.channel_slug} · ${duration(job.duration_sec)} · ${dateTime(job.created_at)} tarihinde indirildi`} />
 
       <div className="ws-grid">
         <div className="ws-stack">

@@ -1,5 +1,6 @@
 import { api } from './api.ts';
-import { connectSocket } from './socket.ts';
+import type { Socket } from 'socket.io-client';
+import { onEverySocket } from './socket.ts';
 import { createStore } from './store.ts';
 import type { Job, QueueStatus } from './types.ts';
 
@@ -34,11 +35,11 @@ export function removeJobsLocally(ids: number[]) {
 
 export const isActive = (j: Job) => j.status === 'queued' || j.status === 'processing';
 
-let wired = false;
 export function wireJobEvents() {
-  if (wired) return;
-  wired = true;
-  const s = connectSocket();
+  onEverySocket(attachJobEvents);
+}
+
+function attachJobEvents(s: Socket) {
   s.on('clipedit:update', (e: { jobId: number; status: Job['status']; step: string; progress?: number }) => {
     jobsStore.set((st) => ({
       ...st,
@@ -46,7 +47,9 @@ export function wireJobEvents() {
       progress: typeof e.progress === 'number' ? { ...st.progress, [e.jobId]: e.progress } : st.progress,
     }));
     const known = jobsStore.get().jobs.some((j) => j.id === e.jobId);
-    if (!known || e.status === 'ready' || e.status === 'failed') void refreshJob(e.jobId);
+    // Biten iş için tüm liste tazelenir ki kuyruk sayacı da güncellensin.
+    if (e.status === 'ready' || e.status === 'failed') void refreshJobs().catch(() => {});
+    else if (!known) void refreshJob(e.jobId);
   });
   s.on('clipedit:published', (e: { jobId: number }) => void refreshJob(e.jobId));
   s.on('connect', () => void refreshJobs().catch(() => {}));

@@ -13,9 +13,10 @@ const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
 
-const WHISPER_BIN = process.env.WHISPER_BIN || 'whisper-cli';
-const WHISPER_MODEL = process.env.WHISPER_MODEL
-    || path.join(__dirname, '../../../data/models/ggml-large-v3-turbo-q5_0.bin');
+// Kesit: ikili ve model yolu çalışma anında okunur — model Ayarlar'dan
+// indirilebildiği için süreç açıkken değişebilir (bkz. server/services/Captions.ts).
+const whisperBin = () => process.env.WHISPER_BIN || 'whisper-cli';
+const whisperModel = () => process.env.WHISPER_MODEL || '';
 
 const ELEVENLABS_STT_URL = 'https://api.elevenlabs.io/v1/speech-to-text';
 const SEGMENT_MAX_CHARS = 38;  // altyazı satırı başına maksimum karakter
@@ -54,9 +55,9 @@ class Transcriber {
     }
 
     static hasWhisper() {
-        if (!fs.existsSync(WHISPER_MODEL)) return false;
+        if (!whisperModel() || !fs.existsSync(whisperModel())) return false;
         try {
-            require('child_process').execSync(`which ${WHISPER_BIN}`, { stdio: 'ignore' });
+            require('child_process').execSync(`which ${whisperBin()}`, { stdio: 'ignore' });
             return true;
         } catch {
             return false;
@@ -215,8 +216,8 @@ class Transcriber {
         // klipler 300 sn'yi meşru şekilde aşabilir — süreyle ölçekle
         const whisperTimeout = Math.max(300000, Math.round(durationSec * 8000));
 
-        await this._run(WHISPER_BIN, [
-            '-m', WHISPER_MODEL,
+        await this._run(whisperBin(), [
+            '-m', whisperModel(),
             '-f', wavPath,
             '-l', language || 'auto',
             '--max-len', '42',
