@@ -141,14 +141,6 @@ h1 {
   font: 600 12px var(--font-mono);
 }
 
-main {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 4px 16px 12px;
-  overflow: auto;
-}
 
 .card {
   position: relative;
@@ -424,4 +416,215 @@ h2 {
 
 .foot a {
   color: inherit;
+}
+
+/* ── Yeni yerleşim ─────────────────────────────────────────────────────── */
+
+.top-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.btn-icon {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  justify-content: center;
+  font-size: 18px;
+  border-radius: 10px;
+}
+
+.view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 16px 12px;
+  overflow: auto;
+}
+
+.big-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.btn-big {
+  justify-content: center;
+  padding: 13px 16px;
+  font-size: 15px;
+  border-radius: 13px;
+}
+
+.status .status-row {
+  margin-top: 14px;
+}
+
+.open-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--line);
+}
+
+.open-row .btn {
+  width: 100%;
+}
+
+.cover {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 16px;
+  align-items: center;
+  overflow: hidden;
+}
+
+.cover-art {
+  position: relative;
+  height: 120px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #1b1f2a, #2a1f3d);
+  overflow: hidden;
+}
+
+.cover-tile {
+  position: absolute;
+  border-radius: 8px;
+  background: var(--tape);
+  box-shadow: 0 10px 20px -10px rgb(0 0 0 / 0.6);
+}
+
+.cover-tile.t1 {
+  left: 14px;
+  top: 18px;
+  width: 64px;
+  height: 40px;
+  transform: rotate(-8deg);
+  opacity: 0.9;
+}
+
+.cover-tile.t2 {
+  left: 40px;
+  top: 44px;
+  width: 64px;
+  height: 40px;
+  transform: rotate(4deg);
+  background: linear-gradient(100deg, #8b5cf6, #ec4899);
+}
+
+.cover-tile.t3 {
+  left: 24px;
+  top: 72px;
+  width: 64px;
+  height: 40px;
+  transform: rotate(-3deg);
+  background: linear-gradient(100deg, #06b6d4, #3b82f6);
+  opacity: 0.85;
+}
+
+.cover-body {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+}
+
+.cover-body p {
+  margin: 0;
+  font-size: 13px;
+}
+
+.steps {
+  margin: 12px 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+
+.step {
+  display: grid;
+  grid-template-columns: 26px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--sunken);
+}
+
+.step > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.step > div span {
+  word-break: break-word;
+}
+
+.step-ic {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--line);
+  color: var(--ink-2);
+  font-weight: 800;
+}
+
+.step-ok .step-ic {
+  background: var(--ok);
+  color: #fff;
+}
+
+.step-fail .step-ic {
+  background: var(--mark);
+  color: #fff;
+}
+
+.step-running .step-ic {
+  background: var(--warn);
+  color: #fff;
+  animation: pulse 1s infinite;
+}
+
+.danger {
+  border-color: color-mix(in srgb, var(--mark) 35%, var(--line));
+}
+
+.btn-danger {
+  background: var(--mark);
+  color: #fff;
+}
+
+.foot {
+  justify-content: center;
+}
+
+.powered {
+  color: var(--ink-3);
+  font-size: 12px;
+  text-decoration: none;
+  letter-spacing: 0.02em;
+}
+
+.powered b {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+code {
+  font: 12px var(--font-mono);
+}
+
+@media (max-width: 480px) {
+  .cover {
+    grid-template-columns: 1fr;
+  }
+
+  .big-actions {
+    grid-template-columns: 1fr;
+  }
 }

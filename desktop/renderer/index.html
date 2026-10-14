@@ -12,31 +12,65 @@
         <span class="brand-mark" aria-hidden="true"></span>
         <div>
           <h1>Kesit <span class="tape">App</span></h1>
-          <p class="sub">Kick klip stüdyosu · yerel sunucu</p>
+          <p class="sub" id="brand-sub">Kick klip stüdyosu · yerel sunucu</p>
         </div>
       </div>
-      <span class="ver" id="version">v—</span>
+      <div class="top-actions">
+        <button id="btn-back" class="btn btn-quiet btn-icon" title="Geri" hidden>←</button>
+        <button id="btn-settings" class="btn btn-quiet btn-icon" title="Ayarlar" aria-label="Ayarlar">⚙</button>
+      </div>
     </header>
 
-    <main>
-      <section class="card status" id="status-card" aria-live="polite">
+    <!-- ── Ana görünüm ─────────────────────────────────────────────────── -->
+    <main id="view-home" class="view">
+      <section class="card status" aria-live="polite">
+        <div class="big-actions">
+          <button id="btn-start" class="btn btn-accent btn-big">▶ Sunucuyu başlat</button>
+          <button id="btn-stop" class="btn btn-secondary btn-big">■ Sunucuyu durdur</button>
+        </div>
         <div class="status-row">
           <span class="dot" id="dot"></span>
           <div class="status-text">
             <b id="status-title">Sunucu kapalı</b>
-            <span id="status-sub" class="muted">Başlat'a bas; arayüz tarayıcıda açılır.</span>
+            <span id="status-sub" class="muted">Çalışma süresi —</span>
           </div>
         </div>
-        <div class="actions">
-          <button id="btn-start" class="btn btn-accent">Başlat</button>
-          <button id="btn-stop" class="btn btn-secondary" hidden>Durdur</button>
-          <button id="btn-restart" class="btn btn-secondary" hidden>Yeniden başlat</button>
-          <button id="btn-open" class="btn btn-primary" hidden>Tarayıcıda aç</button>
-        </div>
         <p class="err" id="status-error" hidden></p>
+        <div class="open-row" id="open-row" hidden>
+          <button id="btn-open" class="btn btn-primary btn-big">Uygulamayı aç</button>
+          <span class="muted small" id="open-url"></span>
+        </div>
       </section>
 
-      <section class="card update" id="update-card">
+      <section class="card cover" id="cover-card">
+        <div class="cover-art" aria-hidden="true">
+          <span class="cover-tile t1"></span><span class="cover-tile t2"></span><span class="cover-tile t3"></span>
+        </div>
+        <div class="cover-body">
+          <h2>Kapak üretimi</h2>
+          <p class="muted">Kliplerin için kapak ve küçük resim tasarımı. Locavise'da dakikalar içinde hazırla, Kesit'ten indirdiğin videoyla yayınla.</p>
+          <button id="btn-cover" class="btn btn-accent">Locavise'ı aç ↗</button>
+        </div>
+      </section>
+    </main>
+
+    <!-- ── Kurulum ─────────────────────────────────────────────────────── -->
+    <main id="view-setup" class="view" hidden>
+      <section class="card">
+        <h2>İlk kurulum</h2>
+        <p class="muted">Kesit'in çalışması için gereken araçlar denetlenir, eksikler kurulur. Birkaç dakika sürebilir.</p>
+        <ol class="steps" id="setup-steps"></ol>
+        <div class="actions">
+          <button id="btn-setup-run" class="btn btn-accent">Kurulumu başlat</button>
+          <button id="btn-setup-done" class="btn btn-primary" hidden>Devam</button>
+          <button id="btn-setup-skip" class="btn btn-quiet btn-small">Atla</button>
+        </div>
+      </section>
+    </main>
+
+    <!-- ── Ayarlar ─────────────────────────────────────────────────────── -->
+    <main id="view-settings" class="view" hidden>
+      <section class="card">
         <div class="card-head">
           <h2>Güncelleme</h2>
           <button id="btn-check" class="btn btn-quiet btn-small">Güncelleme ara</button>
@@ -47,8 +81,48 @@
           <button id="btn-update" class="btn btn-accent">Güncelle</button>
           <button id="btn-notes" class="btn btn-quiet btn-small" hidden>Sürüm notları</button>
         </div>
+        <div class="actions">
+          <button id="btn-logs" class="btn btn-secondary">Günlükler</button>
+          <button id="btn-setup-again" class="btn btn-quiet btn-small">Kurulumu yeniden çalıştır</button>
+        </div>
       </section>
 
+      <section class="card">
+        <h2>Sunucu</h2>
+        <div class="grid">
+          <label class="field">
+            <span>Port</span>
+            <input id="set-port" type="number" min="1024" max="65535" />
+          </label>
+          <label class="field">
+            <span>Veri klasörü</span>
+            <div class="row">
+              <input id="set-data" type="text" readonly />
+              <button id="btn-data-choose" class="btn btn-secondary btn-small">Seç</button>
+              <button id="btn-data-open" class="btn btn-quiet btn-small">Aç</button>
+            </div>
+          </label>
+          <label class="field">
+            <span>Kapak üretimi bağlantısı</span>
+            <input id="set-cover" type="url" placeholder="https://" />
+          </label>
+          <label class="chk"><input type="checkbox" id="set-autostart" /> Uygulama açılınca sunucuyu başlat</label>
+          <label class="chk"><input type="checkbox" id="set-login" /> Bilgisayar açılınca Kesit App'i başlat</label>
+          <label class="chk"><input type="checkbox" id="set-tray" /> Pencere kapanınca tepside kal</label>
+          <label class="chk"><input type="checkbox" id="set-short" /> Kısa adres: <code id="short-host">http://kesit.localhost</code> <span class="muted small">(Chrome, Edge, Firefox)</span></label>
+        </div>
+        <p class="muted small">Port, veri klasörü ve kısa adres sunucu yeniden başlatılınca geçerli olur.</p>
+      </section>
+
+      <section class="card danger">
+        <h2>Kaldır</h2>
+        <p class="muted small">Uygulamayı, veritabanını, klipleri, kayıtları, ayarları ve günlükleri siler. Geri alınamaz.</p>
+        <button id="btn-uninstall" class="btn btn-danger">Uygulamayı ve tüm verileri sil</button>
+      </section>
+    </main>
+
+    <!-- ── Günlükler ───────────────────────────────────────────────────── -->
+    <main id="view-logs" class="view" hidden>
       <section class="card logs">
         <div class="card-head">
           <h2>Günlük</h2>
@@ -60,35 +134,10 @@
         </div>
         <pre id="log" class="log" tabindex="0" aria-label="Sunucu günlüğü"></pre>
       </section>
-
-      <section class="card settings">
-        <div class="card-head">
-          <h2>Ayarlar</h2>
-        </div>
-        <div class="grid">
-          <label class="field">
-            <span>Port</span>
-            <input id="set-port" type="number" min="1024" max="65535" />
-          </label>
-          <label class="field field-wide">
-            <span>Veri klasörü</span>
-            <div class="row">
-              <input id="set-data" type="text" readonly />
-              <button id="btn-data-choose" class="btn btn-secondary btn-small">Seç</button>
-              <button id="btn-data-open" class="btn btn-quiet btn-small">Aç</button>
-            </div>
-          </label>
-          <label class="chk"><input type="checkbox" id="set-autostart" /> Uygulama açılınca sunucuyu başlat</label>
-          <label class="chk"><input type="checkbox" id="set-login" /> Bilgisayar açılınca Kesit App'i başlat</label>
-          <label class="chk"><input type="checkbox" id="set-tray" /> Pencere kapanınca tepside kal</label>
-        </div>
-        <p class="muted small" id="settings-note">Port ve veri klasörü değişikliği sunucu yeniden başlatılınca geçerli olur.</p>
-      </section>
     </main>
 
     <footer class="foot">
-      <span id="foot-info" class="muted small"></span>
-      <a href="#" id="link-site" class="muted small">GitHub</a>
+      <a href="#" id="link-livorass" class="powered">powered by <b>livorass</b></a>
     </footer>
 
     <script src="app.js"></script>

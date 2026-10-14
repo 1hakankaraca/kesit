@@ -3,16 +3,21 @@
  *
  * Küçük bir araç: Kesit sunucusunu (desktop/dist-server, Electron'un gömülü
  * Node'uyla) başlatır/durdurur, günlüğünü gösterir, güncellemeleri kontrol
- * eder. Sunucu ayrı bir süreç olarak çalışır; uygulama penceresi kapansa da
+ * eder, ilk açılışta gerekli araçları (ffmpeg/ffprobe paketle gelir, whisper
+ * indirilir) kurar. Sunucu ayrı bir süreç olarak çalışır; pencere kapansa da
  * tepsi simgesinden yaşamaya devam eder.
  */
 const { app, BrowserWindow, ipcMain, shell, Tray, Menu, nativeImage, dialog } = require('electron');
-const { spawn } = require('node:child_process');
+const { spawn, execFile } = require('node:child_process');
 const fs = require('node:fs');
+const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
+const { promisify } = require('node:util');
 const log = require('electron-log/main');
 const { autoUpdater } = require('electron-updater');
+
+const execFileP = promisify(execFile);
 
 log.initialize();
 log.transports.file.level = 'info';
@@ -20,19 +25,28 @@ log.transports.console.level = app.isPackaged ? false : 'info';
 
 const LOG_MAX = 2000;
 const STOP_TIMEOUT_MS = 8000;
+const SHORT_PORT = 80;
+const SHORT_HOST = 'kesit.localhost';
+const WHISPER_REPO = 'ggml-org/whisper.cpp';
 // electron-builder paketlerken package.json'daki "build" alanını atar; depo burada sabit.
 const GITHUB = { owner: '1hakankaraca', repo: 'kesit' };
+const IS_WIN = process.platform === 'win32';
+const IS_MAC = process.platform === 'darwin';
+const EXE = IS_WIN ? '.exe' : '';
 
 /* ── Yollar ─────────────────────────────────────────────────────────────── */
 
 const resources = app.isPackaged ? process.resourcesPath : __dirname;
+const userData = app.getPath('userData');
 const paths = {
   serverDir: app.isPackaged ? path.join(resources, 'server') : path.join(__dirname, 'dist-server'),
   webDir: app.isPackaged ? path.join(resources, 'web') : path.join(__dirname, '..', 'dist'),
   binDir: app.isPackaged ? path.join(resources, 'bin') : path.join(__dirname, 'bin'),
-  settings: path.join(app.getPath('userData'), 'settings.json'),
-  defaultData: path.join(app.getPath('userData'), 'data'),
+  toolsDir: path.join(userData, 'tools'),
+  settings: path.join(userData, 'settings.json'),
+  defaultData: path.join(userData, 'data'),
   renderer: path.join(__dirname, 'renderer'),
+  exports: path.join(app.getPath('downloads'), 'Kesit'),
 };
 
 /* ── Ayarlar ────────────────────────────────────────────────────────────── */
@@ -46,12 +60,19 @@ const DEFAULT_SETTINGS = {
   openAtLogin: false,
   /** Pencere kapanınca uygulama tepside kalsın. */
   keepInTray: true,
+  /** http://kesit.localhost kısa adresi (80 portu) de açılsın. */
+  shortAddress: true,
+  /** Kapak üretimi bağlantısı. */
+  coverUrl: 'https://locavise.com',
+  /** İlk kurulum tamamlandı mı. */
+  setupDone: false,
+  /** Kurulumun bulduğu whisper-cli yolu (boşsa yok). */
+  whisperBin: '',
 };
 
 function loadSettings() {
   try {
-    const saved = JSON.parse(fs.readFileSync(paths.settings, 'utf8'));
-    return { ...DEFAULT_SETTINGS, ...saved };
+    return { ...DEFAULT_SETTINGS, ...JSON.parse(fs.readFileSync(paths.settings, 'utf8')) };
   } catch {
     return { ...DEFAULT_SETTINGS };
   }
@@ -64,15 +85,7 @@ function saveSettings(next) {
 
 let settings = loadSettings();
 
-/* ── Sunucu süreci ──────────────────────────────────────────────────────── */
-
-const server = {
-  proc: null,
-  state: 'stopped', // stopped | starting | running | stopping | error
-  startedAt: null,
-  lastError: null,
-  logs: [],
-};
+/* ── Ortak ──────────────────────────────────────────────────────────────── */
 
 let win = null;
 let tray = null;
@@ -82,12 +95,42 @@ function broadcast(channel, payload) {
   for (const w of BrowserWindow.getAllWindows()) w.webContents.send(channel, payload);
 }
 
+/** Finder/Explorer'dan açılan uygulamanın PATH'i kısadır; araç dizinleri öne eklenir. */
+function toolPath() {
+  const extra = [paths.binDir, path.join(paths.toolsDir, 'whisper')];
+  if (IS_MAC) extra.push('/opt/homebrew/bin', '/usr/local/bin');
+  return [...extra, process.env.PATH || ''].join(path.delimiter);
+}
+
+const exists = (p) => {
+  try {
+    return !!p && fs.existsSync(p);
+  } catch {
+    return false;
+  }
+};
+
+/* ── Sunucu süreci ──────────────────────────────────────────────────────── */
+
+const server = {
+  proc: null,
+  state: 'stopped', // stopped | starting | running | stopping | error
+  startedAt: null,
+  lastError: null,
+  shortReady: false,
+  logs: [],
+};
+
 function pushLog(line, stream = 'out') {
   const entry = { t: Date.now(), s: stream, m: line };
   server.logs.push(entry);
   if (server.logs.length > LOG_MAX) server.logs.splice(0, server.logs.length - LOG_MAX);
   log.info(`[sunucu] ${line}`);
   broadcast('server:log', entry);
+}
+
+function appLog(line, stream = 'app') {
+  pushLog(line, stream);
 }
 
 function setState(state, extra = {}) {
@@ -97,24 +140,30 @@ function setState(state, extra = {}) {
   refreshTray();
 }
 
+function webUrl() {
+  return settings.shortAddress && server.shortReady ? `http://${SHORT_HOST}` : `http://localhost:${settings.port}`;
+}
+
 function publicState() {
   return {
     state: server.state,
     pid: server.proc?.pid ?? null,
     port: settings.port,
-    url: `http://localhost:${settings.port}`,
+    url: webUrl(),
+    localUrl: `http://localhost:${settings.port}`,
     startedAt: server.startedAt,
     lastError: server.lastError,
-    ffmpeg: fs.existsSync(path.join(paths.binDir, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg')) ? 'bundled' : 'system',
+    ffmpeg: exists(path.join(paths.binDir, `ffmpeg${EXE}`)) ? 'bundled' : 'system',
+    whisper: !!settings.whisperBin || !!findInPath('whisper-cli'),
     version: app.getVersion(),
     platform: process.platform,
     dataDir: settings.dataDir,
+    setupDone: !!settings.setupDone,
   };
 }
 
 function serverEnv() {
-  const sep = path.delimiter;
-  return {
+  const env = {
     ...process.env,
     ELECTRON_RUN_AS_NODE: '1',
     NODE_ENV: 'production',
@@ -122,26 +171,126 @@ function serverEnv() {
     PORT: String(settings.port),
     DATA_DIR: settings.dataDir,
     STATIC_DIR: paths.webDir,
-    // Paketle gelen ffmpeg/ffprobe öne alınır; yoksa sistemdeki kullanılır.
-    PATH: `${paths.binDir}${sep}${process.env.PATH || ''}`,
+    PATH: toolPath(),
   };
+  if (settings.shortAddress) env.SHORT_PORT = String(SHORT_PORT);
+  if (settings.whisperBin && exists(settings.whisperBin)) env.WHISPER_BIN = settings.whisperBin;
+  return env;
 }
 
-function startServer() {
-  if (server.proc) return;
+/* ── Port denetimi: dolu portu açan süreci kapat ───────────────────────── */
+
+function isPortFree(port) {
+  return new Promise((resolve) => {
+    const probe = net.createServer();
+    probe.once('error', () => resolve(false));
+    probe.once('listening', () => probe.close(() => resolve(true)));
+    probe.listen(port, '0.0.0.0');
+  });
+}
+
+/** Portu dinleyen süreçler: [{pid, name}]. */
+async function portOwners(port) {
+  try {
+    if (IS_WIN) {
+      const { stdout } = await execFileP('netstat', ['-ano', '-p', 'tcp'], { windowsHide: true });
+      const pids = new Set();
+      for (const line of stdout.split('\n')) {
+        const m = line.trim().match(/^TCP\s+\S+:(\d+)\s+\S+\s+LISTENING\s+(\d+)/i);
+        if (m && Number(m[1]) === port) pids.add(Number(m[2]));
+      }
+      const owners = [];
+      for (const pid of pids) {
+        let name = '?';
+        try {
+          const { stdout: t } = await execFileP('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], { windowsHide: true });
+          name = (t.match(/^"([^"]+)"/) || [])[1] || '?';
+        } catch {
+          /* ad bulunamadı */
+        }
+        owners.push({ pid, name });
+      }
+      return owners;
+    }
+    const { stdout } = await execFileP('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-Fpc']);
+    const owners = [];
+    let cur = null;
+    for (const line of stdout.split('\n')) {
+      if (line.startsWith('p')) cur = { pid: Number(line.slice(1)), name: '?' };
+      else if (line.startsWith('c') && cur) {
+        cur.name = line.slice(1);
+        owners.push(cur);
+        cur = null;
+      }
+    }
+    return owners;
+  } catch {
+    return [];
+  }
+}
+
+async function killPid(pid) {
+  if (IS_WIN) await execFileP('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true }).catch(() => {});
+  else {
+    try {
+      process.kill(pid, 'SIGTERM');
+    } catch {
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 1200));
+    try {
+      process.kill(pid, 0);
+      process.kill(pid, 'SIGKILL');
+    } catch {
+      /* kapandı */
+    }
+  }
+}
+
+/** Port doluysa sahibini kapatır; boşalana kadar (en çok 6 sn) bekler. */
+async function ensurePortFree(port) {
+  if (await isPortFree(port)) return true;
+  const owners = (await portOwners(port)).filter((o) => o.pid !== process.pid && o.pid !== server.proc?.pid);
+  if (!owners.length) appLog(`Port ${port} dolu ama sahibi bulunamadı`, 'err');
+  for (const o of owners) {
+    appLog(`Port ${port} "${o.name}" (pid ${o.pid}) tarafından kullanılıyor — kapatılıyor`);
+    await killPid(o.pid);
+  }
+  for (let i = 0; i < 12; i++) {
+    if (await isPortFree(port)) return true;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return false;
+}
+
+async function startServer() {
+  if (server.proc || server.state === 'starting') return;
   const entry = path.join(paths.serverDir, 'server.mjs');
-  if (!fs.existsSync(entry)) {
+  if (!exists(entry)) {
     setState('error', { lastError: `Sunucu dosyası bulunamadı: ${entry}` });
-    pushLog(`Sunucu dosyası bulunamadı: ${entry}`, 'err');
+    appLog(`Sunucu dosyası bulunamadı: ${entry}`, 'err');
     return;
   }
   fs.mkdirSync(settings.dataDir, { recursive: true });
   server.lastError = null;
-  setState('starting', { startedAt: Date.now() });
-  pushLog(`Başlatılıyor — port ${settings.port}, veri ${settings.dataDir}`);
+  server.shortReady = false;
+  setState('starting', { startedAt: null });
+  appLog(`Başlatılıyor — port ${settings.port}, veri ${settings.dataDir}`);
+
+  if (!(await ensurePortFree(settings.port))) {
+    setState('error', { lastError: `Port ${settings.port} boşaltılamadı. Ayarlar'dan başka bir port seç.` });
+    appLog(`Port ${settings.port} boşaltılamadı`, 'err');
+    return;
+  }
+  if (settings.shortAddress && !(await isPortFree(SHORT_PORT))) {
+    const owners = (await portOwners(SHORT_PORT)).filter((o) => o.pid !== process.pid);
+    if (owners.length) appLog(`Kısa adres için ${SHORT_PORT} portu "${owners[0].name}" tarafından kullanılıyor; http://localhost:${settings.port} ile devam edilecek`);
+  }
+  if (server.state !== 'starting') return; // bu arada durduruldu
 
   const proc = spawn(process.execPath, [entry], { cwd: paths.serverDir, env: serverEnv(), stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
   server.proc = proc;
+  server.startedAt = Date.now();
 
   const onData = (stream) => {
     let rest = '';
@@ -152,6 +301,10 @@ function startServer() {
       for (const line of lines) {
         if (!line.trim()) continue;
         pushLog(line, stream);
+        if (/Kısa adres hazır/.test(line)) {
+          server.shortReady = true;
+          broadcast('server:state', publicState());
+        }
         if (server.state === 'starting' && /Sunucu hazır/.test(line)) setState('running');
       }
     };
@@ -159,19 +312,20 @@ function startServer() {
   proc.stdout.on('data', onData('out'));
   proc.stderr.on('data', onData('err'));
   proc.on('error', (err) => {
-    pushLog(`Başlatılamadı: ${err.message}`, 'err');
+    appLog(`Başlatılamadı: ${err.message}`, 'err');
     server.proc = null;
-    setState('error', { lastError: err.message });
+    setState('error', { lastError: err.message, startedAt: null });
   });
   proc.on('exit', (code, signal) => {
     const wasStopping = server.state === 'stopping';
     server.proc = null;
+    server.shortReady = false;
     if (wasStopping || code === 0) {
-      pushLog('Sunucu durdu');
+      appLog('Sunucu durdu');
       setState('stopped', { startedAt: null });
     } else {
       const why = `Sunucu beklenmedik şekilde kapandı (${signal || `kod ${code}`})`;
-      pushLog(why, 'err');
+      appLog(why, 'err');
       setState('error', { lastError: why, startedAt: null });
     }
   });
@@ -190,13 +344,16 @@ function startServer() {
 
 function stopServer() {
   const proc = server.proc;
-  if (!proc) return Promise.resolve();
+  if (!proc) {
+    if (server.state === 'starting') setState('stopped');
+    return Promise.resolve();
+  }
   setState('stopping');
-  pushLog('Durduruluyor…');
+  appLog('Durduruluyor…');
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
       if (server.proc === proc) {
-        pushLog('Yanıt yok, zorla kapatılıyor', 'err');
+        appLog('Yanıt yok, zorla kapatılıyor', 'err');
         proc.kill('SIGKILL');
       }
     }, STOP_TIMEOUT_MS);
@@ -210,7 +367,197 @@ function stopServer() {
 
 async function restartServer() {
   await stopServer();
-  startServer();
+  await startServer();
+}
+
+/* ── İlk kurulum ────────────────────────────────────────────────────────── */
+
+const setup = { running: false, steps: [] };
+
+function findInPath(name) {
+  const file = `${name}${EXE}`;
+  for (const dir of toolPath().split(path.delimiter)) {
+    if (!dir) continue;
+    const p = path.join(dir, file);
+    if (exists(p)) return p;
+  }
+  return null;
+}
+
+function findWhisper() {
+  if (settings.whisperBin && exists(settings.whisperBin)) return settings.whisperBin;
+  const local = findFile(path.join(paths.toolsDir, 'whisper'), `whisper-cli${EXE}`);
+  if (local) return local;
+  return findInPath('whisper-cli') || (IS_MAC ? findInPath('whisper-cpp') : null);
+}
+
+function findFile(dir, name, depth = 3) {
+  if (!exists(dir) || depth < 0) return null;
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isFile() && e.name.toLowerCase() === name.toLowerCase()) return p;
+    if (e.isDirectory()) {
+      const r = findFile(p, name, depth - 1);
+      if (r) return r;
+    }
+  }
+  return null;
+}
+
+function sendSetup() {
+  broadcast('setup:state', { running: setup.running, steps: setup.steps, done: !!settings.setupDone });
+}
+
+function step(id, label) {
+  const s = { id, label, status: 'running', detail: '' };
+  setup.steps.push(s);
+  sendSetup();
+  return {
+    ok: (detail = '') => Object.assign(s, { status: 'ok', detail }) && sendSetup(),
+    skip: (detail = '') => Object.assign(s, { status: 'skip', detail }) && sendSetup(),
+    fail: (detail = '') => Object.assign(s, { status: 'fail', detail }) && sendSetup(),
+    note: (detail = '') => Object.assign(s, { detail }) && sendSetup(),
+  };
+}
+
+async function version(bin, args = ['-version']) {
+  const { stdout, stderr } = await execFileP(bin, args, { env: { ...process.env, PATH: toolPath() }, windowsHide: true, timeout: 15000 });
+  return (stdout || stderr).split('\n')[0].trim().slice(0, 80);
+}
+
+async function downloadFile(url, dest, onProgress) {
+  const res = await fetch(url, { headers: { 'User-Agent': 'kesit-app' }, signal: AbortSignal.timeout(10 * 60 * 1000) });
+  if (!res.ok || !res.body) throw new Error(`İndirme başarısız (${res.status})`);
+  const total = Number(res.headers.get('content-length')) || 0;
+  let got = 0;
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  const out = fs.createWriteStream(dest);
+  for await (const chunk of res.body) {
+    got += chunk.length;
+    out.write(chunk);
+    if (total && onProgress) onProgress(Math.round((got / total) * 100));
+  }
+  await new Promise((r) => out.end(r));
+}
+
+/** Windows: whisper.cpp'nin hazır derlemesini indirip tools/whisper'a açar. */
+async function installWhisperWindows(s) {
+  const rel = await (await fetch(`https://api.github.com/repos/${WHISPER_REPO}/releases/latest`, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'kesit-app' }, signal: AbortSignal.timeout(15000) })).json();
+  const asset = (rel.assets || []).find((a) => /^whisper-bin-x64\.zip$/i.test(a.name));
+  if (!asset) throw new Error('whisper-bin-x64.zip bulunamadı');
+  const dir = path.join(paths.toolsDir, 'whisper');
+  fs.rmSync(dir, { recursive: true, force: true });
+  const zip = path.join(paths.toolsDir, 'whisper.zip');
+  s.note(`${rel.tag_name} indiriliyor…`);
+  await downloadFile(asset.browser_download_url, zip, (p) => s.note(`${rel.tag_name} indiriliyor %${p}`));
+  fs.mkdirSync(dir, { recursive: true });
+  s.note('Açılıyor…');
+  // Windows 10+ tar.exe zip açabilir.
+  await execFileP('tar', ['-xf', zip, '-C', dir], { windowsHide: true });
+  fs.rmSync(zip, { force: true });
+  const bin = findFile(dir, 'whisper-cli.exe', 4);
+  if (!bin) throw new Error('Paket açıldı ama whisper-cli.exe bulunamadı');
+  return bin;
+}
+
+/** macOS: Homebrew varsa whisper-cpp kurar (dakikalar sürebilir). */
+async function installWhisperMac(s) {
+  const brew = findInPath('brew');
+  if (!brew) throw new Error('Homebrew yok. Terminal\'de: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" sonra brew install whisper-cpp');
+  s.note('brew install whisper-cpp çalışıyor… (ilk seferde birkaç dakika)');
+  await new Promise((resolve, reject) => {
+    const p = spawn(brew, ['install', 'whisper-cpp'], { env: { ...process.env, PATH: toolPath(), HOMEBREW_NO_AUTO_UPDATE: '1' } });
+    const tail = [];
+    const onLine = (chunk) => {
+      for (const line of chunk.toString().split('\n')) {
+        if (!line.trim()) continue;
+        tail.push(line);
+        if (tail.length > 3) tail.shift();
+        appLog(`[brew] ${line.trim().slice(0, 160)}`, 'app');
+        s.note(line.trim().slice(0, 90));
+      }
+    };
+    p.stdout.on('data', onLine);
+    p.stderr.on('data', onLine);
+    p.on('error', reject);
+    p.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`brew ${code} ile bitti: ${tail.join(' | ').slice(0, 200)}`))));
+  });
+  return findInPath('whisper-cli') || findInPath('whisper-cpp');
+}
+
+async function runSetup() {
+  if (setup.running) return;
+  setup.running = true;
+  setup.steps = [];
+  sendSetup();
+  appLog(`Kurulum başladı (${IS_WIN ? 'Windows' : IS_MAC ? 'macOS' : process.platform})`);
+
+  // 1. Veri klasörü
+  {
+    const s = step('data', 'Veri klasörü');
+    try {
+      fs.mkdirSync(settings.dataDir, { recursive: true });
+      fs.accessSync(settings.dataDir, fs.constants.W_OK);
+      fs.mkdirSync(paths.exports, { recursive: true });
+      s.ok(settings.dataDir);
+    } catch (err) {
+      s.fail(`Yazılamıyor: ${err.message}`);
+    }
+  }
+
+  // 2-3. ffmpeg / ffprobe
+  for (const tool of ['ffmpeg', 'ffprobe']) {
+    const s = step(tool, tool);
+    const bundled = path.join(paths.binDir, `${tool}${EXE}`);
+    const bin = exists(bundled) ? bundled : findInPath(tool);
+    if (!bin) {
+      s.fail('Bulunamadı — paket eksik görünüyor, uygulamayı yeniden kur');
+      continue;
+    }
+    try {
+      if (!IS_WIN) fs.chmodSync(bin, 0o755);
+      s.ok(`${bin === bundled ? 'Paketle geldi' : 'Sistemde'} · ${await version(bin)}`);
+    } catch (err) {
+      s.fail(`Çalıştırılamadı: ${err.message.slice(0, 120)}`);
+    }
+  }
+
+  // 4. whisper-cli (isteğe bağlı: yerel altyazı)
+  {
+    const s = step('whisper', 'whisper-cli (yerel altyazı)');
+    let bin = findWhisper();
+    if (bin) s.ok(`Hazır · ${bin}`);
+    else {
+      try {
+        bin = IS_WIN ? await installWhisperWindows(s) : IS_MAC ? await installWhisperMac(s) : null;
+        if (bin) s.ok(`Kuruldu · ${bin}`);
+        else s.skip('Bu sistemde otomatik kurulamıyor; Ayarlar\'da ElevenLabs anahtarı kullanılabilir');
+      } catch (err) {
+        s.skip(`Kurulamadı: ${err.message.slice(0, 220)}. Altyazı için ElevenLabs anahtarı kullanılabilir.`);
+      }
+    }
+    if (bin) {
+      settings.whisperBin = bin;
+      saveSettings(settings);
+    }
+  }
+
+  // 5. Port
+  {
+    const s = step('port', `Port ${settings.port}`);
+    if (await isPortFree(settings.port)) s.ok('Boş');
+    else {
+      const owners = await portOwners(settings.port);
+      s.ok(owners.length ? `"${owners[0].name}" kullanıyor; başlatırken kapatılacak` : 'Dolu; başlatırken boşaltılacak');
+    }
+  }
+
+  settings.setupDone = true;
+  saveSettings(settings);
+  setup.running = false;
+  sendSetup();
+  broadcast('server:state', publicState());
+  appLog('Kurulum tamamlandı');
 }
 
 /* ── Güncelleme ─────────────────────────────────────────────────────────── */
@@ -230,13 +577,12 @@ const semverNewer = (a, b) => {
 
 /** GitHub'daki son sürümü sorar (imzasız macOS için indirme bağlantısı). */
 async function checkGithub() {
-  if (!GITHUB) throw new Error('Yayın deposu tanımlı değil');
   const res = await fetch(`https://api.github.com/repos/${GITHUB.owner}/${GITHUB.repo}/releases/latest`, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'kesit-app' }, signal: AbortSignal.timeout(10000) });
   if (res.status === 404) return { latest: null };
   if (!res.ok) throw new Error(`GitHub yanıtı ${res.status}`);
   const rel = await res.json();
-  const want = process.platform === 'darwin' ? (process.arch === 'arm64' ? /arm64.*\.dmg$/i : /(x64|intel).*\.dmg$/i) : /\.exe$/i;
-  const asset = (rel.assets || []).find((a) => want.test(a.name)) || (rel.assets || []).find((a) => (process.platform === 'darwin' ? /\.dmg$/i : /\.exe$/i).test(a.name));
+  const want = IS_MAC ? (process.arch === 'arm64' ? /arm64.*\.dmg$/i : /x64.*\.dmg$/i) : /\.exe$/i;
+  const asset = (rel.assets || []).find((a) => want.test(a.name)) || (rel.assets || []).find((a) => (IS_MAC ? /\.dmg$/i : /\.exe$/i).test(a.name));
   return { latest: String(rel.tag_name || rel.name || '').replace(/^v/, ''), url: asset?.browser_download_url || rel.html_url, notes: rel.body || null };
 }
 
@@ -245,7 +591,7 @@ async function checkForUpdate() {
   update.error = null;
   sendUpdate();
   try {
-    if (process.platform === 'win32' && app.isPackaged) {
+    if (IS_WIN && app.isPackaged) {
       const r = await autoUpdater.checkForUpdates();
       const latest = r?.updateInfo?.version ?? null;
       update.latest = latest;
@@ -267,7 +613,7 @@ async function checkForUpdate() {
 
 async function installUpdate() {
   if (update.status !== 'available' && update.status !== 'downloaded') return;
-  if (process.platform === 'win32' && app.isPackaged) {
+  if (IS_WIN && app.isPackaged) {
     if (update.status === 'downloaded') {
       await stopServer();
       quitting = true;
@@ -307,6 +653,54 @@ autoUpdater.on('error', (err) => {
   sendUpdate();
 });
 
+/* ── Kaldırma ───────────────────────────────────────────────────────────── */
+
+async function uninstall() {
+  const r = await dialog.showMessageBox(win, {
+    type: 'warning',
+    title: 'Kesit App\'i kaldır',
+    message: 'Kesit App ve tüm verileri silinsin mi?',
+    detail: `Silinecekler:\n• Veri klasörü (veritabanı, klipler, kayıtlar): ${settings.dataDir}\n• Ayarlar, günlükler ve indirilen araçlar: ${userData}\n• Uygulamanın kendisi${IS_WIN ? ' (kaldırıcı açılır)' : ' (Çöp Sepeti\'ne taşınır)'}\n\nBu işlem geri alınamaz.`,
+    checkboxLabel: `İndirilenler/Kesit klasöründeki hazır videoları da sil (${paths.exports})`,
+    checkboxChecked: false,
+    buttons: ['Vazgeç', 'Hepsini sil'],
+    defaultId: 0,
+    cancelId: 0,
+  });
+  if (r.response !== 1) return false;
+  quitting = true;
+  await stopServer();
+  const rm = (p) => {
+    try {
+      fs.rmSync(p, { recursive: true, force: true });
+    } catch (err) {
+      log.warn(`silinemedi ${p}: ${err.message}`);
+    }
+  };
+  rm(settings.dataDir);
+  if (r.checkboxChecked) rm(paths.exports);
+  // Günlük dosyası açık olabilir; önce kapat.
+  try {
+    log.transports.file.level = false;
+  } catch {
+    /* yok say */
+  }
+  rm(paths.toolsDir);
+  rm(paths.settings);
+  rm(path.dirname(log.transports.file.getFile().path));
+  if (app.isPackaged) {
+    if (IS_WIN) {
+      const unins = path.join(path.dirname(process.execPath), 'Uninstall Kesit App.exe');
+      if (exists(unins)) spawn(unins, [], { detached: true, stdio: 'ignore', windowsHide: false }).unref();
+    } else if (IS_MAC) {
+      const bundle = path.resolve(process.execPath, '..', '..', '..');
+      if (bundle.endsWith('.app')) await shell.trashItem(bundle).catch((err) => log.warn(`uygulama taşınamadı: ${err.message}`));
+    }
+  }
+  app.exit(0);
+  return true;
+}
+
 /* ── Pencere ve tepsi ───────────────────────────────────────────────────── */
 
 function iconPath(name) {
@@ -315,13 +709,13 @@ function iconPath(name) {
 
 function createWindow() {
   win = new BrowserWindow({
-    width: 560,
-    height: 720,
-    minWidth: 460,
+    width: 520,
+    height: 700,
+    minWidth: 440,
     minHeight: 560,
     title: 'Kesit App',
     backgroundColor: '#eef1f4',
-    icon: process.platform === 'win32' ? iconPath('icon.ico') : iconPath('icon.png'),
+    icon: iconPath('icon.png'),
     autoHideMenuBar: true,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
@@ -357,8 +751,9 @@ function refreshTray() {
     Menu.buildFromTemplate([
       { label, enabled: false },
       { type: 'separator' },
-      running ? { label: 'Tarayıcıda aç', click: () => shell.openExternal(`http://localhost:${settings.port}`) } : { label: 'Sunucuyu başlat', click: startServer, enabled: server.state === 'stopped' || server.state === 'error' },
-      running ? { label: 'Sunucuyu durdur', click: () => void stopServer() } : { label: 'Tarayıcıda aç', enabled: false },
+      { label: 'Sunucuyu başlat', click: () => void startServer(), enabled: server.state === 'stopped' || server.state === 'error' },
+      { label: 'Sunucuyu durdur', click: () => void stopServer(), enabled: running },
+      { label: 'Uygulamayı aç', click: () => shell.openExternal(webUrl()), enabled: running },
       { label: 'Pencereyi göster', click: showWindow },
       { type: 'separator' },
       {
@@ -374,8 +769,8 @@ function refreshTray() {
 }
 
 function createTray() {
-  const img = nativeImage.createFromPath(iconPath(process.platform === 'darwin' ? 'trayTemplate.png' : 'tray.png'));
-  if (process.platform === 'darwin') img.setTemplateImage(true);
+  const img = nativeImage.createFromPath(iconPath(IS_MAC ? 'trayTemplate.png' : 'tray.png'));
+  if (IS_MAC) img.setTemplateImage(true);
   tray = new Tray(img);
   tray.on('click', showWindow);
   refreshTray();
@@ -391,7 +786,8 @@ ipcMain.handle('server:logs', () => server.logs);
 ipcMain.handle('server:clearLogs', () => {
   server.logs = [];
 });
-ipcMain.handle('open:web', () => shell.openExternal(`http://localhost:${settings.port}`));
+ipcMain.handle('open:web', () => shell.openExternal(webUrl()));
+ipcMain.handle('open:cover', () => (/^https?:\/\//.test(settings.coverUrl) ? shell.openExternal(settings.coverUrl) : undefined));
 ipcMain.handle('open:data', () => shell.openPath(settings.dataDir));
 ipcMain.handle('open:logFile', () => shell.showItemInFolder(log.transports.file.getFile().path));
 ipcMain.handle('open:external', (_e, url) => (typeof url === 'string' && /^https?:\/\//.test(url) ? shell.openExternal(url) : undefined));
@@ -400,9 +796,10 @@ ipcMain.handle('settings:set', (_e, patch) => {
   const next = { ...settings, ...patch };
   next.port = Math.min(65535, Math.max(1024, Number(next.port) || 3002));
   if (typeof next.dataDir !== 'string' || !next.dataDir.trim()) next.dataDir = paths.defaultData;
+  if (typeof next.coverUrl !== 'string' || !/^https?:\/\//.test(next.coverUrl)) next.coverUrl = DEFAULT_SETTINGS.coverUrl;
   settings = next;
   saveSettings(settings);
-  if (process.platform !== 'linux') app.setLoginItemSettings({ openAtLogin: !!settings.openAtLogin, openAsHidden: true });
+  if (!process.env.KESIT_APP_TEST && app.isPackaged) app.setLoginItemSettings({ openAtLogin: !!settings.openAtLogin, openAsHidden: true });
   refreshTray();
   broadcast('server:state', publicState());
   return settings;
@@ -411,10 +808,13 @@ ipcMain.handle('settings:chooseDataDir', async () => {
   const r = await dialog.showOpenDialog(win, { title: 'Veri klasörü', properties: ['openDirectory', 'createDirectory'], defaultPath: settings.dataDir });
   return r.canceled ? null : r.filePaths[0];
 });
+ipcMain.handle('setup:state', () => ({ running: setup.running, steps: setup.steps, done: !!settings.setupDone }));
+ipcMain.handle('setup:run', () => runSetup());
 ipcMain.handle('update:state', () => ({ ...update, current: app.getVersion() }));
 ipcMain.handle('update:check', () => checkForUpdate());
 ipcMain.handle('update:install', () => installUpdate());
-ipcMain.handle('app:info', () => ({ version: app.getVersion(), electron: process.versions.electron, node: process.versions.node, platform: process.platform, arch: process.arch, github: GITHUB, dataDir: settings.dataDir, logFile: log.transports.file.getFile().path }));
+ipcMain.handle('app:uninstall', () => uninstall());
+ipcMain.handle('app:info', () => ({ version: app.getVersion(), platform: process.platform, arch: process.arch, github: GITHUB, dataDir: settings.dataDir, logFile: log.transports.file.getFile().path, shortHost: SHORT_HOST }));
 
 /* ── Yaşam döngüsü ──────────────────────────────────────────────────────── */
 
@@ -424,16 +824,16 @@ if (!single) {
 } else {
   app.on('second-instance', showWindow);
   app.whenReady().then(() => {
-    if (process.platform === 'darwin') app.dock?.setIcon(nativeImage.createFromPath(iconPath('icon.png')));
+    if (IS_MAC) app.dock?.setIcon(nativeImage.createFromPath(iconPath('icon.png')));
     createTray();
     createWindow();
-    if (settings.autoStart) startServer();
+    if (settings.setupDone && settings.autoStart) void startServer();
     // Açılıştan biraz sonra sessizce güncelleme bak.
     setTimeout(() => void checkForUpdate().catch(() => {}), 4000);
   });
   app.on('activate', showWindow);
   app.on('window-all-closed', () => {
-    if (!settings.keepInTray && process.platform !== 'darwin') app.quit();
+    if (!settings.keepInTray && !IS_MAC) app.quit();
   });
   app.on('before-quit', (e) => {
     if (quitting || !server.proc) {

@@ -24,7 +24,8 @@ export function isPrivateIp(ip: string | undefined | null): boolean {
 export function isAllowedHost(hostHeader: string | undefined): boolean {
   if (!hostHeader) return false;
   const host = hostHeader.replace(/:\d+$/, '').replace(/^\[|\]$/g, '').toLowerCase();
-  if (host === 'localhost' || isLoopback(host) || isPrivateIp(host)) return true;
+  // *.localhost adları (ör. kesit.localhost) tarayıcıda yerel makineye çözülür.
+  if (host === 'localhost' || host.endsWith('.localhost') || isLoopback(host) || isPrivateIp(host)) return true;
   const name = os.hostname().toLowerCase().replace(/\.local$/, '');
   return host === name || host === `${name}.local`;
 }

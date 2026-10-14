@@ -24,7 +24,7 @@ Node ya da ffmpeg kurmadan kullanmak için **Kesit App** indir: Windows'ta `.exe
 | macOS Apple Silicon (M1 ve sonrası) | `Kesit App-<sürüm>-mac-arm64.dmg` |
 | macOS Intel | `Kesit App-<sürüm>-mac-x64.dmg` |
 
-Kesit App küçük bir araçtır: sunucuyu başlatır/durdurur, günlüğü gösterir, güncellemeleri kontrol eder ve tepside bekler. Sunucu çalışınca "Tarayıcıda aç" ile arayüz açılır (`http://localhost:3002`). ffmpeg/ffprobe paketle gelir; veriler kullanıcı klasöründe tutulur (Ayarlar'dan değiştirilebilir).
+Kesit App küçük bir araçtır: ilk açılışta kurulumu yapar (ffmpeg/ffprobe paketle gelir; yerel altyazı için whisper Windows'ta indirilir, macOS'ta Homebrew varsa kurulur), sunucuyu başlatır/durdurur, portu başka bir program tutuyorsa onu kapatıp kendi sunucusunu açar, çalışma süresini ve günlüğü gösterir, güncellemeleri kontrol eder ve tepside bekler. Sunucu çalışınca "Uygulamayı aç" tarayıcıda **http://kesit.localhost** adresini açar (Chrome, Edge, Firefox; Safari'de `http://localhost:3002`). Veriler kullanıcı klasöründe tutulur; Ayarlar'dan port, veri klasörü, açılışta başlatma ve tepsi davranışı değiştirilir, en altta uygulamayı ve tüm verileri silen kaldırma düğmesi vardır.
 
 - **Windows**: kurulum dosyası imzalı olmadığı için SmartScreen "tanınmayan uygulama" uyarısı verebilir; "Ek bilgi → Yine de çalıştır" ile kurulur. Güncellemeler uygulama içinden indirilip kurulur.
 - **macOS**: uygulama notarize edilmemiştir; ilk açılışta Finder'da sağ tık → "Aç" gerekir (ya da `xattr -dr com.apple.quarantine "/Applications/Kesit App.app"`). Güncellemede uygulama yeni DMG'yi indirir, sen Applications'a sürüklersin.

@@ -223,6 +223,17 @@ server.listen(config.port, () => {
   console.log(`[Kesit] Sunucu hazır → http://localhost:${config.port}`);
 });
 
+// Kısa adres (Kesit App): SHORT_PORT verilirse (genelde 80) aynı uygulama o
+// porttan da sunulur; tarayıcıda http://kesit.localhost yazmak yeter. Port
+// doluysa sessizce atlanır, ana port çalışmaya devam eder.
+const shortPort = Number(process.env.SHORT_PORT) || 0;
+if (shortPort && shortPort !== config.port) {
+  const short = createServer(app);
+  io.attach(short);
+  short.on('error', (err: NodeJS.ErrnoException) => console.warn(`[Kesit] Kısa adres portu ${shortPort} açılamadı (${err.code}); http://localhost:${config.port} kullan`));
+  short.listen(shortPort, () => console.log(`[Kesit] Kısa adres hazır → http://kesit.localhost${shortPort === 80 ? '' : `:${shortPort}`}`));
+}
+
 let closing = false;
 async function shutdown(signal: string) {
   if (closing) return;
