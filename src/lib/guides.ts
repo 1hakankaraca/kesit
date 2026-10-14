@@ -25,8 +25,9 @@ export const GUIDES = {
       { title: 'İzle', text: 'Karta tıklayınca video büyük oynatıcıda açılır; sağda ayrıntılar ve diğer videolar görünür.' },
       { title: 'Editörde aç', text: 'Her videoyu ya da yayın kaydını "Editörde aç" ile düzenleyebilirsin; yeni bir proje açılır.' },
       { title: 'İndir ya da paylaş', text: '"İndir" tam kaliteyi verir; 1080p/720p/480p daha küçük kopya indirir. "Paylaş" sosyal hesaplarına gönderir.' },
+      { title: 'Sil', text: 'Kartın üstüne gelince çıkan çöp kutusu tek öğeyi siler. Birden çoğunu silmek için "Seç" de, kartlara tıkla (⇧ ile aralık, ⌘A ile hepsi), alttaki "Sil"e bas. Her silme 6 saniye geri alınabilir.' },
     ],
-    tips: ['Kartın üstünde bekleyince video sessizce oynar.', 'Yayın kayıtlarını "Paylaşıma hazırla" ile logo ve açılış/kapanış ekleyip YouTube\'a gönderebilirsin.'],
+    tips: ['Kartın üstünde bekleyince video sessizce oynar.', 'Hazırlanmakta olan öğeler bitene kadar silinemez.', 'Yayın kayıtlarını "Paylaşıma hazırla" ile logo ve açılış/kapanış ekleyip YouTube\'a gönderebilirsin.'],
   },
   klipler: {
     title: 'Dikey klipler nasıl kullanılır',

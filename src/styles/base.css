@@ -269,6 +269,15 @@ img {
   filter: brightness(1.08) saturate(1.1);
 }
 
+.btn-danger {
+  background: var(--mark);
+  color: var(--on-mark, #fff);
+}
+
+.btn-danger:hover:not(:disabled) {
+  filter: brightness(1.08) saturate(1.1);
+}
+
 .btn-secondary {
   background: var(--surface);
   border-color: var(--line-strong);

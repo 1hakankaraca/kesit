@@ -156,8 +156,75 @@
   transition: opacity 0.15s;
 }
 
-.gallery-grid > li:hover .gcard-x {
+.gallery-grid > li:hover .gcard-x,
+.gcard-x:focus-visible {
   opacity: 1;
+}
+
+.gcard-x:hover {
+  background: var(--mark);
+}
+
+@media (hover: none) {
+  .gcard-x {
+    opacity: 1;
+  }
+}
+
+/* Seçim modu */
+
+.gallery-select-toggle {
+  margin-left: auto;
+}
+
+.gallery-selecting .gcard {
+  cursor: pointer;
+}
+
+.gallery-selecting .gcard:hover .gcard-thumb {
+  transform: none;
+  box-shadow: none;
+}
+
+.gcard-check {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 0.45);
+  color: #fff;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.4);
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.gcard-check svg {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.gcard-on .gcard-check {
+  border-color: var(--tape);
+  background: var(--tape);
+}
+
+.gcard-on .gcard-check svg {
+  opacity: 1;
+}
+
+.gcard-on .gcard-thumb {
+  outline: 3px solid var(--tape);
+  outline-offset: 2px;
+}
+
+.gcard-off {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 /* İzleme sayfası */

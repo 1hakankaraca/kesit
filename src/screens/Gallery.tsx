@@ -1,4 +1,4 @@
-import { motion } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChannelScopeToggle } from '../components/ChannelScopeToggle.tsx';
 import { Icon, type IconName } from '../components/Icon.tsx';
@@ -99,7 +99,8 @@ export function Gallery({ focus }: { focus: string | null }) {
     return <VideoDetail job={job} progress={progress[job.id]} others={allJobs.filter((j) => j.id !== job.id)} />;
   }
 
-  return <Grid jobs={allJobs} loaded={loaded && !!recs.data} recordings={recs.data?.recordings ?? []} projects={projects.data ?? []} progress={progress} />;
+  const refreshAll = () => Promise.all([refreshJobs(), recs.reload(), projects.reload()]);
+  return <Grid jobs={allJobs} loaded={loaded && !!recs.data} recordings={recs.data?.recordings ?? []} projects={projects.data ?? []} progress={progress} onDeleted={refreshAll} />;
 }
 
 function Loading() {
@@ -183,14 +184,43 @@ function toItems(jobs: Job[], recordings: Recording[], projects: ProjectSummary[
   return items;
 }
 
-function Grid({ jobs, loaded, recordings, projects, progress }: { jobs: Job[]; loaded: boolean; recordings: Recording[]; projects: ProjectSummary[]; progress: Record<number, number> }) {
+const KIND_WORD: Record<Item['kind'], string> = { video: 'Video', recording: 'Kayıt', project: 'Proje' };
+
+/** Hazırlanmakta olan öğeler sunucuda silinemez; seçime de alınmaz. */
+const canDelete = (i: Item) => i.status !== 'busy';
+
+/** Türüne göre doğru uç noktaya gider; videolar tek istekte toplu silinir. */
+async function deleteOnServer(targets: Item[]) {
+  const jobIds = targets.filter((i) => i.kind === 'video').map((i) => i.job!.id);
+  const others = targets.filter((i) => i.kind !== 'video');
+  const calls: Promise<unknown>[] = others.map((i) => api.del(i.kind === 'recording' ? `/api/recordings/${i.rec!.id}` : `/api/projects/${i.project!.id}`));
+  if (jobIds.length === 1) calls.push(api.del(`/api/jobs/${jobIds[0]}`));
+  else if (jobIds.length > 1)
+    calls.push(
+      api.post<{ removed: number }>('/api/jobs/bulk-delete', { ids: jobIds }).then((r) => {
+        if (r.removed < jobIds.length) throw new Error(`${jobIds.length - r.removed} video silinemedi`);
+      }),
+    );
+  const results = await Promise.allSettled(calls);
+  const failed = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+  if (!failed.length) return;
+  const first = (failed[0].reason as Error)?.message || 'Silinemedi';
+  throw new Error(failed.length === 1 ? first : `${failed.length} öğe silinemedi — ${first}`);
+}
+
+function Grid({ jobs, loaded, recordings, projects, progress, onDeleted }: { jobs: Job[]; loaded: boolean; recordings: Recording[]; projects: ProjectSummary[]; progress: Record<number, number>; onDeleted: () => Promise<unknown> }) {
   const { inScope } = useChannelScope();
   const [kind, setKind] = useState<Kind>('all');
   const [status, setStatus] = useState<Status>('all');
   const [sort, setSort] = useState<Sort>('new');
   const [q, setQ] = useState('');
+  /** Geri alınabilir silme sürerken ekrandan kaldırılan öğeler. */
+  const [hidden, setHidden] = useState<Set<string>>(() => new Set());
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const lastPick = useRef<string | null>(null);
 
-  const items = useMemo(() => toItems(jobs, recordings, projects).filter((i) => inScope(i.channel)), [jobs, recordings, projects, inScope]);
+  const items = useMemo(() => toItems(jobs, recordings, projects).filter((i) => inScope(i.channel) && !hidden.has(i.key)), [jobs, recordings, projects, inScope, hidden]);
   const visible = useMemo(() => {
     const needle = q.trim().toLocaleLowerCase('tr');
     const list = items.filter((i) => {
@@ -205,6 +235,77 @@ function Grid({ jobs, loaded, recordings, projects, progress }: { jobs: Job[]; l
   }, [items, kind, status, sort, q]);
 
   const counts = { video: items.filter((i) => i.kind === 'video').length, recording: items.filter((i) => i.kind === 'recording').length, project: items.filter((i) => i.kind === 'project').length };
+  const selectable = useMemo(() => visible.filter(canDelete), [visible]);
+  const chosen = useMemo(() => visible.filter((i) => selected.has(i.key)), [visible, selected]);
+
+  const stopSelecting = () => {
+    setSelecting(false);
+    setSelected(new Set());
+    lastPick.current = null;
+  };
+
+  const toggle = (item: Item, range: boolean) => {
+    if (!canDelete(item)) return;
+    // Çapa, güncelleyici ertelenmeden önce okunur; yoksa son tık kendisi olur.
+    const anchor = range && lastPick.current ? selectable.findIndex((i) => i.key === lastPick.current) : -1;
+    const target = selectable.findIndex((i) => i.key === item.key);
+    setSelected((s) => {
+      const next = new Set(s);
+      if (anchor >= 0 && target >= 0) {
+        // Shift ile tıklama: son seçimle bu kart arasındaki görünen her şey seçilir.
+        for (const i of selectable.slice(Math.min(anchor, target), Math.max(anchor, target) + 1)) next.add(i.key);
+      } else if (next.has(item.key)) next.delete(item.key);
+      else next.add(item.key);
+      return next;
+    });
+    lastPick.current = item.key;
+  };
+
+  const remove = (targets: Item[]) => {
+    const list = targets.filter(canDelete);
+    if (!list.length) return;
+    const keys = list.map((i) => i.key);
+    const prune = () =>
+      setHidden((s) => {
+        const next = new Set(s);
+        keys.forEach((k) => next.delete(k));
+        return next;
+      });
+    deleteWithUndo({
+      label: list.length === 1 ? `${KIND_WORD[list[0].kind]} silindi` : `${list.length} öğe silindi`,
+      hide: () => {
+        setHidden((s) => new Set([...s, ...keys]));
+        setSelected((s) => {
+          const next = new Set(s);
+          keys.forEach((k) => next.delete(k));
+          return next;
+        });
+      },
+      restore: prune,
+      // Kısmen başarısız olsa da liste tazelenir ki silinenler geri gelmesin.
+      commit: () => deleteOnServer(list).finally(() => onDeleted().catch(() => {})),
+      done: prune,
+    });
+  };
+
+  useEffect(() => {
+    if (!selecting) return;
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      if (e.key === 'Escape') stopSelecting();
+      else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        setSelected(new Set(selectable.map((i) => i.key)));
+      } else if ((e.key === 'Delete' || e.key === 'Backspace') && chosen.length) {
+        e.preventDefault();
+        remove(chosen);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selecting, selectable, chosen]);
 
   return (
     <>
@@ -265,6 +366,17 @@ function Grid({ jobs, loaded, recordings, projects, progress }: { jobs: Job[]; l
             { value: 'short', label: 'Kısa' },
           ]}
         />
+        {items.length > 0 && (
+          <button
+            type="button"
+            className={`btn btn-small ${selecting ? 'btn-secondary' : 'btn-quiet'} gallery-select-toggle`}
+            aria-pressed={selecting}
+            title={selecting ? 'Seçimi bitir (Esc)' : 'Birden çok öğeyi seçip toplu sil'}
+            onClick={() => (selecting ? stopSelecting() : setSelecting(true))}
+          >
+            <Icon name={selecting ? 'x' : 'check'} size={14} /> {selecting ? 'Bitti' : 'Seç'}
+          </button>
+        )}
       </div>
 
       {!loaded ? (
@@ -294,24 +406,53 @@ function Grid({ jobs, loaded, recordings, projects, progress }: { jobs: Job[]; l
       ) : visible.length === 0 ? (
         <p className="muted pad">Bu süzgeçte bir şey yok.</p>
       ) : (
-        <ul className="gallery-grid">
+        <ul className={`gallery-grid${selecting ? ' gallery-selecting' : ''}`}>
           {visible.map((it, i) => (
             <motion.li key={it.key} layout initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(i, 16) * 0.02 }}>
-              <GalleryCard item={it} progress={it.job ? progress[it.job.id] : undefined} />
+              <GalleryCard item={it} progress={it.job ? progress[it.job.id] : undefined} selecting={selecting} selected={selected.has(it.key)} onToggle={(range) => toggle(it, range)} />
+              {!selecting && canDelete(it) && (
+                <button type="button" className="gcard-x" title={`${KIND_WORD[it.kind]} sil`} aria-label={`${it.title} — sil`} onClick={() => remove([it])}>
+                  <Icon name="trash" size={14} />
+                </button>
+              )}
             </motion.li>
           ))}
         </ul>
       )}
+
+      <AnimatePresence>
+        {selecting && (
+          <motion.div className="action-bar" initial={{ y: 80, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 80, opacity: 0 }} role="toolbar" aria-label="Seçim işlemleri">
+            <b>{chosen.length ? `${chosen.length} öğe seçildi` : 'Silmek için kartlara tıkla'}</b>
+            {chosen.length < selectable.length && (
+              <button type="button" className="btn btn-quiet btn-small" onClick={() => setSelected(new Set(selectable.map((i) => i.key)))}>
+                Tümünü seç{selectable.length < visible.length ? ` (${selectable.length})` : ''}
+              </button>
+            )}
+            {chosen.length > 0 && (
+              <button type="button" className="btn btn-quiet btn-small" onClick={() => setSelected(new Set())}>
+                Temizle
+              </button>
+            )}
+            <button type="button" className="btn btn-quiet btn-small" onClick={stopSelecting}>
+              Vazgeç
+            </button>
+            <button type="button" className="btn btn-danger" disabled={!chosen.length} onClick={() => remove(chosen)}>
+              <Icon name="trash" size={16} /> Sil{chosen.length ? ` (${chosen.length})` : ''}
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </>
   );
 }
 
-/** YouTube benzeri kart: üstünde bekleyince sessiz önizleme oynar. */
-function GalleryCard({ item, progress }: { item: Item; progress?: number }) {
+/** YouTube benzeri kart: üstünde bekleyince sessiz önizleme oynar; seçim modunda tıklamak seçer. */
+function GalleryCard({ item, progress, selecting, selected, onToggle }: { item: Item; progress?: number; selecting: boolean; selected: boolean; onToggle: (range: boolean) => void }) {
   const [hover, setHover] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const enter = () => {
-    if (!item.previewUrl) return;
+    if (!item.previewUrl || selecting) return;
     timer.current = setTimeout(() => setHover(true), 450);
   };
   const leave = () => {
@@ -319,18 +460,28 @@ function GalleryCard({ item, progress }: { item: Item; progress?: number }) {
     setHover(false);
   };
   const kindIcon: IconName = item.kind === 'recording' ? 'record' : item.kind === 'project' ? 'scissors' : item.format === 'vertical' ? 'vertical' : 'horizontal';
+  const pickable = canDelete(item);
+  const cls = ['gcard', `gcard-${item.format}`, selecting && selected && 'gcard-on', selecting && !pickable && 'gcard-off'].filter(Boolean).join(' ');
   return (
     <a
       href={item.href}
-      className={`gcard gcard-${item.format}`}
+      className={cls}
+      aria-selected={selecting ? selected : undefined}
+      aria-disabled={selecting && !pickable ? true : undefined}
       onMouseEnter={enter}
       onMouseLeave={leave}
       onClick={(e) => {
         e.preventDefault();
-        navigate(item.href);
+        if (selecting) onToggle(e.shiftKey);
+        else navigate(item.href);
       }}
     >
       <span className="gcard-thumb">
+        {selecting && pickable && (
+          <span className="gcard-check" aria-hidden="true">
+            <Icon name="check" size={14} />
+          </span>
+        )}
         {item.thumb ? <img src={item.thumb} alt="" loading="lazy" /> : <Icon name={kindIcon} size={28} />}
         {hover && item.previewUrl && <video className="gcard-preview" src={item.previewUrl} muted autoPlay loop playsInline preload="none" />}
         {item.status === 'busy' && (
