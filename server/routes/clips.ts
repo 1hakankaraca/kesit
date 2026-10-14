@@ -109,7 +109,7 @@ export function clipRoutes({ workspaces, store, publishing }: AppContext) {
 
   r.delete('/jobs/:id', async (req, res) => {
     const ws = await workspaces.get(req.user!.id);
-    if (!(await ws.clipEditor.remove(intParam(req.params.id)))) throw notFound('Klip bulunamadı');
+    if (!(await engine(() => ws.clipEditor.remove(intParam(req.params.id)), 409))) throw notFound('Klip bulunamadı');
     res.json({ ok: true });
   });
 

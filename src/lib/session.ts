@@ -13,9 +13,13 @@ interface SessionState {
   ready: boolean;
   user: User | null;
   tabs: string[];
+  /** Bu bilgisayardan mı açıldı (bilgisayar geneli ayarlar yalnız buradan değişir). */
+  local: boolean;
+  /** Yerel ağdaki eşlenmemiş cihaz: önce eşleme kodu girilmeli. */
+  pairingRequired: boolean;
 }
 
-let state: SessionState = { ready: false, user: null, tabs: [] };
+let state: SessionState = { ready: false, user: null, tabs: [], local: true, pairingRequired: false };
 const listeners = new Set<() => void>();
 
 function set(next: Partial<SessionState>) {
@@ -24,8 +28,10 @@ function set(next: Partial<SessionState>) {
 }
 
 export async function loadSession() {
-  const res = await api.get<{ user: User | null }>('/api/session').catch(() => ({ user: null }));
-  set({ ready: true, user: res.user });
+  const res = await api
+    .get<{ user: User | null; local: boolean; pairingRequired: boolean }>('/api/session')
+    .catch(() => ({ user: null, local: true, pairingRequired: false }));
+  set({ ready: true, user: res.user, local: res.local, pairingRequired: res.pairingRequired });
   if (res.user) await loadChannels();
 }
 
@@ -45,6 +51,12 @@ export async function loadChannels() {
 export async function saveChannels(tabs: string[], active: string | null) {
   const res = await api.put<{ tabs: string[]; active: string | null }>('/api/me/channels', { tabs, active });
   set({ tabs: res.tabs, user: state.user && { ...state.user, channelSlug: res.active } });
+}
+
+/** Telefonu bilgisayarın gösterdiği 6 haneli kodla eşler. */
+export async function pairDevice(code: string) {
+  await api.post('/api/lan/pair', { code });
+  await loadSession();
 }
 
 export async function enterAsGuest() {

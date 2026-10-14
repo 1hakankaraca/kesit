@@ -11,11 +11,11 @@ import { StrictMode, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Spinner, Toasts } from './components/basics.tsx';
 import { loadSession, useSession } from './lib/session.ts';
-import { Gate } from './screens/Gate.tsx';
+import { Gate, PairGate } from './screens/Gate.tsx';
 import { Shell } from './screens/Shell.tsx';
 
 function App() {
-  const { ready, user } = useSession();
+  const { ready, user, pairingRequired } = useSession();
   useEffect(() => {
     void loadSession();
   }, []);
@@ -24,6 +24,14 @@ function App() {
       <div className="boot">
         <Spinner size={26} />
       </div>
+    );
+  }
+  if (pairingRequired) {
+    return (
+      <>
+        <PairGate />
+        <Toasts />
+      </>
     );
   }
   return user ? (

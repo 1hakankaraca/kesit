@@ -313,9 +313,10 @@ const YT_STATUS: Record<string, string> = {
 function YoutubePanel({ rec, onChange }: { rec: Recording; onChange: () => void }) {
   const [zernio, setZernio] = useState<ZernioSummary | null>(null);
   const [accountId, setAccountId] = useState('');
-  const [title, setTitle] = useState(rec.title ?? '');
-  const [description, setDescription] = useState('');
-  const [visibility, setVisibility] = useState<'public' | 'unlisted' | 'private'>('unlisted');
+  // Form taslağa kaydedilmiş alanlardan başlar; sayfa yenilense de kaybolmaz.
+  const [title, setTitle] = useState(rec.publish_title || rec.title || '');
+  const [description, setDescription] = useState(rec.publish_content ?? '');
+  const [visibility, setVisibility] = useState<'public' | 'unlisted' | 'private'>(rec.publish_visibility ?? 'unlisted');
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -363,7 +364,7 @@ function YoutubePanel({ rec, onChange }: { rec: Recording; onChange: () => void 
           <div className="row-gap">
             {rec.publish_status === 'draft' && (
               <>
-                <button type="button" className="btn btn-accent btn-small" disabled={busy} onClick={() => call(() => api.post(`/api/recordings/${rec.id}/youtube/send`, { title, description, visibility }), 'Gönderildi')}>
+                <button type="button" className="btn btn-accent btn-small" disabled={busy} onClick={() => call(() => api.post(`/api/recordings/${rec.id}/youtube/send`), 'Gönderildi')}>
                   Yayınla
                 </button>
                 <button type="button" className="btn btn-quiet btn-small" disabled={busy} onClick={() => call(() => api.del(`/api/recordings/${rec.id}/youtube/draft`), 'Taslak silindi')}>
@@ -409,7 +410,7 @@ function YoutubePanel({ rec, onChange }: { rec: Recording; onChange: () => void 
             className="btn btn-secondary"
             disabled={busy || !rec.final_available || !title.trim()}
             title={rec.final_available ? undefined : 'Önce yayına hazır çıktıyı üret'}
-            onClick={() => call(() => api.post(`/api/recordings/${rec.id}/youtube/draft`, { accountId, title, description, visibility }), 'Taslak yükleniyor')}
+            onClick={() => call(() => api.post(`/api/recordings/${rec.id}/youtube/draft`, { accountId, title, content: description, visibility }), 'Taslak yükleniyor')}
           >
             <Icon name="upload" size={14} /> Taslak olarak yükle
           </button>

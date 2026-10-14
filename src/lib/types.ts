@@ -114,6 +114,9 @@ export interface Recording {
   final_size: number | null;
   final_error: string | null;
   publish_status: string | null;
+  publish_title: string | null;
+  publish_content: string | null;
+  publish_visibility: 'public' | 'unlisted' | 'private' | null;
   publish_url: string | null;
   publish_error: string | null;
   available: boolean;

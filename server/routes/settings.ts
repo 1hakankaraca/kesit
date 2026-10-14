@@ -2,7 +2,7 @@ import express from 'express';
 import os from 'node:os';
 import { config } from '../config.ts';
 import type { AppContext } from '../context.ts';
-import { badRequest, engine } from '../http.ts';
+import { badRequest, engine, requireLocal } from '../http.ts';
 import { normalizeSlug, searchChannels } from '../lib/kick.ts';
 
 const MAX_TABS = 12;
@@ -61,7 +61,7 @@ export function settingsRoutes({ store, captions, exporter, storage, kickChat }:
     res.json({ tabs, active, user: { ...req.user, channelSlug: active } });
   });
 
-  r.get('/system', (_req, res) => {
+  r.get('/system', requireLocal, (_req, res) => {
     res.json({ lan: lanAddresses(), dataDir: config.dataDir, hostname: os.hostname(), platform: process.platform });
   });
 
@@ -89,11 +89,11 @@ export function settingsRoutes({ store, captions, exporter, storage, kickChat }:
     res.json(exporter.settings());
   });
 
-  r.put('/export', (req, res) => {
+  r.put('/export', requireLocal, (req, res) => {
     res.json(exporter.update(req.body || {}));
   });
 
-  r.post('/export/reveal', (_req, res) => {
+  r.post('/export/reveal', requireLocal, (_req, res) => {
     exporter.reveal();
     res.json({ ok: true });
   });
@@ -104,7 +104,7 @@ export function settingsRoutes({ store, captions, exporter, storage, kickChat }:
     res.json(await storage.report());
   });
 
-  r.post('/storage/cache/clear', async (_req, res) => {
+  r.post('/storage/cache/clear', requireLocal, async (_req, res) => {
     res.json(await storage.clearCache());
   });
 
@@ -116,28 +116,28 @@ export function settingsRoutes({ store, captions, exporter, storage, kickChat }:
     res.json(captions.status());
   });
 
-  r.put('/captions/elevenlabs', async (req, res) => {
+  r.put('/captions/elevenlabs', requireLocal, async (req, res) => {
     res.json(await captions.setElevenLabsKey(String(req.body?.apiKey || '')));
   });
 
-  r.delete('/captions/elevenlabs', async (_req, res) => {
+  r.delete('/captions/elevenlabs', requireLocal, async (_req, res) => {
     res.json(await captions.setElevenLabsKey(null));
   });
 
-  r.post('/captions/models/:id/download', (req, res) => {
+  r.post('/captions/models/:id/download', requireLocal, (req, res) => {
     res.json(captions.startDownload(String(req.params.id)));
   });
 
-  r.post('/captions/models/cancel', (_req, res) => {
+  r.post('/captions/models/cancel', requireLocal, (_req, res) => {
     captions.cancelDownload();
     res.json({ ok: true });
   });
 
-  r.put('/captions/models/:id', (req, res) => {
+  r.put('/captions/models/:id', requireLocal, (req, res) => {
     res.json(captions.useModel(String(req.params.id)));
   });
 
-  r.delete('/captions/models/:id', (req, res) => {
+  r.delete('/captions/models/:id', requireLocal, (req, res) => {
     res.json(captions.remove(String(req.params.id)));
   });
 

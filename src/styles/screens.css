@@ -2914,3 +2914,48 @@ code {
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+.pair {
+  display: grid;
+  place-items: center;
+  padding: 40px 0;
+}
+
+.pair .start {
+  width: min(420px, 100%);
+}
+
+.pair-code {
+  height: 64px;
+  font-family: var(--font-mono);
+  font-size: 32px;
+  letter-spacing: 0.4em;
+  text-align: center;
+}
+
+.pair-show {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 16px;
+  border-radius: 14px;
+  background: var(--sunken);
+}
+
+.pair-show b {
+  font-family: var(--font-mono);
+  font-size: 40px;
+  letter-spacing: 0.12em;
+}
+
+button.rail-phone {
+  width: 100%;
+  border: 0;
+  text-align: left;
+  font-size: 12px;
+}
+
+.rail-phone small {
+  display: block;
+  color: var(--ink-3);
+}

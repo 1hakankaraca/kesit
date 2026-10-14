@@ -130,7 +130,10 @@ class VodScanManager {
         if (!this.available) return;
         const pending = await this.db.getPendingVodScanJobs(userId);
         for (const job of pending) {
-            if (job.status !== 'processing') continue; // 'queued' — BullMQ'da hâlâ bekliyor olabilir, dokunma
+            // 'queued': BullMQ (Redis) kalıcıdır, iş hâlâ bekliyor olabilir — dokunulmaz.
+            // Süreç içi kuyrukta (LocalQueue) ise yeniden başlatmada kuyruk boşaldığı
+            // için 'queued' iş bir daha alınmaz; o da yarım sayılır.
+            if (job.status !== 'processing' && (REDIS_VAR || job.status !== 'queued')) continue;
             const msg = 'Sunucu yeniden başlatıldığı için tarama yarım kaldı. Tekrar başlatabilirsiniz.';
             await this.db.updateVodScanJob(job.id, userId, { status: 'failed', error: msg });
             this._emit(userId, job.id, 'failed', msg, 0);

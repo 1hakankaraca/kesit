@@ -6,7 +6,9 @@ import { bytes } from '../lib/format.ts';
 import { useSocketEvent } from '../lib/socket.ts';
 import { createStore } from '../lib/store.ts';
 import { deleteWithUndo, toast, toastError } from '../lib/toast.ts';
+import { refreshJobs } from '../lib/jobs.ts';
 import { useResource } from '../lib/useResource.ts';
+import { useSession } from '../lib/session.ts';
 
 interface SystemInfo {
   lan: string[];
@@ -41,54 +43,108 @@ export function usePhoneUrl(): string | null {
   return `${location.protocol}//${ip}${location.port ? `:${location.port}` : ''}`;
 }
 
-/** Ayarlar: altyazı motoru, telefondan erişim, verilerin yeri. */
+/** Ayarlar: Kick uygulaması, altyazı motoru, çıktılar, disk, telefondan erişim. */
 export function Settings() {
-  const phone = usePhoneUrl();
+  const { local } = useSession();
   const system = systemStore.use();
+  usePhoneUrl();
   return (
     <>
-      <WorkspaceHead title="Ayarlar" tape="sistem" lead="Altyazı motorunu kur, telefondan nasıl açılacağını gör, verilerin nerede durduğunu öğren." guide="ayarlar" />
+      <WorkspaceHead title="Ayarlar" tape="sistem" lead="Kick uygulaması, altyazı motoru, çıktıların yeri, disk kullanımı ve telefondan erişim." guide="ayarlar" />
+      {!local && <p className="notice-box live-note">Telefondan açtın. Bilgisayar geneli ayarlar (altyazı, çıktı klasörü, disk, telefon erişimi) yalnız Kesit'in kurulu olduğu bilgisayardan değiştirilebilir.</p>}
       <div className="ws-grid">
         <div className="ws-stack">
           <KickAppPanel />
-          <CaptionsPanel />
-          <ExportPanel />
-          <StoragePanel />
+          {local && <CaptionsPanel />}
+          {local && <ExportPanel />}
+          {local && <StoragePanel />}
         </div>
-        <aside className="ws-stack">
-          <section className="panel">
-            <span className="panel-tape" aria-hidden="true" />
-            <h2 className="panel-title">
-              <Icon name="phone" size={18} /> Telefondan aç
-            </h2>
-            <p className="panel-sub">Telefonun bu bilgisayarla aynı Wi-Fi ağındaysa tarayıcısına şu adresi yaz:</p>
-            {phone ? (
-              <>
-                <p className="big-url">{phone}</p>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-small"
-                  onClick={() => navigator.clipboard.writeText(phone).then(() => toast('Adres kopyalandı', 'ok'), () => toast('Kopyalanamadı', 'error'))}
-                >
-                  Adresi kopyala
-                </button>
-                <p className="field-help pad-top">Açılmazsa bilgisayarın güvenlik duvarı bağlantıya izin istemiş olabilir; macOS'ta çıkan uyarıda "İzin ver"i seç. Telefonda ayrıca giriş yapman gerekir.</p>
-              </>
-            ) : (
-              <p className="muted">Bu bilgisayar bir ağa bağlı görünmüyor.</p>
-            )}
-          </section>
-          <section className="panel">
-            <h2 className="panel-title">
-              <Icon name="folder" size={18} /> Veriler bu bilgisayarda
-            </h2>
-            <p className="panel-sub">Klipler, kayıtlar, logo ve intro dosyaları, arşiv ve ayarlar yalnız bu klasörde durur; hiçbir yere yüklenmez (paylaşmadıkça).</p>
-            {system && <p className="path-box">{system.dataDir}</p>}
-            <p className="field-help">Yedeklemek için bu klasörü kopyalaman yeterli.</p>
-          </section>
-        </aside>
+        {local && (
+          <aside className="ws-stack">
+            <LanPanel />
+            <section className="panel">
+              <h2 className="panel-title">
+                <Icon name="folder" size={18} /> Veriler bu bilgisayarda
+              </h2>
+              <p className="panel-sub">Klipler, kayıtlar, logo ve intro dosyaları, arşiv ve ayarlar yalnız bu klasörde durur; hiçbir yere yüklenmez (paylaşmadıkça).</p>
+              {system && <p className="path-box">{system.dataDir}</p>}
+              <p className="field-help">Yedeklemek için bu klasörü kopyalaman yeterli.</p>
+            </section>
+          </aside>
+        )}
       </div>
     </>
+  );
+}
+
+interface LanStatus {
+  enabled: boolean;
+  code: string | null;
+  codeExpiresAt: string | null;
+  devices: { name: string; pairedAt: string }[];
+}
+
+/** Telefondan erişim: varsayılan kapalı; açıkken cihazlar ekrandaki kodla eşlenir. */
+function LanPanel() {
+  const phone = usePhoneUrl();
+  const data = useResource(() => api.get<LanStatus>('/api/lan'));
+  const [busy, setBusy] = useState(false);
+  const d = data.data;
+  const call = async (fn: () => Promise<LanStatus>) => {
+    setBusy(true);
+    try {
+      data.setData(await fn());
+      // Ray altındaki erişim notu tazelensin.
+      window.dispatchEvent(new Event('kesit:lan'));
+    } catch (err) {
+      toastError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="panel">
+      <span className="panel-tape" aria-hidden="true" />
+      <h2 className="panel-title">
+        <Icon name="phone" size={18} /> Telefondan erişim
+      </h2>
+      <p className="panel-sub">Kapalıyken Kesit'e yalnız bu bilgisayardan girilir. Açarsan aynı Wi-Fi'daki cihazlar, bu ekranda göstereceğin kodla eşlenerek girebilir.</p>
+      {!d ? (
+        <Spinner />
+      ) : (
+        <div className="stack">
+          <Switch checked={d.enabled} disabled={busy} onChange={(v) => void call(() => api.put<LanStatus>('/api/lan', { enabled: v }))} label="Telefondan erişime izin ver" hint={d.enabled ? 'Kapatınca eşlenen cihazların erişimi de kalkar' : undefined} />
+          {d.enabled && (
+            <>
+              {phone && (
+                <>
+                  <p className="big-url">{phone}</p>
+                  <p className="field-help">Telefonun tarayıcısına bu adresi yaz, sonra aşağıdaki kodu gir.</p>
+                </>
+              )}
+              {d.code ? (
+                <div className="pair-show">
+                  <span className="eyebrow">Eşleme kodu</span>
+                  <b>{d.code.replace(/(\d{3})(\d{3})/, '$1 $2')}</b>
+                  <span className="muted">10 dakika geçerli, tek kullanımlık</span>
+                </div>
+              ) : null}
+              <div className="row-gap">
+                <button type="button" className="btn btn-accent btn-small" disabled={busy} onClick={() => void call(() => api.post<LanStatus>('/api/lan/code'))}>
+                  {d.code ? 'Yeni kod üret' : 'Kod üret'}
+                </button>
+                {d.devices.length > 0 && (
+                  <button type="button" className="btn btn-quiet btn-small" disabled={busy} onClick={() => void call(() => api.del<LanStatus>('/api/lan/devices'))}>
+                    Eşlenen {d.devices.length} cihazı çıkar
+                  </button>
+                )}
+              </div>
+              <p className="field-help">Açılmazsa bilgisayarın güvenlik duvarı izin istemiş olabilir; macOS'ta çıkan uyarıda "İzin ver"i seç.</p>
+            </>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -356,6 +412,7 @@ function StoragePanel() {
       done: () => {
         setPending(null);
         void report.reload();
+        void refreshJobs().catch(() => {});
       },
     });
   };

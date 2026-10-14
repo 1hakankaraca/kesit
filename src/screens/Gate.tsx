@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { ChannelSearch } from '../components/ChannelSearch.tsx';
 import { Icon, type IconName } from '../components/Icon.tsx';
 import { Ticks, Wordmark } from '../components/basics.tsx';
-import { enterAsGuest, linkKick } from '../lib/session.ts';
+import { enterAsGuest, linkKick, pairDevice } from '../lib/session.ts';
 import { useTheme } from '../lib/theme.ts';
 import { toastError } from '../lib/toast.ts';
 
@@ -120,5 +120,61 @@ function KickGlyph() {
     <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">
       <path d="M3 3h6v5h2V6h2V4h2V3h6v6h-2v2h-2v2h2v2h2v6h-6v-1h-2v-2h-2v-2H9v5H3z" />
     </svg>
+  );
+}
+
+/** Yerel ağdaki (telefon) eşlenmemiş cihaz: bilgisayar ekranındaki kodu girer. */
+export function PairGate() {
+  useTheme('gate');
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    setBusy(true);
+    try {
+      await pairDevice(code);
+    } catch (err) {
+      toastError(err);
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="gate-page">
+      <header className="gate-top">
+        <Wordmark />
+      </header>
+      <main className="pair">
+        <section className="start">
+          <div className="start-tape" aria-hidden="true">
+            <Ticks />
+          </div>
+          <h1 className="start-title">Bu cihazı eşle</h1>
+          <p className="start-note">
+            Bilgisayarda Kesit'i aç, <b>Ayarlar → Telefondan erişim</b> bölümünde "Kod üret"e bas ve ekrandaki 6 haneli kodu buraya yaz.
+          </p>
+          <form
+            className="stack-s"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void submit();
+            }}
+          >
+            <input
+              className="input pair-code"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+              placeholder="000000"
+              aria-label="Eşleme kodu"
+              autoFocus
+            />
+            <button type="submit" className="btn btn-accent btn-large" disabled={busy || code.length !== 6}>
+              {busy ? 'Eşleniyor…' : 'Eşle'}
+            </button>
+          </form>
+        </section>
+      </main>
+    </div>
   );
 }

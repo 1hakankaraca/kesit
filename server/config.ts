@@ -1,3 +1,5 @@
+import { randomBytes } from 'node:crypto';
+import fs from 'node:fs';
 import path from 'node:path';
 
 /**
@@ -11,11 +13,25 @@ const dataDir = path.resolve(process.env.DATA_DIR || 'data');
 // Motor klip dosyalarını CLIP_OUTPUT_DIR'a yazar; verilmediyse veri dizininin altı.
 process.env.CLIP_OUTPUT_DIR ||= path.join(dataDir, 'clips');
 
+/**
+ * Çerez imzası ve anahtar şifrelemesi için gizli değer. KESIT_SECRET yoksa
+ * ilk açılışta rastgele üretilip veri dizinine (yalnız sahibinin okuyabileceği
+ * izinle) yazılır — her kurulumun anahtarı farklıdır, koda gömülü değildir.
+ */
 function secret(): string {
   const value = process.env.KESIT_SECRET;
   if (value && value.length >= 32) return value;
-  if (production) throw new Error('KESIT_SECRET en az 32 karakter olmalı');
-  return 'kesit-gelistirme-anahtari-uretimde-kullanmayin';
+  const file = path.join(dataDir, '.secret');
+  try {
+    const saved = fs.readFileSync(file, 'utf8').trim();
+    if (saved.length >= 32) return saved;
+  } catch {
+    /* ilk açılış */
+  }
+  const generated = randomBytes(48).toString('base64url');
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.writeFileSync(file, generated, { mode: 0o600 });
+  return generated;
 }
 
 export const config = {

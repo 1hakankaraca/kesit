@@ -22,5 +22,7 @@ function attachLiveEvents(s: Socket) {
   s.on('autopilot:status', (autopilot: AutopilotStatus) => patch({ autopilot }));
   s.on('clipwatch:status', (watcher: WatcherStatus) => patch({ watcher }));
   s.on('recorder:status', (recorder: RecorderStatus) => patch({ recorder }));
+  // Yakalanan klip akışı ve sayaç anında güncellensin (motor yakalamada durum yayınlamaz).
+  s.on('clipwatch:detected', () => void refreshLive());
   s.on('connect', () => void refreshLive());
 }

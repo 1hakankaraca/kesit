@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
 import { normalizeSlug } from './lib/kick.ts';
+import { isLoopback } from './lib/network.ts';
 
 /** Rota içinden fırlatılan, kullanıcıya gösterilecek hata. */
 export class HttpError extends Error {
@@ -12,6 +13,16 @@ export class HttpError extends Error {
   ) {
     super(message);
   }
+}
+
+/**
+ * Yalnız bu bilgisayardan (loopback) gelen istekler: bilgisayar geneli
+ * ayarlar (altyazı motoru, çıktı klasörü, önbellek, telefon erişimi).
+ * Eşlenmiş bir telefon bile bunları değiştiremez.
+ */
+export function requireLocal(req: Request, _res: Response, next: NextFunction) {
+  if (!isLoopback(req.ip)) throw new HttpError(403, 'Bu ayar yalnız Kesit\'in kurulu olduğu bilgisayardan değiştirilebilir');
+  next();
 }
 
 export const badRequest = (message: string) => new HttpError(400, message);

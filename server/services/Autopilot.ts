@@ -188,8 +188,12 @@ export class Autopilot {
 
   /** Canlıyken istenen her şeyin açık olduğundan emin olur (idempotent). */
   private async applyLiveSettings(userId: number, w: Watch) {
-    if (!w.config.clips) return;
     const ws = await this.workspaces.get(userId);
+    if (!w.config.clips) {
+      // Yayın sürerken klip yakalama kapatıldıysa nöbetin açtığı takip bırakılır.
+      if (ws.clipWatcher.isWatching && ws.clipWatcher.channelSlug === w.config.channel) ws.clipWatcher.unwatch();
+      return;
+    }
     await ws.clipWatcher.watch(w.config.channel!, {
       autoEdit: w.config.autoEdit,
       autoPublish: w.config.autoPublish,

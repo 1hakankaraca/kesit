@@ -11,7 +11,8 @@ import { logout, saveChannels, useSession } from '../lib/session.ts';
 import { connectSocket, disconnectSocket } from '../lib/socket.ts';
 import { useTheme } from '../lib/theme.ts';
 import { toast, toastError } from '../lib/toast.ts';
-import { useInterval } from '../lib/useResource.ts';
+import { useInterval, useResource } from '../lib/useResource.ts';
+import { api } from '../lib/api.ts';
 import { Archive } from './Archive.tsx';
 import { Clips } from './Clips.tsx';
 import { Library } from './Library.tsx';
@@ -271,19 +272,26 @@ function ChannelTabs() {
   );
 }
 
-/** Ray altı: telefondan açma notu. */
+/** Ray altı: telefondan erişim durumu (yalnız bu bilgisayarda gösterilir). */
 function RailFoot() {
+  const { local } = useSession();
   const url = usePhoneUrl();
+  const lan = useResource(() => (local ? api.get<{ enabled: boolean }>('/api/lan') : Promise.resolve(null)), [local]);
+  useEffect(() => {
+    const reload = () => void lan.reload();
+    window.addEventListener('kesit:lan', reload);
+    return () => window.removeEventListener('kesit:lan', reload);
+  }, [lan.reload]);
   return (
     <div className="rail-foot">
-      {url && (
-        <p className="rail-phone">
+      {local && lan.data && (
+        <button type="button" className="rail-phone" onClick={() => navigate(sectionPath('ayarlar'))}>
           <Icon name="phone" size={14} />
           <span>
-            Telefondan aç (aynı Wi-Fi)
-            <b>{url.replace(/^https?:\/\//, '')}</b>
+            {lan.data.enabled ? 'Telefondan erişim açık' : 'Telefondan erişim kapalı'}
+            {lan.data.enabled && url ? <b>{url.replace(/^https?:\/\//, '')}</b> : <small>Ayarlar'dan aç</small>}
           </span>
-        </p>
+        </button>
       )}
       <p>
         powered by <b>livorass</b>

@@ -153,6 +153,7 @@ export function recordingRoutes({ store, workspaces, publishing }: AppContext) {
     const rec = await own(req);
     if (ws.recorder.getStatus()?.id === rec.id) throw badRequest('Süren kayıt silinemez — önce durdurun');
     if (rec.status === 'processing') throw badRequest('Düzenlenmekte olan kayıt silinemez');
+    if (ws.editor._aktarimda?.has(rec.id)) throw badRequest('Bu kayıttan kesitler alınıyor — bitince silebilirsin');
     if (ws.finalizer.yuzde(rec.id) != null) throw badRequest('Çıktısı üretilmekte olan kayıt silinemez');
     if (['uploading', 'publishing'].includes(rec.publish_status)) throw new HttpError(409, 'YouTube\'a yüklenmekte olan kayıt silinemez');
     for (const file of [rec.file_path, rec.final_path]) if (file) fs.rmSync(file, { force: true });

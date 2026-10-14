@@ -10,7 +10,8 @@ import { attachUser, authRouter, requireUser, SESSION_COOKIE, userFromSessionId 
 import type { AppContext } from './context.ts';
 import { Store } from './db/Store.ts';
 import { VodScanManager } from './engine.ts';
-import { errorHandler } from './http.ts';
+import { errorHandler, requireLocal } from './http.ts';
+import { isAllowedHost, isLoopback, isPrivateIp, plainIp } from './lib/network.ts';
 import { accountRoutes } from './routes/account.ts';
 import { clipRoutes } from './routes/clips.ts';
 import { liveRoutes } from './routes/live.ts';
@@ -24,6 +25,8 @@ import { Captions } from './services/Captions.ts';
 import { ClipHarvester } from './services/ClipHarvester.ts';
 import { Exporter } from './services/Exporter.ts';
 import { KickChat } from './services/KickChat.ts';
+import { LanAccess } from './services/LanAccess.ts';
+import { Retention } from './services/Retention.ts';
 import { Storage } from './services/Storage.ts';
 import { Publishing } from './services/Publishing.ts';
 import { Workspaces } from './services/Workspaces.ts';
@@ -53,9 +56,26 @@ const ctx: AppContext = {
   harvester: new ClipHarvester(store, io, workspaces),
 };
 ctx.captions.apply();
+const lan = new LanAccess(store);
+const retention = new Retention(store);
+const LAN_COOKIE = 'kesit_lan';
+
+/** Geliştirmede Vite vekili X-Forwarded-For ekler; yalnız loopback'ten gelen vekile güvenilir. */
+function clientIp(remote: string | undefined, forwarded: string | string[] | undefined) {
+  const fwd = Array.isArray(forwarded) ? forwarded[0] : forwarded;
+  return isLoopback(remote) && fwd ? plainIp(fwd.split(',')[0].trim()) : plainIp(remote);
+}
+
+/** Bu istek kabul edilebilir mi: bilgisayarın kendisi ya da eşlenmiş yerel ağ cihazı. */
+function networkVerdict(ip: string, host: string | undefined, lanToken: unknown): 'local' | 'paired' | 'unpaired' | 'blocked' {
+  if (!isAllowedHost(host)) return 'blocked';
+  if (isLoopback(ip)) return 'local';
+  if (!isPrivateIp(ip) || !lan.enabled) return 'blocked';
+  return lan.isPaired(lanToken) ? 'paired' : 'unpaired';
+}
 
 app.disable('x-powered-by');
-app.set('trust proxy', 1);
+app.set('trust proxy', 'loopback');
 app.use((_req, res, next) => {
   res.set({
     'X-Content-Type-Options': 'nosniff',
@@ -65,6 +85,23 @@ app.use((_req, res, next) => {
   next();
 });
 app.use(cookieParser(config.secret));
+
+/**
+ * Ağ kapısı: yalnız bu bilgisayar ve (açıksa) eşlenmiş yerel ağ cihazları.
+ * Eşlenmemiş cihaz yalnız arayüzü yükleyip eşleme kodunu girebilir.
+ */
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const verdict = networkVerdict(req.ip ?? '', req.headers.host, req.signedCookies?.[LAN_COOKIE]);
+  if (verdict === 'local' || verdict === 'paired') return next();
+  if (verdict === 'blocked') {
+    res.status(403).type('text/plain').send('Kesit bu cihazdan erişime kapalı. Telefondan açmak için bilgisayarda Ayarlar > Telefondan erişim\'i aç.');
+    return;
+  }
+  const openPath = req.path === '/api/session' || req.path === '/api/lan/pair' || (req.method === 'GET' && !/^\/(api|auth|clips|socket\.io)(\/|$)/.test(req.path));
+  if (openPath) return next();
+  res.status(401).json({ error: 'Bu cihaz eşlenmemiş', lanPairing: true });
+});
+
 app.use(express.json({ limit: '1mb' }));
 app.use(attachUser(store));
 
@@ -72,15 +109,36 @@ app.use(attachUser(store));
 app.use((req: Request, res: Response, next: NextFunction) => {
   const origin = req.get('origin');
   if (req.method === 'GET' || req.method === 'HEAD' || !origin) return next();
-  if (new URL(origin).host === req.get('host') || origin === config.baseUrl) return next();
+  let host: string | null = null;
+  try {
+    host = new URL(origin).host;
+  } catch {
+    /* "null" ya da bozuk köken — reddedilir */
+  }
+  if ((host && host === req.get('host')) || origin === config.baseUrl) return next();
   res.status(403).json({ error: 'Geçersiz istek kaynağı' });
 });
 
 app.use('/auth', authRouter(store));
 
 app.get('/api/session', (req, res) => {
-  res.json({ user: req.user ?? null });
+  const local = isLoopback(req.ip);
+  const paired = local || lan.isPaired(req.signedCookies?.[LAN_COOKIE]);
+  res.json({ user: paired ? (req.user ?? null) : null, local, pairingRequired: !paired });
 });
+
+/** Telefon eşleme: bilgisayar ekranındaki 6 haneli kod. */
+app.post('/api/lan/pair', (req, res) => {
+  const token = lan.pair(req.body?.code, String(req.get('user-agent') || '').replace(/\(.*?\)/g, '').trim().slice(0, 60) || 'Cihaz');
+  res.cookie(LAN_COOKIE, token, { httpOnly: true, sameSite: 'lax', secure: false, signed: true, path: '/', maxAge: 30 * 86_400_000 });
+  res.json({ ok: true });
+});
+
+/** Telefondan erişim yönetimi — yalnız bu bilgisayardan. */
+app.get('/api/lan', requireLocal, (_req, res) => res.json(lan.status()));
+app.put('/api/lan', requireLocal, (req, res) => res.json(lan.setEnabled(req.body?.enabled === true)));
+app.post('/api/lan/code', requireLocal, (_req, res) => res.json(lan.newCode()));
+app.delete('/api/lan/devices', requireLocal, (_req, res) => res.json(lan.revokeAll()));
 app.use('/api', publicKickRoutes());
 
 app.use('/api', requireUser);
@@ -116,7 +174,11 @@ app.use(errorHandler);
 /* ── Socket.io: oturum çerezinden kullanıcı, kendi odasına katılır ────── */
 
 io.use((socket, next) => {
-  const sid = parseSignedCookie(socket.handshake.headers.cookie, SESSION_COOKIE);
+  const h = socket.handshake;
+  const ip = clientIp(h.address, h.headers['x-forwarded-for']);
+  const verdict = networkVerdict(ip, h.headers.host, parseSignedCookie(h.headers.cookie, LAN_COOKIE));
+  if (verdict !== 'local' && verdict !== 'paired') return next(new Error('Erişim yok'));
+  const sid = parseSignedCookie(h.headers.cookie, SESSION_COOKIE);
   const user = userFromSessionId(store, sid);
   if (!user) return next(new Error('Oturum yok'));
   socket.data.userId = user.id;
@@ -141,6 +203,7 @@ function parseSignedCookie(header: string | undefined, name: string): string | f
 /* ── Açılış ve kapanış ─────────────────────────────────────────────────── */
 
 vodScanner.start();
+retention.start();
 await ctx.autopilot.restore();
 ctx.harvester.restore();
 const purge = setInterval(() => store.purgeExpiredSessions(), 6 * 3_600_000);
@@ -157,6 +220,7 @@ async function shutdown(signal: string) {
   console.log(`[Kesit] ${signal} alındı, kapanıyor…`);
   ctx.autopilot.stopAll();
   ctx.harvester.stopAll();
+  retention.stop();
   await workspaces.destroyAll().catch(() => {});
   await vodScanner.close().catch(() => {});
   io.close();

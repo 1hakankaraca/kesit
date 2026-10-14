@@ -14,6 +14,8 @@ async function request<T>(method: string, url: string, body?: unknown, init: Req
   const res = await fetch(url, {
     method,
     credentials: 'same-origin',
+    // Sekme kapanırken gönderilen (ör. geri alınabilir silme) istek iptal olmasın.
+    keepalive: method !== 'GET' && !isRaw,
     headers: isRaw ? { 'Content-Type': (body as Blob).type || 'application/octet-stream' } : body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
     body: isRaw ? (body as Blob) : body !== undefined ? JSON.stringify(body) : undefined,
     ...init,

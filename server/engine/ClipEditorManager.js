@@ -425,6 +425,9 @@ class ClipEditorManager {
     async retry(jobId) {
         const job = await this.db.getEditedClipById(jobId, this.userId);
         if (!job) throw new Error('İş bulunamadı');
+        // Yalnız başarısız iş yeniden denenir: işlenen bir iş ikinci kez kuyruğa
+        // girerse iki süreç aynı çalışma dizinine ve çıktıya yazar.
+        if (job.status !== 'failed') throw new Error('Yalnız başarısız klipler yeniden denenebilir');
         // Yerel kaynaklı işlerde (!clip çıktısı) source_url NULL olur; çalışma
         // dizini de temizlendiğinden yeniden denenecek bir kaynak yoktur
         if (!job.source_url) {
@@ -509,6 +512,8 @@ class ClipEditorManager {
     async remove(jobId) {
         const job = await this.db.getEditedClipById(jobId, this.userId);
         if (!job) return false;
+        // İşlenmekte olan klip silinemez — süreç bitince yetim çıktı dosyası kalırdı.
+        if (job.status === 'queued' || job.status === 'processing') throw new Error('İşlenmekte olan klip silinemez — bitmesini bekle');
         for (const suffix of ['.mp4', '_thumb.jpg']) {
             try { fs.unlinkSync(path.join(this.outputDir, `${jobId}${suffix}`)); } catch { /* yok */ }
         }

@@ -76,6 +76,18 @@ class LiveClipWatcher {
             return this.getStatus();
         }
 
+        // Aynı anda iki başlatma (ör. nöbet yoklaması + kullanıcı tıklaması) iki
+        // Pusher bağlantısı kurmasın: ağ çağrısı sürerken ikinci istek reddedilir.
+        if (this._starting) throw new Error('Takip zaten başlatılıyor');
+        this._starting = true;
+        try {
+            return await this._startWatch(slug, { autoEdit, subtitles });
+        } finally {
+            this._starting = false;
+        }
+    }
+
+    async _startWatch(slug, { autoEdit, subtitles }) {
         // Önceki takibi kapat
         if (this.isWatching) this.unwatch();
 

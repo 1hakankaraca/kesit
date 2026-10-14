@@ -73,7 +73,18 @@ class StreamRecorder {
      * @param {{backfillSec?: number, follow?: boolean}} [opts]
      * @returns {Promise<object>} oluşturulan kayıt satırı
      */
-    async start(channelSlug, { backfillSec = 0, follow = true } = {}) {
+    async start(channelSlug, opts = {}) {
+        // Çift istekte ilk ffmpeg süreci sahipsiz kalmasın: kaynak çözülürken ikinci başlatma reddedilir.
+        if (this._starting) throw new Error('Kayıt zaten başlatılıyor');
+        this._starting = true;
+        try {
+            return await this._start(channelSlug, opts);
+        } finally {
+            this._starting = false;
+        }
+    }
+
+    async _start(channelSlug, { backfillSec = 0, follow = true } = {}) {
         if (this.isRecording) {
             throw new Error('Zaten süren bir kayıt var');
         }
