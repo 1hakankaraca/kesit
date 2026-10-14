@@ -309,6 +309,14 @@ select.input {
   font-size: 14px;
 }
 
+.row-between {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .subtle-box {
   padding: 14px;
   border-radius: 14px;
@@ -737,6 +745,18 @@ select.input {
 .action-bar .btn-quiet:hover {
   background: color-mix(in srgb, var(--paper) 12%, transparent);
   color: var(--paper);
+}
+
+/* Koyu çubukta ikincil düğme: açık yazı, yarı saydam çerçeve. */
+.action-bar .btn-secondary {
+  background: color-mix(in srgb, var(--paper) 10%, transparent);
+  border-color: color-mix(in srgb, var(--paper) 35%, transparent);
+  color: var(--paper);
+}
+
+.action-bar .btn-secondary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--paper) 18%, transparent);
+  border-color: color-mix(in srgb, var(--paper) 60%, transparent);
 }
 
 @media (max-width: 860px) {

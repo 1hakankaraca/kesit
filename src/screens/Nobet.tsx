@@ -22,7 +22,9 @@ const STEPS = [
 export function Nobet() {
   const { user } = useSession();
   const live = liveStore.use();
-  const channel = live?.autopilot.config.channel || user?.channelSlug || '';
+  // Takip açıkken botun izlediği kanal, kapalıyken üstteki sekmenin kanalı gösterilir.
+  const tabChannel = user?.channelSlug || '';
+  const channel = (live?.autopilot.config.enabled && live.autopilot.config.channel) || tabChannel;
   const info = useResource(() => (channel ? api.get<ChannelInfo>(`/api/live/channel${query({ channel })}`) : Promise.resolve(null)), [channel]);
   useInterval(() => channel && void info.reload(), 60_000);
 
@@ -49,7 +51,7 @@ export function Nobet() {
           <Spinner size={24} />
         </div>
       ) : (
-        <AutopilotPanel live={live} fallbackChannel={channel} />
+        <AutopilotPanel live={live} fallbackChannel={tabChannel} />
       )}
     </>
   );
@@ -60,6 +62,11 @@ function AutopilotPanel({ live, fallbackChannel }: { live: LiveState; fallbackCh
   const [draft, setDraft] = useState<AutopilotConfig>(() => ({ ...status.config, channel: status.config.channel || fallbackChannel || null }));
   const [busy, setBusy] = useState(false);
   const [zernio, setZernio] = useState<ZernioSummary | null>(null);
+
+  // Takip kapalıyken kanal alanı üstteki sekmeyi izler; sekme değişince güncellenir.
+  useEffect(() => {
+    if (!status.config.enabled && fallbackChannel) setDraft((d) => (d.channel === fallbackChannel ? d : { ...d, channel: fallbackChannel }));
+  }, [fallbackChannel, status.config.enabled]);
 
   useEffect(() => {
     if (draft.autoPublish && !zernio) api.get<ZernioSummary>('/api/zernio').then(setZernio).catch(() => {});
@@ -107,6 +114,16 @@ function AutopilotPanel({ live, fallbackChannel }: { live: LiveState; fallbackCh
       </header>
 
       <div className="stack">
+        {on && fallbackChannel && status.config.channel !== fallbackChannel && (
+          <div className="notice-box row-between" role="status">
+            <span>
+              Bot şu an <b>{status.config.channel}</b> kanalını izliyor; üstteki sekmede <b>{fallbackChannel}</b> seçili.
+            </span>
+            <button type="button" className="btn btn-secondary btn-small" disabled={busy} onClick={() => save({ ...draft, channel: fallbackChannel, enabled: true })}>
+              {fallbackChannel} kanalına geç
+            </button>
+          </div>
+        )}
         <Field label="Takip edilen kanal" htmlFor="ap-channel">
           <input
             id="ap-channel"
