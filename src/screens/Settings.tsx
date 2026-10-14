@@ -8,7 +8,8 @@ import { createStore } from '../lib/store.ts';
 import { deleteWithUndo, toast, toastError } from '../lib/toast.ts';
 import { refreshJobs } from '../lib/jobs.ts';
 import { useResource } from '../lib/useResource.ts';
-import { useSession } from '../lib/session.ts';
+import { navigate, sectionPath } from '../lib/router.ts';
+import { markOnboarded, useSession } from '../lib/session.ts';
 
 interface SystemInfo {
   lan: string[];
@@ -62,6 +63,23 @@ export function Settings() {
         {local && (
           <aside className="ws-stack">
             <LanPanel />
+            <section className="panel">
+              <h2 className="panel-title">
+                <Icon name="sparkle" size={18} /> Kurulum sihirbazı
+              </h2>
+              <p className="panel-sub">Kanal, logo, açılış/kapanış videosu, Zernio ve genel ayarları adım adım yeniden gözden geçir.</p>
+              <button
+                type="button"
+                className="btn btn-secondary btn-small"
+                onClick={() =>
+                  markOnboarded(false)
+                    .then(() => navigate(sectionPath('kurulum')))
+                    .catch(toastError)
+                }
+              >
+                Sihirbazı aç
+              </button>
+            </section>
             <section className="panel">
               <h2 className="panel-title">
                 <Icon name="folder" size={18} /> Veriler bu bilgisayarda
@@ -148,7 +166,7 @@ function LanPanel() {
   );
 }
 
-function CaptionsPanel() {
+export function CaptionsPanel() {
   const status = useResource(() => api.get<CaptionsStatus>('/api/captions'));
   const [key, setKey] = useState('');
   const [busy, setBusy] = useState(false);
@@ -330,7 +348,7 @@ interface ExportSettings {
 }
 
 /** Hazır videoların kopyalandığı klasör (varsayılan: İndirilenler/Kesit). */
-function ExportPanel() {
+export function ExportPanel() {
   const data = useResource(() => api.get<ExportSettings>('/api/export'));
   const [dir, setDir] = useState('');
   const [busy, setBusy] = useState(false);

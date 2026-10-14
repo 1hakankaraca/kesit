@@ -296,4 +296,11 @@ export const MIGRATIONS: { id: string; sql: string }[] = [
       CREATE INDEX idx_projects_user ON projects (user_id, updated_at DESC);
     `,
   },
+  {
+    id: '008-ilk-kurulum',
+    sql: `
+      -- İlk kurulum sihirbazı tamamlandı mı (kanal, logo, intro/outro, Zernio, genel ayarlar).
+      ALTER TABLE user_settings ADD COLUMN onboarding_done INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
 ];

@@ -2,6 +2,7 @@
 
 Kick yayıncıları için klip stüdyosu. Kurulduğu bilgisayarda çalışır; bütün veriler o bilgisayarda kalır, hiçbir sunucuya bağlı değildir. Kick hesabıyla ya da misafir olarak girilir; açılışta editör düzeninde bir kütüphane karşılar. Her sayfada "Nasıl kullanılır" rehberi vardır ve ilk ziyarette kendiliğinden açılır.
 
+- **İlk kurulum**: Giriş yapan yeni kullanıcı altı adımlık sihirbazla karşılanır: takip edilecek kanal (istenirse çevrimdışı bot takibi), logo, açılış/kapanış videosu, Zernio bağlantısı, genel ayarlar (altyazı motoru, çıktı klasörü) ve özet. Her adım "Şimdilik atla" ile geçilir; yüklenmeyen logo/intro/outro kliplere eklenmez. Sihirbaz Ayarlar'dan yeniden açılır.
 - **Klipler**: Kanalın Kick/KickBot kliplerini tara, seç, toplu olarak dikey videoya çevir. Yüz kamerası tespiti, altyazı ve 9:16 kompozisyon otomatik yapılır. Klip bağlantısı yapıştırarak da eklenebilir.
 - **Geçmiş yayınlar**: Kick'in sakladığı yayını indir. Zaman çizelgesinde sürükleyerek ya da I/O ile kesit işaretle, en iyi anları otomatik buldur.
 - **Kanal sekmeleri**: Üst ortada Kick'te arayarak kanal seçilir; her yayıncı bir sekme olur, "+" yeni sekme açar. Etkin sekme tarama, kayıt ve nöbetin varsayılanıdır.

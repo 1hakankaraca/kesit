@@ -20,6 +20,7 @@ import { Gallery } from './Gallery.tsx';
 import { Home } from './Home.tsx';
 import { Live } from './Live.tsx';
 import { Nobet } from './Nobet.tsx';
+import { Onboarding } from './Onboarding.tsx';
 import { Settings, usePhoneUrl } from './Settings.tsx';
 import { Publish } from './Publish.tsx';
 import { Studio } from './Studio.tsx';
@@ -128,8 +129,24 @@ export function Shell() {
   useInterval(() => void refreshTasks(), activeTasks > 0 ? 8_000 : null);
 
   useEffect(() => {
-    document.title = `${TITLES[route.section]} — Kesit`;
+    document.title = `${TITLES[route.section] ?? 'Kurulum'} — Kesit`;
   }, [route.section]);
+
+  // Yeni kullanıcı: ilk kurulum sihirbazı bitene kadar başka bölüm açılmaz.
+  const { user } = useSession();
+  const needsSetup = !!user && !user.onboardingDone;
+  useEffect(() => {
+    if (needsSetup && route.section !== 'kurulum') navigate(sectionPath('kurulum'), true);
+  }, [needsSetup, route.section]);
+
+  if (route.section === 'kurulum') {
+    return (
+      <div className="onb-shell">
+        <Onboarding />
+        <Toasts />
+      </div>
+    );
+  }
 
   const isLiveBusy = !!(live?.recorder.recording || live?.watcher.watching);
 
@@ -243,6 +260,8 @@ function SectionView({ section, sub }: { section: Section; sub: string | null })
       return <Archive />;
     case 'marka':
       return <Studio />;
+    case 'kurulum':
+      return <Onboarding />;
     default:
       return <Home />;
   }

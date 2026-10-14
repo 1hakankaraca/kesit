@@ -347,7 +347,7 @@ function SequenceStrip({ intro, outro, withIntro, withOutro }: { intro: BrandMed
 
 /* ── Yüklemeler ────────────────────────────────────────────────────────── */
 
-function LogoUpload({ logo: loaded, max, onChange }: { logo: StudioData['logo']; max: number; onChange: () => void }) {
+export function LogoUpload({ logo: loaded, max, onChange }: { logo: StudioData['logo']; max: number; onChange: () => void }) {
   const [busy, setBusy] = useState(false);
   const [removed, setRemoved] = useState(false);
   const logo = removed ? { exists: false, url: null } : loaded;
@@ -402,7 +402,7 @@ function LogoUpload({ logo: loaded, max, onChange }: { logo: StudioData['logo'];
   );
 }
 
-function MediaUpload({ kind, media: loaded, onChange }: { kind: 'intro' | 'outro'; media: BrandMedia; onChange: () => void }) {
+export function MediaUpload({ kind, media: loaded, onChange }: { kind: 'intro' | 'outro'; media: BrandMedia; onChange: () => void }) {
   const [busy, setBusy] = useState(false);
   const [removed, setRemoved] = useState(false);
   const media = removed ? { ...loaded, exists: false, url: null } : loaded;

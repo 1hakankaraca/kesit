@@ -61,6 +61,12 @@ export function settingsRoutes({ store, captions, exporter, storage, kickChat }:
     res.json({ tabs, active, user: { ...req.user, channelSlug: active } });
   });
 
+  /** İlk kurulum sihirbazı bitti (ya da yeniden açılacak). */
+  r.put('/me/onboarding', async (req, res) => {
+    await store.updateSettings(req.user!.id, { onboarding_done: req.body?.done === false ? 0 : 1 });
+    res.json({ done: req.body?.done !== false });
+  });
+
   r.get('/system', requireLocal, (_req, res) => {
     res.json({ lan: lanAddresses(), dataDir: config.dataDir, hostname: os.hostname(), platform: process.platform });
   });

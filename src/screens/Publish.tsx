@@ -167,7 +167,7 @@ function EntryList({ entries, onRefresh }: { entries: ScheduleEntry[]; onRefresh
   );
 }
 
-function ConnectionPanel({ zernio, loading, onChange }: { zernio: ZernioSummary | null; loading: boolean; onChange: () => void }) {
+export function ConnectionPanel({ zernio, loading, onChange }: { zernio: ZernioSummary | null; loading: boolean; onChange: () => void }) {
   const [apiKey, setApiKey] = useState('');
   const [profiles, setProfiles] = useState<{ id: string; name: string }[] | null>(null);
   const [profileId, setProfileId] = useState('');

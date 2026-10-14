@@ -7,6 +7,8 @@ export interface User {
   username: string;
   avatarUrl: string | null;
   channelSlug: string | null;
+  /** İlk kurulum sihirbazı tamamlandı mı (yeni kullanıcı için false). */
+  onboardingDone?: boolean;
 }
 
 interface SessionState {
@@ -36,6 +38,12 @@ export async function loadSession() {
 }
 
 /** Kick hesabıyla giriş: kanal Kick'te bulunup hesaba bağlanır. */
+/** Kurulum sihirbazı bitti: sunucuya yazar, oturumdaki kullanıcıyı günceller. */
+export async function markOnboarded(done = true) {
+  await api.put('/api/me/onboarding', { done });
+  set({ user: state.user && { ...state.user, onboardingDone: done } });
+}
+
 export async function linkKick(channel: string) {
   const res = await api.post<{ user: User }>('/auth/kick/link', { channel });
   set({ user: res.user });

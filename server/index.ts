@@ -130,10 +130,11 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
 app.use('/auth', authRouter(store));
 
-app.get('/api/session', (req, res) => {
+app.get('/api/session', async (req, res) => {
   const local = isLoopback(req.ip);
   const paired = local || lan.isPaired(req.signedCookies?.[LAN_COOKIE]);
-  res.json({ user: paired ? (req.user ?? null) : null, local, pairingRequired: !paired });
+  const user = paired && req.user ? { ...req.user, onboardingDone: !!(await store.getSettings(req.user.id)).onboarding_done } : null;
+  res.json({ user, local, pairingRequired: !paired });
 });
 
 /** Telefon eşleme: bilgisayar ekranındaki 6 haneli kod. */
