@@ -98,8 +98,20 @@ jobs:
           desktop/bin/whisper-cli --help | head -2 || true
           file desktop/bin/whisper-cli
 
+      # macOS 15 koşucularında dmgbuild ara sıra "Resource busy" ile düşüyor
+      # (Spotlight diski tutuyor); indeksleme kapatılır ve üç deneme yapılır.
+      - name: Spotlight'ı kapat (macOS)
+        if: runner.os == 'macOS'
+        run: sudo mdutil -a -i off || true
+
       - name: Paketle ve yayınla
-        run: npx electron-builder ${{ matrix.args }} --publish always
+        shell: bash
+        run: |
+          for i in 1 2 3; do
+            npx electron-builder ${{ matrix.args }} --publish always && exit 0
+            echo "electron-builder $i. denemede başarısız, 20 sn sonra tekrar"; sleep 20
+          done
+          exit 1
         working-directory: desktop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
