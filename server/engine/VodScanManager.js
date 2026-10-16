@@ -24,6 +24,8 @@ const REDIS_VAR = !!process.env.REDIS_URL;
 const { Queue, Worker } = REDIS_VAR ? require('bullmq') : require('./LocalQueue');
 const KickVodFetcher = require('./KickVodFetcher');
 const { GECERLI_KALITELER } = require('./KickVodFetcher');
+const VodSegmentFollower = require('./VodSegmentFollower');
+const { mp4eSarmala, sureOku } = require('./StreamRecorder');
 const HighlightDetector = require('./HighlightDetector');
 const SceneSegmenter = require('./SceneSegmenter');
 const CamFull = require('./CamFull');
@@ -31,6 +33,14 @@ const ClipEditorManager = require('./ClipEditorManager');
 
 const CLIP_OUTPUT_DIR = process.env.CLIP_OUTPUT_DIR || 'data/clips';
 const QUEUE_NAME = 'vod-processing';
+// Süren yayında aralığın bitişi en fazla bu kadar ileride olabilir.
+const CANLI_ILERI_SINIR_SN = 4 * 60 * 60;
+// Kick'in süren yayın kaydı canlıdan ~30 sn geride gelir; bitiş bu kadar yakınsa
+// (ya da ilerideyse) anlık görüntü yerine parça takipçisi kullanılır — yayın o ana
+// gelene kadar bekler.
+const CANLI_GERI_PAY_SN = 60;
+// Aralık en az bu kadar olmalı; daha kısası parça sınırına sığmaz.
+const ARALIK_EN_AZ_SN = 5;
 
 class VodScanManager {
     constructor({ db, io }) {
@@ -151,21 +161,23 @@ class VodScanManager {
      * Yayın devam ederken tekrar çağrılabilir — her çağrı o ana kadarki
      * (daha uzun) bölümü indiren YENİ bir iş açar.
      */
-    async enqueueLive(userId, { channelSlug, quality = '1080p' } = {}) {
+    async enqueueLive(userId, { channelSlug, quality = '1080p', range = null } = {}) {
         const video = await this.fetcher.getLiveVideo(channelSlug);
         if (!video) {
             throw new Error(`"${channelSlug}" şu anda yayında değil ya da yayın kaydı kapalı`);
         }
-        return this.enqueue(userId, { channelSlug, videoId: video.id, quality });
+        return this.enqueue(userId, { channelSlug, videoId: video.id, quality, range });
     }
 
     /**
      * Bir VOD indirmesini kuyruğa ekle. Yalnızca indirme yapılır — highlight/
      * segment üretimi artık burada TETİKLENMEZ, kullanıcı VOD editör
      * popup'ından "İşleme Al"/"Dikey Klip Al" ile istediği zaman başlatır.
-     * @param {object} p - { channelSlug, videoId, source, quality }
+     * `range` ({startSec, endSec}, yayın başından saniye) verilirse yalnız o
+     * aralık iner; aynı yayından istenildiği kadar farklı aralık açılabilir.
+     * @param {object} p - { channelSlug, videoId, source, quality, range }
      */
-    async enqueue(userId, { channelSlug, videoId, source = 'kick', quality = '720p' } = {}) {
+    async enqueue(userId, { channelSlug, videoId, source = 'kick', quality = '720p', range = null } = {}) {
         if (!this.available) {
             throw new Error('VOD tarama için Redis gerekli — REDIS_URL tanımlı değil');
         }
@@ -173,12 +185,16 @@ class VodScanManager {
         const videos = await this.fetcher.listVideos(channelSlug, { includeLive: true });
         const video = videos.find(v => String(v.id) === String(videoId));
         if (!video) throw new Error('Seçilen yayın kanal listesinde bulunamadı (silinmiş olabilir)');
+        const aralik = VodScanManager.normalizeRange(range, video);
 
         const jobRow = await this.db.createVodScanJob(userId, {
             channelSlug, source, sourceVideoId: videoId,
-            title: video.title, durationSec: video.durationSec,
+            title: video.title,
+            durationSec: aralik ? Math.round(aralik.endSec - aralik.startSec) : video.durationSec,
             thumbnailUrl: video.thumbnailUrl,
             fromLive: video.isLive === true,
+            rangeStartSec: aralik?.startSec ?? null,
+            rangeEndSec: aralik?.endSec ?? null,
         });
         // Takip girişi işten ÖNCE açılır: süreç içi kuyruk (LocalQueue) işi add()
         // dönmeden başlatabilir; giriş sonradan yazılsaydı indirme kendi girişini
@@ -188,8 +204,34 @@ class VodScanManager {
         state.bullJob = await this.queue.add('download', {
             vodJobId: jobRow.id, userId, channelSlug, videoId, source,
             quality: GECERLI_KALITELER.includes(quality) ? quality : '720p',
+            range: aralik,
         });
         return jobRow;
+    }
+
+    /**
+     * İstenen aralığı yayına göre doğrular ve saniyeye yuvarlar (saf fonksiyon).
+     * Bitmiş yayında aralık yayının içinde kalmalı (bitiş süreyi aşarsa süreye
+     * kırpılır); süren yayında bitiş en fazla 4 saat ileride olabilir.
+     *
+     * @param {{startSec?: number, endSec?: number}|null} range
+     * @param {{isLive?: boolean, durationSec?: number}} video
+     * @returns {{startSec: number, endSec: number}|null}
+     */
+    static normalizeRange(range, video) {
+        if (!range) return null;
+        const startSec = Math.max(0, Math.floor(Number(range.startSec) || 0));
+        let endSec = Math.ceil(Number(range.endSec));
+        if (!Number.isFinite(endSec)) throw new Error('Aralığın bitişi gerekli');
+        const sure = Math.max(0, Number(video?.durationSec) || 0);
+        if (video?.isLive) {
+            if (endSec > sure + CANLI_ILERI_SINIR_SN) throw new Error('Bitiş en fazla 4 saat ileride olabilir');
+        } else if (sure > 0) {
+            if (startSec >= sure) throw new Error('Başlangıç yayının süresini aşıyor');
+            endSec = Math.min(endSec, sure);
+        }
+        if (endSec - startSec < ARALIK_EN_AZ_SN) throw new Error(`Aralık en az ${ARALIK_EN_AZ_SN} saniye olmalı`);
+        return { startSec, endSec };
     }
 
     async getJobs(userId, limit = 20) {
@@ -351,9 +393,10 @@ class VodScanManager {
      * kalıcı saklanır (RetentionService süresi dolunca siler). Hiçbir
      * highlight/segment üretimi burada TETİKLENMEZ.
      */
-    async _processDownload({ vodJobId, userId, channelSlug, videoId, quality }) {
+    async _processDownload({ vodJobId, userId, channelSlug, videoId, quality, range = null }) {
         const workDir = path.join(CLIP_OUTPUT_DIR, String(userId), 'vod-work', String(vodJobId));
         const vodPath = path.join(workDir, 'vod.mp4');
+        const tsPath = path.join(workDir, 'vod.ts');
         fs.mkdirSync(workDir, { recursive: true });
 
         // enqueue() sırasında konan giriş normalde burada bulunur; sunucu
@@ -391,27 +434,41 @@ class VodScanManager {
             // Kullanıcı elle iptal ederse `controller.signal` indirmeyi anında durdurur.
             checkCancelled();
             await this._setStep(vodJobId, userId, 'indiriliyor', 5);
-            await this.fetcher.download(video.sourceUrl, vodPath, {
-                durationSec: video.durationSec || 0,
-                quality: quality || '720p',
-                signal: controller.signal,
-                onProcess: (proc) => { state.proc = proc; },
-                isPaused: () => state.paused === true,
-                onProgress: (pct, meta) => {
-                    const progress = 5 + Math.round((pct ?? 0) * 0.95); // 5-100 aralığı
-                    this._setStep(vodJobId, userId, 'indiriliyor', progress, meta).catch(() => {});
-                },
-            });
+            const onProgress = (pct, meta) => {
+                const progress = 5 + Math.round((pct ?? 0) * 0.95); // 5-100 aralığı
+                this._setStep(vodJobId, userId, 'indiriliyor', progress, meta).catch(() => {});
+            };
+            if (range && video.isLive && range.endSec > (video.durationSec || 0) - CANLI_GERI_PAY_SN) {
+                // Aralığın bitişi henüz yayınlanmadı: anlık görüntü yerine parçalar
+                // yayın aktıkça toplanır, bitiş anı geçince dosya kapatılır.
+                await this._followLiveRange({ vodJobId, userId, video, range, quality, tsPath, vodPath, state, signal: controller.signal });
+            } else {
+                await this.fetcher.download(video.sourceUrl, vodPath, {
+                    durationSec: range ? range.endSec - range.startSec : (video.durationSec || 0),
+                    startSec: range?.startSec ?? null,
+                    endSec: range?.endSec ?? null,
+                    quality: quality || '720p',
+                    signal: controller.signal,
+                    onProcess: (proc) => { state.proc = proc; },
+                    isPaused: () => state.paused === true,
+                    onProgress,
+                });
+            }
             state.proc = null; // indirme bitti — pause/resume artık bu iş için geçersiz
             downloadSucceeded = true;
 
             const st = fs.statSync(vodPath);
             const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+            // Aralık indirmesinde süre dosyadan okunur: anahtar kare hizası ve erken
+            // biten yayın yüzünden istenenden birkaç saniye sapabilir.
+            const durationSec = range
+                ? Math.round((await sureOku(vodPath)) || (range.endSec - range.startSec))
+                : (video.durationSec || 0);
             await this.db.updateVodScanJob(vodJobId, userId, {
                 status: 'downloaded', step: 'indirildi', progress: 100,
                 vod_path: vodPath, vod_file_size_bytes: st.size,
                 downloaded_at: new Date(), vod_expires_at: expiresAt,
-                duration_sec: video.durationSec || 0,
+                duration_sec: durationSec,
             });
             this._emit(userId, vodJobId, 'downloaded', 'indirildi', 100, { vodExpiresAt: expiresAt });
             console.log(`[VodScan] ✅ İş ${vodJobId} indirildi (${Math.round(st.size / 1024 / 1024)}MB)`);
@@ -419,6 +476,7 @@ class VodScanManager {
             // İndirme tamamlanmadıysa yarım dosya işe yaramaz; disk dolmasın diye silinir.
             if (!downloadSucceeded) {
                 try { fs.rmSync(vodPath, { force: true }); } catch { /* yok */ }
+                try { fs.rmSync(tsPath, { force: true }); } catch { /* yok */ }
             }
             if (state.cancelled) {
                 // DB durumu + emit zaten cancel()/remove() tarafından yapıldı — sadece logla.
@@ -435,6 +493,59 @@ class VodScanManager {
             // indirmede vod.mp4 7 gün kalıcı kalmalı (RetentionService siler).
             if (!downloadSucceeded) { try { fs.unlinkSync(vodPath); } catch { /* ignore */ } }
         }
+    }
+
+    /**
+     * Süren yayında ileri tarihli aralık: Kick'in süren yayın kaydını parça parça
+     * izler (bkz. VodSegmentFollower), aralığın bitişi geçince .ts dosyasını MP4'e
+     * sarar. Yayın aralığın bitişinden önce kapanırsa eldeki kısım alınır; aralığa
+     * hiç ulaşmadan kapanırsa hata verilir.
+     */
+    async _followLiveRange({ vodJobId, userId, video, range, quality, tsPath, vodPath, state, signal }) {
+        const baseMs = Date.parse(String(video.startedAt || '').replace(' ', 'T') + 'Z');
+        if (!Number.isFinite(baseMs)) throw new Error('Yayının başlangıç saati okunamadı');
+        // Takipçi master'ı değil bir varyantın parça listesini okur; istenen kalite
+        // yoksa ('source' master'dır) sırayla daha düşüğü denenir.
+        let playlistUrl = video.sourceUrl;
+        for (const kalite of [...new Set([quality === 'source' ? '1080p' : quality, '1080p', '720p', '480p', '360p'])]) {
+            playlistUrl = await this.fetcher.resolveVariantUrl(video.sourceUrl, kalite);
+            if (playlistUrl !== video.sourceUrl) break;
+        }
+        if (playlistUrl === video.sourceUrl) throw new Error('Yayın kaydının parça listesi çözülemedi');
+        const takipci = new VodSegmentFollower({
+            playlistUrl, outputPath: tsPath, baseMs,
+            fromMs: baseMs + range.startSec * 1000,
+            untilMs: baseMs + range.endSec * 1000,
+        });
+        state.follower = takipci;
+        const durdur = () => takipci.abort();
+        signal.addEventListener('abort', durdur);
+
+        const ilerleme = setInterval(() => {
+            const p = takipci.progress;
+            const adim = p === null ? 'yayın aralığa gelene kadar bekleniyor' : 'indiriliyor';
+            this._setStep(vodJobId, userId, adim, 5 + Math.round((p ?? 0) * 0.9), { bytesDownloaded: takipci.bytes })
+                .catch(() => {});
+        }, 5000);
+        ilerleme.unref?.();
+
+        let sonuc;
+        try {
+            sonuc = await takipci.start();
+        } finally {
+            clearInterval(ilerleme);
+            signal.removeEventListener('abort', durdur);
+            state.follower = null;
+        }
+        if (sonuc.reason === 'aborted') throw new Error('İptal edildi');
+        if (sonuc.reason === 'error') throw new Error(sonuc.error || 'Yayın kaydı okunamadı');
+        if (takipci.bytes === 0) throw new Error('Yayın, seçilen aralığa ulaşmadan bitti');
+        if (sonuc.reason === 'ended') {
+            console.warn(`[VodScan] İş ${vodJobId}: yayın aralığın bitişinden önce kapandı, o ana kadarı alındı`);
+        }
+        await this._setStep(vodJobId, userId, 'dosya hazırlanıyor', 97);
+        await mp4eSarmala(tsPath, vodPath);
+        try { fs.rmSync(tsPath, { force: true }); } catch { /* yok */ }
     }
 
     /**

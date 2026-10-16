@@ -4,9 +4,9 @@ Kick yayıncıları için klip stüdyosu. Kurulduğu bilgisayarda çalışır; b
 
 - **İlk kurulum**: Giriş yapan yeni kullanıcı altı adımlık sihirbazla karşılanır: takip edilecek kanal (istenirse çevrimdışı bot takibi), logo, açılış/kapanış videosu, Zernio bağlantısı, genel ayarlar (altyazı motoru, çıktı klasörü) ve özet. Her adım "Şimdilik atla" ile geçilir; yüklenmeyen logo/intro/outro kliplere eklenmez. Sihirbaz Ayarlar'dan yeniden açılır.
 - **Klipler**: Kanalın Kick/KickBot kliplerini tara, seç, toplu olarak dikey videoya çevir. Yüz kamerası tespiti, altyazı ve 9:16 kompozisyon otomatik yapılır. Klip bağlantısı yapıştırarak da eklenebilir.
-- **Geçmiş yayınlar**: Kick'in sakladığı yayını indir. Zaman çizelgesinde sürükleyerek ya da I/O ile kesit işaretle, en iyi anları otomatik buldur.
+- **Geçmiş yayınlar**: Kick'in sakladığı yayını indir; istersen "Aralık" ile yalnız belirli bir başlangıç–bitiş kısmını (dakika ya da sa:dk:sn) indir, aynı yayından istediğin kadar aralık al. Zaman çizelgesinde sürükleyerek ya da I/O ile kesit işaretle, en iyi anları otomatik buldur.
 - **Kanal sekmeleri**: Üst ortada Kick'te arayarak kanal seçilir; her yayıncı bir sekme olur, "+" yeni sekme açar. Etkin sekme tarama, kayıt ve nöbetin varsayılanıdır.
-- **Canlı**: Elle yayın kaydı (geçmişten başlatılabilir), canlı önizleme, chat'e düşen klipleri yakalayıp otomatik işleme, sohbete `!clip 30…180` gönderen anlık klip düğmeleri (kanalda klip botu varsa çalışır; Ayarlar'da kendi Kick uygulamanı bağlaman gerekir) ve kanala eklenen yeni Kick kliplerini arka planda indiren klip takibi.
+- **Canlı**: Elle yayın kaydı (geçmişten başlatılabilir), canlı önizleme, süren yayından indirme (şu ana kadarı ya da yazılan bir başlangıç–bitiş aralığı; bitiş ileride olabilir, yayın o ana gelince dosya kapanır ve Geçmiş yayınlar'a düşer), chat'e düşen klipleri yakalayıp otomatik işleme, sohbete `!clip 30…180` gönderen anlık klip düğmeleri (kanalda klip botu varsa çalışır; Ayarlar'da kendi Kick uygulamanı bağlaman gerekir) ve kanala eklenen yeni Kick kliplerini arka planda indiren klip takibi.
 - **Nöbet**: Takip edilen kanalı arka planda yoklar. Yayın açılınca chat klip yakalamayı başlatır; yayın bitince Kick'in yayın kaydını indirir ve Geçmiş yayınlar'a koyar — hiçbir şey otomatik işlenmez, editörde sen kesersin. Tarayıcı kapalıyken de çalışır (Kesit açık ve bilgisayar uyanık olmalı); yeniden başlatmada geri kurulur.
 - **Kayıtlar**: Yayına hazır çıktı, kesitleri ayrı klip/kesit olarak üretme, istenmeyen kısımları çıkarma, küçültülmüş indirme, Zernio ile YouTube'a taslak → yayın.
 - **Paylaşım**: Her kullanıcı kendi Zernio API anahtarını bağlar. Anahtar veritabanında AES-GCM ile şifreli durur. Hemen ya da planlı paylaşım yapılabilir; TikTok için açık onay zorunludur.
@@ -22,14 +22,18 @@ Node ya da ffmpeg kurmadan kullanmak için **Kesit App** indir: Windows'ta `.exe
 | Sistem | Dosya |
 |---|---|
 | Windows 10/11 (64 bit) | `Kesit App-<sürüm>-win-x64.exe` |
-| macOS Apple Silicon (M1 ve sonrası) | `Kesit App-<sürüm>-mac-arm64.dmg` |
-| macOS Intel | `Kesit App-<sürüm>-mac-x64.dmg` |
+| macOS Apple Silicon (M1 ve sonrası) | `Kesit App-<sürüm>-mac-arm64.pkg` (önerilen) ya da `.dmg` |
+| macOS Intel | `Kesit App-<sürüm>-mac-x64.pkg` (önerilen) ya da `.dmg` |
 
 Kesit App küçük bir araçtır: ilk açılışta kurulumu yapar (ffmpeg/ffprobe paketle gelir; yerel altyazı için whisper Windows'ta indirilir, macOS'ta Homebrew varsa kurulur), sunucuyu başlatır/durdurur, portu başka bir program tutuyorsa onu kapatıp kendi sunucusunu açar, çalışma süresini ve günlüğü gösterir, güncellemeleri kontrol eder ve tepside bekler. Sunucu çalışınca "Uygulamayı aç" tarayıcıda **http://kesit.localhost** adresini açar (Chrome, Edge, Firefox; Safari'de `http://localhost:3002`). Veriler kullanıcı klasöründe tutulur; Ayarlar'dan port, veri klasörü, açılışta başlatma ve tepsi davranışı değiştirilir, en altta uygulamayı ve tüm verileri silen kaldırma düğmesi vardır.
 
 - **Windows**: kurulum dosyası imzalı olmadığı için SmartScreen "tanınmayan uygulama" uyarısı verebilir; "Ek bilgi → Yine de çalıştır" ile kurulur. Güncellemeler uygulama içinden indirilip kurulur.
-- **macOS**: uygulama notarize edilmemiştir; ilk açılışta Finder'da sağ tık → "Aç" gerekir (ya da `xattr -dr com.apple.quarantine "/Applications/Kesit App.app"`). Güncellemede uygulama yeni DMG'yi indirir, sen Applications'a sürüklersin.
-- Yerel altyazı için `whisper-cli` ayrıca kurulmalıdır (`brew install whisper-cpp`); yoksa Ayarlar'da ElevenLabs anahtarı kullanılabilir.
+- **macOS**: Apple geliştirici sertifikası olmadığından paket ad-hoc imzalıdır ve notarize edilmemiştir. İnternetten inen her dosyaya macOS "karantina" işareti koyar; bu işaretli bir uygulama için Gatekeeper **"hasarlı, açılamıyor"** der (sağ tık → Aç bu durumda işe yaramaz). İki yol:
+  - **`.pkg` (önerilen)**: Çift tıkla. macOS "doğrulanamadı" diye engellerse Sistem Ayarları → Gizlilik ve Güvenlik → en altta **"Yine de Aç"**. Kurulum paketi uygulamayı Applications'a karantinasız koyar; uygulama doğrudan açılır.
+  - **`.dmg`**: Uygulamayı Applications'a sürükledikten sonra Terminal'de şunu çalıştır: `xattr -dr com.apple.quarantine "/Applications/Kesit App.app"`.
+  
+  Güncellemeleri uygulama kendisi yapar: yeni sürümün .zip'ini indirir, karantina işaretini kaldırır, kendini değiştirip yeniden başlar (Applications'a yazamazsa kurulum paketini tarayıcıda açar).
+- Yerel altyazı için `whisper-cli` paketle gelir; yoksa `brew install whisper-cpp` ya da Ayarlar'da ElevenLabs anahtarı kullanılabilir.
 
 Geliştirici tarafı `desktop/` altındadır (Electron). `npm run desktop:dev` uygulamayı kaynak koddan açar; `npm run desktop:dist` bu bilgisayarın paketini `desktop/release/` altına üretir. `v*` etiketi atılınca GitHub Actions (`.github/workflows/release.yml`) macOS ve Windows paketlerini derleyip Release'e yükler; uygulamadaki "Güncelleme ara" bu Release'i okur.
 

@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Icon } from '../components/Icon.tsx';
+import { RangeDialog, type TimeRange } from '../components/RangeDialog.tsx';
 import { Timeline, CutList, newCut, type Cut } from '../components/Timeline.tsx';
 import { Empty, Segmented, Spinner, Switch, WorkspaceHead } from '../components/basics.tsx';
 import { api, query } from '../lib/api.ts';
+import { clockText, kickTimeMs } from '../lib/clock.ts';
 import { bytes, count, dateTime, duration, relative } from '../lib/format.ts';
 import { jobsStore, refreshJobs } from '../lib/jobs.ts';
 import { navigate, sectionPath } from '../lib/router.ts';
@@ -38,6 +40,7 @@ function VodList() {
   const jobs = useResource(() => api.get<{ jobs: VodJob[] }>('/api/vod-jobs').then((r) => r.jobs));
   const { live } = tasksStore.use();
   const [busy, setBusy] = useState<string | null>(null);
+  const [rangeFor, setRangeFor] = useState<VodVideo | null>(null);
 
   useSocketEvent<{ vodJobId: number; status: string }>('vodscan:update', (e) => {
     if (e.status !== 'processing') void jobs.reload();
@@ -46,12 +49,17 @@ function VodList() {
   const all = jobs.data ?? [];
   const ready = all.filter((j) => j.status === 'downloaded' && inScope(j.channel_slug));
   const downloading = all.filter((j) => ['queued', 'processing', 'paused'].includes(j.status) && inScope(j.channel_slug));
-  const jobFor = (v: VodVideo) => all.find((j) => String(j.source_video_id) === String(v.id) && j.status !== 'cancelled' && j.status !== 'failed' && j.status !== 'expired');
+  // Yayının tamamını indiren iş; aralık işleri "Düzenlemeye hazır"da ayrı ayrı görünür.
+  const jobFor = (v: VodVideo) => all.find((j) => String(j.source_video_id) === String(v.id) && j.range_start_sec == null && j.status !== 'cancelled' && j.status !== 'failed' && j.status !== 'expired');
+  const rangeLabel = (j: VodJob) => (j.range_start_sec != null && j.range_end_sec != null ? `${clockText(j.range_start_sec)}–${clockText(j.range_end_sec)}` : null);
+
+  const request = (v: VodVideo, range?: TimeRange) =>
+    api.post(v.isLive ? '/api/vods/capture-live' : '/api/vods/download', { channel, videoId: v.id, quality, ...(range ? { startSec: range.startSec, endSec: range.endSec } : {}) });
 
   const download = async (v: VodVideo) => {
     setBusy(String(v.id));
     try {
-      await api.post(v.isLive ? '/api/vods/capture-live' : '/api/vods/download', { channel, videoId: v.id, quality });
+      await request(v);
       toast('İndirme başladı — Görev yöneticisi\'nden izleyebilirsin', 'ok', { label: 'Görevlere git', run: () => navigate(sectionPath('gorevler')) }, 5000);
       await jobs.reload();
     } catch (err) {
@@ -59,6 +67,13 @@ function VodList() {
     } finally {
       setBusy(null);
     }
+  };
+
+  const downloadRange = async (range: TimeRange) => {
+    if (!rangeFor) return;
+    await request(rangeFor, range);
+    toast(`${clockText(range.startSec)}–${clockText(range.endSec)} aralığı indiriliyor`, 'ok', { label: 'Görevlere git', run: () => navigate(sectionPath('gorevler')) }, 5000);
+    await jobs.reload();
   };
 
   const remove = (job: VodJob) =>
@@ -100,7 +115,9 @@ function VodList() {
                 <div className="vod-card-body">
                   <h3 className="clip-card-title">{j.title || `Yayın #${j.source_video_id}`}</h3>
                   <p className="clip-card-meta">
-                    {j.channel_slug} · {j.vod_file_size_bytes ? bytes(j.vod_file_size_bytes) : ''}
+                    {j.channel_slug}
+                    {rangeLabel(j) ? ` · aralık ${rangeLabel(j)}` : ''}
+                    {j.vod_file_size_bytes ? ` · ${bytes(j.vod_file_size_bytes)}` : ''}
                     {j.vod_expires_at ? ` · ${relative(j.vod_expires_at)} silinecek` : ''}
                   </p>
                   <div className="row-gap">
@@ -188,21 +205,26 @@ function VodList() {
                     <p className="clip-card-meta">
                       {dateTime(v.startedAt)} · {count(v.viewCount)} izlenme
                     </p>
-                    {job?.status === 'downloaded' ? (
-                      <button type="button" className="btn btn-accent btn-small" onClick={() => navigate(sectionPath('yayinlar', job.id))}>
-                        <Icon name="scissors" size={14} /> Kes
+                    <div className="row-gap">
+                      {job?.status === 'downloaded' ? (
+                        <button type="button" className="btn btn-accent btn-small" onClick={() => navigate(sectionPath('yayinlar', job.id))}>
+                          <Icon name="scissors" size={14} /> Kes
+                        </button>
+                      ) : job ? (
+                        <button type="button" className="btn btn-secondary btn-small" onClick={() => navigate(sectionPath('gorevler'))}>
+                          <Spinner size={12} /> {job.status === 'queued' ? 'Sırada' : job.status === 'paused' ? 'Duraklatıldı' : `İniyor %${Math.round(pct)}`}
+                          {lv?.speedBps ? ` · ${speedLabel(lv.speedBps)}` : ''}
+                        </button>
+                      ) : (
+                        <button type="button" className="btn btn-secondary btn-small" onClick={() => download(v)} disabled={busy === String(v.id)}>
+                          {busy === String(v.id) ? <Spinner size={12} /> : <Icon name="download" size={14} />}
+                          {v.isLive ? 'Şu ana kadarını indir' : 'İndir'}
+                        </button>
+                      )}
+                      <button type="button" className="btn btn-quiet btn-small" onClick={() => setRangeFor(v)} disabled={busy === String(v.id)} title="Yalnız bir aralığını indir">
+                        <Icon name="clock" size={14} /> Aralık
                       </button>
-                    ) : job ? (
-                      <button type="button" className="btn btn-secondary btn-small" onClick={() => navigate(sectionPath('gorevler'))}>
-                        <Spinner size={12} /> {job.status === 'queued' ? 'Sırada' : job.status === 'paused' ? 'Duraklatıldı' : `İniyor %${Math.round(pct)}`}
-                        {lv?.speedBps ? ` · ${speedLabel(lv.speedBps)}` : ''}
-                      </button>
-                    ) : (
-                      <button type="button" className="btn btn-secondary btn-small" onClick={() => download(v)} disabled={busy === String(v.id)}>
-                        {busy === String(v.id) ? <Spinner size={12} /> : <Icon name="download" size={14} />}
-                        {v.isLive ? 'Şu ana kadarını indir' : 'İndir'}
-                      </button>
-                    )}
+                    </div>
                   </div>
                 </li>
               );
@@ -210,6 +232,15 @@ function VodList() {
           </ul>
         )}
       </section>
+
+      <RangeDialog
+        open={!!rangeFor}
+        onClose={() => setRangeFor(null)}
+        title={rangeFor ? `${rangeFor.title || 'Yayın'} — aralık indir` : 'Aralık indir'}
+        durationSec={rangeFor ? liveElapsed(rangeFor) : 0}
+        live={!!rangeFor?.isLive}
+        onSubmit={downloadRange}
+      />
     </>
   );
 }
@@ -390,6 +421,13 @@ function VodEditor({ id }: { id: number }) {
       </div>
     </>
   );
+}
+
+/** Süren yayında "şu an" listenin yüklendiği an değil, gerçek an olsun. */
+function liveElapsed(v: VodVideo) {
+  if (!v.isLive) return v.durationSec;
+  const start = kickTimeMs(v.startedAt);
+  return start ? Math.max(v.durationSec, Math.floor((Date.now() - start) / 1000)) : v.durationSec;
 }
 
 function BackLink() {

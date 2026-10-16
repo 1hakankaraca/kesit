@@ -303,4 +303,12 @@ export const MIGRATIONS: { id: string; sql: string }[] = [
       ALTER TABLE user_settings ADD COLUMN onboarding_done INTEGER NOT NULL DEFAULT 0;
     `,
   },
+  {
+    id: '009-yayin-araligi',
+    sql: `
+      -- Yayının yalnız bir aralığı indirildiyse (saniye, yayın başından). Boşsa tamamı.
+      ALTER TABLE vod_scan_jobs ADD COLUMN range_start_sec REAL;
+      ALTER TABLE vod_scan_jobs ADD COLUMN range_end_sec REAL;
+    `,
+  },
 ];

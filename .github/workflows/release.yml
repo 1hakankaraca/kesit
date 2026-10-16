@@ -27,7 +27,14 @@ jobs:
         run: |
           TAG="${GITHUB_REF_NAME}"
           case "$TAG" in v*) ;; *) echo "Etiket değil ($TAG), Release açılmadı"; exit 0;; esac
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "Kesit App ${TAG#v}" --notes "Kurulum dosyaları: Windows için .exe, macOS için .dmg (Apple Silicon: arm64, Intel: x64). Paketler imzasız; ilk açılış notları README'de."
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "Kesit App ${TAG#v}" --notes "$(cat <<'NOTES'
+          Kurulum dosyaları: Windows için `.exe`; macOS için `.pkg` (önerilen) ya da `.dmg` — Apple Silicon: `arm64`, Intel: `x64`.
+
+          **macOS ilk açılış:** Paket ad-hoc imzalı, notarize değil. `.pkg` macOS tarafından engellenirse Sistem Ayarları → Gizlilik ve Güvenlik → "Yine de Aç". `.dmg` kullandıysan ve uygulama "hasarlı" derse Terminal'de: `xattr -dr com.apple.quarantine "/Applications/Kesit App.app"`. Sonraki güncellemeleri uygulama kendisi kurar.
+
+          **Windows:** SmartScreen uyarısında "Ek bilgi → Yine de çalıştır".
+          NOTES
+          )"
 
   build:
     needs: prepare
@@ -115,7 +122,8 @@ jobs:
         working-directory: desktop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # İmza sertifikası yok: macOS'ta imzasız paket üretilir.
+          # İmza sertifikası yok: macOS'ta ad-hoc imza (package.json: identity "-").
+          # İmzasız paket Apple Silicon'da hiç açılmıyordu ("dosya hasarlı").
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
       - name: whisper paketini Release'e ekle
@@ -129,6 +137,7 @@ jobs:
           name: kesit-app-${{ matrix.os }}-${{ matrix.whisper }}
           path: |
             desktop/release/*.dmg
+            desktop/release/*.pkg
             desktop/release/*.exe
             desktop/release/*.zip
             desktop/release/*.yml

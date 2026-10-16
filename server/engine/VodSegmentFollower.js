@@ -14,11 +14,14 @@
  * MPEG-TS parçaları bayt düzeyinde uç uca eklenebildiğinden sonuç, canlı
  * kaydın ürettiğiyle aynı türde (yarıda kesilse de geçerli) bir dosyadır.
  *
- * İki kullanım:
+ * Üç kullanım:
  *  - "N dk öncesinden başla ve devam et": untilMs boş başlar, `stop()` gelene
  *    kadar izlenir;
  *  - "yalnız son N dk": untilMs = başlangıç anı; o ana kadarki parçalar inince
- *    kendiliğinden biter.
+ *    kendiliğinden biter;
+ *  - "yayının X–Y dakikası" (bitiş, hatta başlangıç ileride olabilir): başlangıç
+ *    anı playlist'e düşene kadar beklenir, bitiş anı geçince biter. Yayın o
+ *    ana gelmeden kapanırsa eldekiyle ('ended') döner.
  */
 const axios = require('axios');
 const fs = require('fs');
@@ -76,6 +79,12 @@ function parsePlaylist(metin, playlistUrl, { baseMs = null } = {}) {
         }
     }
     return parcalar;
+}
+
+/** Playlist'teki son parça bile `fromMs` anından önce bitiyorsa başlangıç henüz yayınlanmamıştır (saf fonksiyon). */
+function henuzGelmedi(sonParca, fromMs) {
+    if (!sonParca || sonParca.startMs === null || !Number.isFinite(fromMs)) return false;
+    return sonParca.startMs + sonParca.durationSec * 1000 <= fromMs;
 }
 
 /**
@@ -166,15 +175,23 @@ class VodSegmentFollower {
 
     async _dongu() {
         let sonIlerleme = Date.now();
+        let sonBuyume = Date.now();   // playlist'e en son yeni parça düştüğü an
+        let sonParcaSeq = null;
 
         while (!this._iptal) {
             const parcalar = await this._playlistOku();
+            const sonParca = parcalar[parcalar.length - 1] || null;
+            if (sonParca && sonParca.seq !== sonParcaSeq) {
+                sonParcaSeq = sonParca.seq;
+                sonBuyume = Date.now();
+            }
 
-            if (this._sonrakiSira === null && parcalar.length) {
+            // Başlangıç anı henüz yayınlanmadıysa (ileri tarihli aralık) parça seçilmez, beklenir.
+            if (this._sonrakiSira === null && parcalar.length && !henuzGelmedi(sonParca, this.fromMs)) {
                 this._sonrakiSira = parcalar[selectStartIndex(parcalar, this.fromMs)].seq;
             }
 
-            const bekleyen = parcalar.filter(p => p.seq >= this._sonrakiSira
+            const bekleyen = this._sonrakiSira === null ? [] : parcalar.filter(p => p.seq >= this._sonrakiSira
                 && (this.untilMs === null || p.startMs === null || p.startMs < this.untilMs));
 
             for (let i = 0; i < bekleyen.length && !this._iptal; i += ESZAMANLI_INDIRME) {
@@ -190,8 +207,11 @@ class VodSegmentFollower {
 
             if (this.untilMs !== null) {
                 if (this.lastEndMs !== null && this.lastEndMs >= this.untilMs) return { reason: 'completed', error: null };
-                // Son parça playlist'e hiç düşmediyse (yayın tam o an kapandı) sonsuza dek bekleme
-                if (Date.now() - Math.max(this._bitisIstendiMs, sonIlerleme) > this.drainMs) {
+                if (Date.now() < this.untilMs) {
+                    // Bitiş anı ileride: yayın aktıkça beklenir; playlist büyümüyorsa yayın bitmiştir.
+                    if (Date.now() - sonBuyume > this.stallMs) return { reason: 'ended', error: null };
+                } else if (Date.now() - Math.max(this._bitisIstendiMs, sonIlerleme) > this.drainMs) {
+                    // Son parça playlist'e hiç düşmediyse (yayın tam o an kapandı) sonsuza dek bekleme
                     return { reason: 'completed', error: null };
                 }
             } else if (Date.now() - sonIlerleme > this.stallMs) {
@@ -266,3 +286,4 @@ class VodSegmentFollower {
 module.exports = VodSegmentFollower;
 module.exports.parsePlaylist = parsePlaylist;
 module.exports.selectStartIndex = selectStartIndex;
+module.exports.henuzGelmedi = henuzGelmedi;

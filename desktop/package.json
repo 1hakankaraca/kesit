@@ -1,6 +1,6 @@
 {
   "name": "kesit-app",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "private": true,
   "description": "Kesit App — Kesit sunucusunu kurar, başlatır, günceller",
   "main": "main.cjs",
@@ -67,12 +67,14 @@
       "category": "public.app-category.video",
       "target": [
         "dmg",
-        "zip"
+        "zip",
+        "pkg"
       ],
       "icon": "build/icon.png",
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
-      "identity": null
+      "identity": "-",
+      "notarize": false
     },
     "dmg": {
       "title": "Kesit App",
@@ -116,6 +118,13 @@
         "repo": "kesit",
         "releaseType": "release"
       }
-    ]
+    ],
+    "pkg": {
+      "installLocation": "/Applications",
+      "isRelocatable": false,
+      "allowAnywhere": false,
+      "allowCurrentUserHome": false,
+      "overwriteAction": "upgrade"
+    }
   }
 }

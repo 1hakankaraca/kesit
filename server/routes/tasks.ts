@@ -47,7 +47,7 @@ export function taskRoutes({ store, workspaces, captions, exporter, harvester, p
         key: `yayin-${j.id}`,
         group: active ? 'iniyor' : j.status === 'downloaded' ? 'bitti' : 'hata',
         kind: 'yayin',
-        title: j.title || 'Geçmiş yayın',
+        title: `${j.title || 'Geçmiş yayın'}${j.range_start_sec != null && j.range_end_sec != null ? ` · ${clock(j.range_start_sec)}–${clock(j.range_end_sec)}` : ''}`,
         channel: j.channel_slug,
         step:
           j.status === 'queued' ? 'Sırada'
@@ -217,3 +217,12 @@ export function taskRoutes({ store, workspaces, captions, exporter, harvester, p
   return r;
 }
 
+
+/** Saniyeyi s:dd:ss (ya da dd:ss) biçiminde yazar — aralık indirmelerinin başlığı için. */
+function clock(sec: number) {
+  const s = Math.max(0, Math.round(Number(sec) || 0));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const r = s % 60;
+  return h ? `${h}:${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}` : `${m}:${String(r).padStart(2, '0')}`;
+}

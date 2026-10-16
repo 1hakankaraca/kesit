@@ -380,12 +380,13 @@ export class Store {
   async createVodScanJob(userId: number, data: Row) {
     const res = this.run(
       `INSERT INTO vod_scan_jobs (user_id, channel_slug, source, source_video_id, title, duration_sec, options,
-         max_clips, thumbnail_url, from_live, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued')`,
+         max_clips, thumbnail_url, from_live, range_start_sec, range_end_sec, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued')`,
       [
         userId, data.channelSlug || '', data.source || 'kick', String(data.sourceVideoId), data.title || '',
         data.durationSec || 0, data.options ? JSON.stringify(data.options) : null, data.maxClips || 8,
         data.thumbnailUrl || null, data.fromLive === true,
+        data.rangeStartSec ?? null, data.rangeEndSec ?? null,
       ],
     );
     return this.get('SELECT * FROM vod_scan_jobs WHERE id = ?', [res.lastInsertRowid]);

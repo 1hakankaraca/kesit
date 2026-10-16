@@ -46,6 +46,7 @@ export const GUIDES = {
     intro: 'Kick\'in sakladığı eski yayınları bilgisayarına indirip istediğin anları kesersin ya da editörde açarsın.',
     steps: [
       { title: 'Yayını indir', text: 'Aşağıdaki listeden bir yayın seç, "İndir"e bas. İndirme hızını ve kalan süreyi Görev yöneticisi\'nde görürsün.' },
+      { title: 'Yalnız bir aralığı indir', text: '"Aralık" ile başlangıç ve bitişi yaz (dakika ya da sa:dk:sn); yalnız o kısım iner. Aynı yayından istediğin kadar aralık alabilirsin.' },
       { title: 'Kes', text: 'İnen yayın üstte "Düzenlemeye hazır" kısmında görünür. "Kes" hızlı kesim ekranını açar; "Editörde aç" tam editöre götürür.' },
       { title: 'Kesit işaretle', text: '"Kesit seç" moduna geç (C tuşu) ve şeritte sürükle. Ya da oynatırken I (başlangıç) ve O (bitiş) tuşlarına basıp Enter\'la ekle.' },
       { title: 'Hazırla', text: 'Sağda dikey video ya da yatay kesit seç ve "Kesitleri üret"e bas. İstersen işaretlediğin kesitleri editörde de açabilirsin.' },
@@ -57,6 +58,7 @@ export const GUIDES = {
     intro: 'Süren bir yayını kaydeder, klipleri yakalar ve sohbete klip komutu atarsın. Sen yokken kendiliğinden olsun istiyorsan Çevrimdışı bot takibi kullan.',
     steps: [
       { title: 'Kaydı başlat', text: '"Şimdiden" ya da geçmişten bir başlangıç seç ve "Kaydı başlat"a bas. Durdurunca kayıt Galeri\'ye düşer.' },
+      { title: 'Yayından aralık indir', text: '"Belirli aralığı indir" ile yayının başlangıç ve bitiş dakikasını yaz. Bitiş ileride olabilir: yayın o ana gelince dosya kapanır ve Yayın geçmişleri\'ne düşer.' },
       { title: 'Klipleri dinle', text: '"Dinlemeye başla" ile hem sohbete atılan klipler hem de kanala Kick\'te eklenen yeni klipler yakalanıp indirilir. "Otomatik düzenle" açıksa dikey videoya da çevrilir.' },
       { title: 'Anlık klip al', text: 'Yayın sırasında 30–180 sn düğmelerinden birine bas: sohbete "!clip" yazılır. Kanalda klip botu varsa klip alınır ve yakalanır.' },
     ],

@@ -160,10 +160,13 @@ class KickVodFetcher {
      *     ettirebilsin diye (SIGSTOP/SIGCONT) ffmpeg süreç referansını dışarı verir
      *   - isPaused: () => boolean — true dönerse stall-timer o tur sayılmaz (duraklatılmışken
      *     "ilerleme yok" diye otomatik iptal etmesin)
+     *   - startSec / endSec: yalnız bu aralık indirilir (yayın başından saniye). İkisi de
+     *     boşsa yayının tamamı iner; `durationSec` bu durumda aralığın uzunluğu olmalı.
      * @returns {string} indirilen dosyanın yolu
      */
     async download(sourceUrl, outputPath, {
         durationSec = 0, onProgress, stallTimeoutMs = 5 * 60 * 1000, quality = '720p', signal, onProcess, isPaused,
+        startSec = null, endSec = null,
     } = {}) {
         if (!sourceUrl || !/^https:\/\/stream\.kick\.com\//.test(sourceUrl)) {
             throw new Error('Geçersiz VOD kaynağı');
@@ -173,15 +176,7 @@ class KickVodFetcher {
         const fetchUrl = await this._resolveVariantUrl(sourceUrl, quality);
 
         await new Promise((resolve, reject) => {
-            const proc = childProcess.spawn('ffmpeg', [
-                '-y', '-loglevel', 'error',
-                '-user_agent', BROWSER_HEADERS['User-Agent'],
-                '-i', fetchUrl,
-                '-c', 'copy',
-                '-movflags', '+faststart',
-                '-progress', 'pipe:1', '-nostats',
-                outputPath,
-            ]);
+            const proc = childProcess.spawn('ffmpeg', KickVodFetcher.buildDownloadArgs(fetchUrl, outputPath, { startSec, endSec }));
             onProcess?.(proc);
 
             let stderr = '';
@@ -269,6 +264,33 @@ class KickVodFetcher {
             throw new Error('İndirilen VOD dosyası boş veya bozuk');
         }
         return outputPath;
+    }
+
+    /**
+     * ffmpeg argümanları (saf fonksiyon). Aralık verilirse `-ss` girdi tarafında
+     * konur: HLS okuyucu doğrudan o anı içeren parçaya atlar (baştan indirmez) ve
+     * yeniden kodlama olmadığından çıktı ilk anahtar kareden (~2 sn içinde) başlar.
+     * `-t` aralığın uzunluğunu sınırlar.
+     *
+     * @param {string} fetchUrl
+     * @param {string} outputPath
+     * @param {{startSec?: number|null, endSec?: number|null}} [range]
+     * @returns {string[]}
+     */
+    static buildDownloadArgs(fetchUrl, outputPath, { startSec = null, endSec = null } = {}) {
+        const bas = Number.isFinite(startSec) && startSec > 0 ? startSec : 0;
+        const son = Number.isFinite(endSec) && endSec > bas ? endSec : null;
+        return [
+            '-y', '-loglevel', 'error',
+            '-user_agent', BROWSER_HEADERS['User-Agent'],
+            ...(bas > 0 ? ['-ss', bas.toFixed(3)] : []),
+            '-i', fetchUrl,
+            ...(son !== null ? ['-t', (son - bas).toFixed(3)] : []),
+            '-c', 'copy',
+            '-movflags', '+faststart',
+            '-progress', 'pipe:1', '-nostats',
+            outputPath,
+        ];
     }
 }
 

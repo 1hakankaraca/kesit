@@ -4,6 +4,19 @@ import { badRequest, camFullFrom, clipOptionsFrom, engine, intParam, notFound, o
 
 const QUALITIES = ['source', '1080p', '720p', '480p', '360p'] as const;
 
+/** İsteğe bağlı aralık (saniye, yayın başından). İkisi de yoksa tamamı indirilir. */
+function rangeFrom(body: Record<string, unknown> | undefined) {
+  const start = body?.startSec;
+  const end = body?.endSec;
+  if ((start === undefined || start === null || start === '') && (end === undefined || end === null || end === '')) return null;
+  const startSec = Number(start);
+  const endSec = Number(end);
+  if (!Number.isFinite(startSec) || !Number.isFinite(endSec)) throw badRequest('Aralık için başlangıç ve bitiş gerekli');
+  if (startSec < 0) throw badRequest('Başlangıç 0\'dan küçük olamaz');
+  if (endSec <= startSec) throw badRequest('Bitiş başlangıçtan sonra olmalı');
+  return { startSec, endSec };
+}
+
 /**
  * Geçmiş yayınlar: Kick VOD listesi → indirme → zaman çizelgesinde kesit
  * işaretleme (elle) ya da otomatik en iyi anları dikey klibe çevirme.
@@ -28,14 +41,20 @@ export function vodRoutes({ store, vodScanner }: AppContext) {
     const videoId = String(req.body?.videoId || '').trim();
     if (!videoId) throw badRequest('Yayın seçin');
     const quality = oneOf(req.body?.quality, QUALITIES, '720p');
-    res.json({ job: await engine(() => vodScanner.enqueue(req.user!.id, { channelSlug: channel, videoId, quality }), 502) });
+    const range = rangeFrom(req.body);
+    res.json({ job: await engine(() => vodScanner.enqueue(req.user!.id, { channelSlug: channel, videoId, quality, range }), 502) });
   });
 
-  /** Süren yayının başından şu ana kadarki bölümünü indirir — yayın akarken kesit almanın yolu. */
+  /**
+   * Süren yayının başından şu ana kadarki bölümünü indirir — yayın akarken kesit
+   * almanın yolu. `startSec`/`endSec` verilirse yalnız o aralık alınır; bitiş
+   * henüz yayınlanmadıysa yayın o ana gelene kadar beklenir.
+   */
   r.post('/vods/capture-live', async (req, res) => {
     const channel = slugOrThrow(req.body?.channel || req.user!.channelSlug);
     const quality = oneOf(req.body?.quality, QUALITIES, '1080p');
-    res.json({ job: await engine(() => vodScanner.enqueueLive(req.user!.id, { channelSlug: channel, quality }), 502) });
+    const range = rangeFrom(req.body);
+    res.json({ job: await engine(() => vodScanner.enqueueLive(req.user!.id, { channelSlug: channel, quality, range }), 502) });
   });
 
   r.get('/vod-jobs', async (req, res) => {

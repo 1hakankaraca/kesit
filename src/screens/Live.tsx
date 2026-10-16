@@ -2,8 +2,10 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useState } from 'react';
 import { HlsVideo } from '../components/HlsVideo.tsx';
 import { Icon } from '../components/Icon.tsx';
+import { RangeDialog, type TimeRange } from '../components/RangeDialog.tsx';
 import { Empty, Field, Modal, Pill, Segmented, Spinner, Switch, WorkspaceHead } from '../components/basics.tsx';
 import { api, query } from '../lib/api.ts';
+import { kickTimeMs } from '../lib/clock.ts';
 import { bytes, count, duration, relative, time } from '../lib/format.ts';
 import { refreshJobs } from '../lib/jobs.ts';
 import { liveStore, refreshLive } from '../lib/live.ts';
@@ -52,7 +54,10 @@ export function Live() {
         </p>
       )}
       <div className="live-grid">
-        <RecorderPanel live={live} channel={channel} isLive={!!info.data?.isLive} />
+        <div className="ws-stack">
+          <RecorderPanel live={live} channel={channel} isLive={!!info.data?.isLive} />
+          <LiveCapturePanel channel={channel} isLive={!!info.data?.isLive} startedAt={info.data?.startedAt ?? null} />
+        </div>
         <div className="ws-stack">
           <WatcherPanel live={live} channel={channel} />
           <QuickClipPanel channel={channel} isLive={!!info.data?.isLive} chatAccess={live.chatAccess} />
@@ -200,6 +205,69 @@ function RecorderPanel({ live, channel, isLive }: { live: LiveState; channel: st
           </button>
         </div>
       )}
+    </section>
+  );
+}
+
+/**
+ * Süren yayından indirme: şu ana kadarki kısmı ya da yazılan bir aralığı
+ * (başlangıç–bitiş dakikası) Kick'in süren yayın kaydından alır; Yayın
+ * geçmişleri'ne düşer. Bitiş ileride olabilir: yayın o ana gelince dosya kapanır.
+ */
+function LiveCapturePanel({ channel, isLive, startedAt }: { channel: string; isLive: boolean; startedAt: string | null }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const startMs = kickTimeMs(startedAt);
+  useEffect(() => {
+    const tick = () => setElapsed(startMs ? Math.max(0, Math.floor((Date.now() - startMs) / 1000)) : 0);
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [startMs]);
+
+  const toTasks = { label: 'Görevlere git', run: () => navigate(sectionPath('gorevler')) };
+
+  const captureSoFar = async () => {
+    setBusy(true);
+    try {
+      await api.post('/api/vods/capture-live', { channel });
+      toast("Yayının şu ana kadarki kısmı indiriliyor — Yayın geçmişleri'nde kesebilirsin", 'ok', toTasks, 5000);
+    } catch (err) {
+      toastError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const captureRange = async (range: TimeRange) => {
+    await api.post('/api/vods/capture-live', { channel, startSec: range.startSec, endSec: range.endSec });
+    const future = range.endSec > elapsed;
+    toast(future ? `Aralık kaydediliyor — yayın ${duration(range.endSec)} noktasına gelince dosya kapanır` : 'Aralık indiriliyor — Yayın geçmişleri\'nde görünecek', 'ok', toTasks, 6000);
+  };
+
+  return (
+    <section className="panel" aria-labelledby="capture-title">
+      <header className="panel-head">
+        <div>
+          <h2 id="capture-title" className="panel-title">
+            <Icon name="download" size={18} /> Yayından indir
+          </h2>
+          <p className="panel-sub">
+            {isLive ? `Yayın ${duration(elapsed)} noktasında. Şu ana kadarını ya da yazdığın bir aralığı indir; Yayın geçmişleri'ne düşer.` : 'Kanal yayına girince süren yayının bir bölümünü indirebilirsin.'}
+          </p>
+        </div>
+      </header>
+      <div className="row-gap">
+        <button type="button" className="btn btn-secondary" onClick={() => void captureSoFar()} disabled={busy || !isLive || !channel}>
+          {busy ? <Spinner /> : <Icon name="scissors" size={14} />} Şu ana kadarını indir
+        </button>
+        <button type="button" className="btn btn-accent" onClick={() => setOpen(true)} disabled={!isLive || !channel}>
+          <Icon name="clock" size={14} /> Belirli aralığı indir
+        </button>
+      </div>
+      <p className="field-help pad-top">Yayın kaydı kapalı kanallarda bu seçenek çalışmaz; o durumda "Canlı kayıt" kullan.</p>
+      <RangeDialog open={open} onClose={() => setOpen(false)} title="Yayından aralık indir" durationSec={elapsed} live onSubmit={captureRange} />
     </section>
   );
 }

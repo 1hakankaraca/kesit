@@ -487,3 +487,5 @@ module.exports = StreamRecorder;
 // Kayıt düzenleyici (RecordingEditor) aynı ölçüm yardımcılarını kullanır.
 module.exports.sureOku = sureOku;
 module.exports.dosyaBoyutu = dosyaBoyutu;
+// Yayın aralığı indirmesi (VodScanManager) parça takipçisinin .ts çıktısını aynı yolla MP4'e sarar.
+module.exports.mp4eSarmala = mp4eSarmala;

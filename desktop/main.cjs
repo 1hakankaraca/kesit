@@ -13,6 +13,8 @@ const fs = require('node:fs');
 const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
+const { Readable } = require('node:stream');
+const { pipeline } = require('node:stream/promises');
 const { promisify } = require('node:util');
 const log = require('electron-log/main');
 const { autoUpdater } = require('electron-updater');
@@ -581,7 +583,7 @@ async function runSetup() {
 
 /* ── Güncelleme ─────────────────────────────────────────────────────────── */
 
-const update = { status: 'idle', latest: null, url: null, progress: 0, error: null, notes: null };
+const update = { status: 'idle', latest: null, url: null, zipUrl: null, progress: 0, error: null, notes: null };
 
 function sendUpdate() {
   broadcast('update:state', { ...update, current: app.getVersion() });
@@ -594,15 +596,103 @@ const semverNewer = (a, b) => {
   return false;
 };
 
-/** GitHub'daki son sürümü sorar (imzasız macOS için indirme bağlantısı). */
+/**
+ * GitHub'daki son sürümü sorar. macOS'ta iki bağlantı döner: uygulamanın
+ * kendi kendini değiştirmesi için .zip, elle kurulum için .pkg (yoksa .dmg).
+ */
 async function checkGithub() {
   const res = await fetch(`https://api.github.com/repos/${GITHUB.owner}/${GITHUB.repo}/releases/latest`, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'kesit-app' }, signal: AbortSignal.timeout(10000) });
   if (res.status === 404) return { latest: null };
   if (!res.ok) throw new Error(`GitHub yanıtı ${res.status}`);
   const rel = await res.json();
-  const want = IS_MAC ? (process.arch === 'arm64' ? /arm64.*\.dmg$/i : /x64.*\.dmg$/i) : /\.exe$/i;
-  const asset = (rel.assets || []).find((a) => want.test(a.name)) || (rel.assets || []).find((a) => (IS_MAC ? /\.dmg$/i : /\.exe$/i).test(a.name));
-  return { latest: String(rel.tag_name || rel.name || '').replace(/^v/, ''), url: asset?.browser_download_url || rel.html_url, notes: rel.body || null };
+  const assets = rel.assets || [];
+  const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
+  const pick = (ext) => assets.find((a) => new RegExp(`mac.*${arch}.*\\.${ext}$`, 'i').test(a.name)) || assets.find((a) => new RegExp(`\\.${ext}$`, 'i').test(a.name));
+  const asset = IS_MAC ? pick('pkg') || pick('dmg') : assets.find((a) => /\.exe$/i.test(a.name));
+  const zip = IS_MAC ? assets.find((a) => new RegExp(`mac.*${arch}.*\\.zip$`, 'i').test(a.name)) : null;
+  return { latest: String(rel.tag_name || rel.name || '').replace(/^v/, ''), url: asset?.browser_download_url || rel.html_url, zipUrl: zip?.browser_download_url || null, notes: rel.body || null };
+}
+
+/** Dosyayı diske indirir; yüzde ilerlemesini bildirir. */
+async function downloadFile(url, dest, onProgress) {
+  const res = await fetch(url, { headers: { 'User-Agent': 'kesit-app' }, redirect: 'follow' });
+  if (!res.ok || !res.body) throw new Error(`İndirme yanıtı ${res.status}`);
+  const total = Number(res.headers.get('content-length')) || 0;
+  let got = 0;
+  let last = -1;
+  const body = Readable.fromWeb(res.body);
+  body.on('data', (chunk) => {
+    got += chunk.length;
+    const pct = total ? Math.min(99, Math.floor((got / total) * 100)) : 0;
+    if (pct !== last) {
+      last = pct;
+      onProgress(pct);
+    }
+  });
+  await pipeline(body, fs.createWriteStream(dest));
+}
+
+/**
+ * macOS: sertifika olmadığı için electron-updater çalışmaz; uygulama .zip'i
+ * kendisi indirir, açar, karantina işaretini kaldırır (Gatekeeper'ın
+ * "hasarlı" demesinin tek nedeni bu işaret) ve kendi paketini yenisiyle
+ * değiştirip yeniden başlar. Yazma izni yoksa ya da bir şey ters giderse
+ * kurulum paketi tarayıcıda açılır.
+ */
+async function installMacUpdate() {
+  const bundle = path.resolve(process.execPath, '..', '..', '..');
+  if (!app.isPackaged || !bundle.endsWith('.app') || !update.zipUrl) {
+    if (update.url) await shell.openExternal(update.url);
+    return;
+  }
+  update.status = 'downloading';
+  update.progress = 0;
+  update.error = null;
+  sendUpdate();
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'kesit-guncelleme-'));
+  const zipPath = path.join(tmp, 'kesit.zip');
+  const yedek = path.join(path.dirname(bundle), `.${path.basename(bundle)}.eski`);
+  try {
+    await downloadFile(update.zipUrl, zipPath, (pct) => {
+      update.progress = pct;
+      sendUpdate();
+    });
+    update.status = 'installing';
+    update.progress = 100;
+    sendUpdate();
+    appLog(`Güncelleme indirildi, kuruluyor: ${bundle}`);
+    await execFileP('ditto', ['-x', '-k', zipPath, tmp]);
+    const yeniAd = fs.readdirSync(tmp).find((n) => n.endsWith('.app'));
+    if (!yeniAd) throw new Error('Pakette uygulama bulunamadı');
+    const yeni = path.join(tmp, yeniAd);
+    await execFileP('xattr', ['-dr', 'com.apple.quarantine', yeni]).catch(() => {});
+    // Yazma izni var mı? (Applications'a yalnız yönetici yazabilir.)
+    fs.accessSync(path.dirname(bundle), fs.constants.W_OK);
+    await stopServer();
+    fs.rmSync(yedek, { recursive: true, force: true });
+    fs.renameSync(bundle, yedek);
+    try {
+      await execFileP('ditto', [yeni, bundle]);
+    } catch (err) {
+      fs.rmSync(bundle, { recursive: true, force: true });
+      fs.renameSync(yedek, bundle);
+      throw err;
+    }
+    fs.rmSync(yedek, { recursive: true, force: true });
+    fs.rmSync(tmp, { recursive: true, force: true });
+    appLog(`Güncelleme kuruldu: v${update.latest}; yeniden başlatılıyor`);
+    quitting = true;
+    app.relaunch();
+    app.exit(0);
+  } catch (err) {
+    log.warn(`macOS güncellemesi kurulamadı: ${err.message}`);
+    fs.rmSync(tmp, { recursive: true, force: true });
+    update.status = 'available';
+    update.progress = 0;
+    update.error = `Kendiliğinden kurulamadı (${err.message}); kurulum paketi tarayıcıda açıldı.`;
+    sendUpdate();
+    if (update.url) await shell.openExternal(update.url);
+  }
 }
 
 async function checkForUpdate() {
@@ -620,6 +710,7 @@ async function checkForUpdate() {
       const r = await checkGithub();
       update.latest = r.latest;
       update.url = r.url ?? null;
+      update.zipUrl = r.zipUrl ?? null;
       update.notes = r.notes ?? null;
       update.status = r.latest && semverNewer(r.latest, app.getVersion()) ? 'available' : 'none';
     }
@@ -648,8 +739,9 @@ async function installUpdate() {
       update.error = err.message;
       sendUpdate();
     }
+  } else if (IS_MAC) {
+    await installMacUpdate();
   } else if (update.url) {
-    // macOS: imzasız uygulama kendini değiştiremez; DMG indirilir, kullanıcı sürükler.
     await shell.openExternal(update.url);
   }
 }

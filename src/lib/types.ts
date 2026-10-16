@@ -82,6 +82,9 @@ export interface VodJob {
   vod_file_size_bytes: number | null;
   vod_expires_at: string | null;
   from_live: boolean;
+  /** Yalnız bir aralık indirildiyse (saniye, yayın başından); tamamı indirildiyse boş. */
+  range_start_sec: number | null;
+  range_end_sec: number | null;
   created_at: string;
 }
 

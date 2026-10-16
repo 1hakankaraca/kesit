@@ -67,7 +67,7 @@ function renderUpdate(u) {
   actions.hidden = true;
   prog.hidden = true;
   $('btn-notes').hidden = !u.notes;
-  $('btn-check').disabled = u.status === 'checking' || u.status === 'downloading';
+  $('btn-check').disabled = u.status === 'checking' || u.status === 'downloading' || u.status === 'installing';
   switch (u.status) {
     case 'checking':
       text.textContent = 'Bakılıyor…';
@@ -76,14 +76,19 @@ function renderUpdate(u) {
       text.textContent = `Güncel: v${u.current}${u.latest ? '' : ' (henüz yayın yok)'}`;
       break;
     case 'available':
-      text.textContent = `Yeni sürüm var: v${u.latest} (sende v${u.current})`;
+      text.textContent = `Yeni sürüm var: v${u.latest} (sende v${u.current})${u.error ? ` — ${u.error}` : ''}`;
       actions.hidden = false;
-      $('btn-update').textContent = info?.platform === 'win32' ? 'İndir ve kur' : 'İndir (DMG)';
+      $('btn-update').textContent = 'İndir ve kur';
       break;
     case 'downloading':
       text.textContent = `İndiriliyor %${u.progress}`;
       prog.hidden = false;
       prog.firstElementChild.style.width = `${u.progress}%`;
+      break;
+    case 'installing':
+      text.textContent = `v${u.latest} kuruluyor, uygulama birazdan yeniden başlayacak…`;
+      prog.hidden = false;
+      prog.firstElementChild.style.width = '100%';
       break;
     case 'downloaded':
       text.textContent = `v${u.latest} indirildi. Kurulum için uygulama yeniden başlatılır.`;
