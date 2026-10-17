@@ -1,6 +1,6 @@
 {
   "name": "kesit-app",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "private": true,
   "description": "Kesit App — Kesit sunucusunu kurar, başlatır, günceller",
   "main": "main.cjs",
