@@ -33,6 +33,7 @@ import { Retention } from './services/Retention.ts';
 import { Storage } from './services/Storage.ts';
 import { Projects } from './services/Projects.ts';
 import { Publishing } from './services/Publishing.ts';
+import { Snippets } from './services/Snippets.ts';
 import { SystemMonitor } from './services/SystemMonitor.ts';
 import { Workspaces } from './services/Workspaces.ts';
 
@@ -58,6 +59,7 @@ const ctx: AppContext = {
   captions: new Captions(store, io),
   exporter,
   storage: new Storage(store, workspaces, vodScanner, exporter),
+  snippets: new Snippets(store, io, workspaces, vodScanner),
   kickChat: new KickChat(store),
   harvester,
   projects: new Projects(store, io),

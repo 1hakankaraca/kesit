@@ -14,7 +14,7 @@ const RECENT_MS = 24 * 60 * 60_000;
 export interface Task {
   key: string;
   group: 'iniyor' | 'hazirlaniyor' | 'bitti' | 'hata';
-  kind: 'yayin' | 'klip-indir' | 'video' | 'kayit' | 'hazir-video' | 'model' | 'proje';
+  kind: 'yayin' | 'klip-indir' | 'video' | 'kayit' | 'hazir-video' | 'model' | 'proje' | 'kesit';
   title: string;
   channel: string | null;
   step: string;
@@ -26,13 +26,17 @@ export interface Task {
   link: { section: string; sub: number | string | null; label: string } | null;
   /** Yayın indirme işinin kimliği (duraklat/sürdür/iptal için). */
   vodJobId?: number;
+  /** Kartta gösterilecek görsel (varsa). */
+  thumbUrl?: string | null;
+  /** Süren iş iptal edilebiliyorsa POST edilecek uç. */
+  cancel?: string | null;
 }
 
 const iso = (v: unknown) => (v instanceof Date ? v.toISOString() : String(v ?? new Date().toISOString()));
 const recent = (v: unknown) => !!v && Date.now() - new Date(v as string).getTime() < RECENT_MS;
 
 /** Görev yöneticisi ve ekran görüntüsü uçları. */
-export function taskRoutes({ store, workspaces, captions, exporter, harvester, projects }: AppContext) {
+export function taskRoutes({ store, workspaces, captions, exporter, harvester, projects, snippets }: AppContext) {
   const r = express.Router();
 
   r.get('/tasks', async (req, res) => {
@@ -63,6 +67,27 @@ export function taskRoutes({ store, workspaces, captions, exporter, harvester, p
         at: iso(j.created_at),
         link: j.status === 'downloaded' ? { section: 'yayinlar', sub: j.id, label: 'Kesmeye git' } : { section: 'yayinlar', sub: null, label: 'Yayın geçmişine git' },
         vodJobId: j.id,
+        thumbUrl: j.thumbnail_url ?? null,
+        cancel: active ? `/api/vod-jobs/${j.id}/cancel` : null,
+      });
+    }
+
+    for (const s of snippets.list(userId)) {
+      if (s.status !== 'downloading' && !recent(s.createdAt)) continue;
+      tasks.push({
+        key: `kesit-${s.id}`,
+        group: s.status === 'downloading' ? 'iniyor' : s.status === 'failed' ? 'hata' : 'bitti',
+        kind: 'kesit',
+        title: s.title || 'Kesit',
+        channel: s.channel,
+        step: s.status === 'downloading' ? 'Yayından alınıyor' : s.status === 'failed' ? 'Alınamadı' : 'Alındı',
+        progress: null,
+        sizeBytes: s.sizeBytes,
+        error: s.error,
+        at: s.createdAt,
+        link: { section: 'kesitler', sub: null, label: 'Kesitlere git' },
+        thumbUrl: s.thumbUrl,
+        cancel: s.status === 'downloading' ? `/api/snippets/${s.id}/cancel` : null,
       });
     }
 
@@ -80,6 +105,7 @@ export function taskRoutes({ store, workspaces, captions, exporter, harvester, p
         error: c.error ?? null,
         at: iso(c.createdAt),
         link: c.jobId ? { section: 'galeri', sub: c.jobId, label: 'Videoyu gör' } : { section: 'canli', sub: null, label: 'Klibi gör' },
+        thumbUrl: c.thumbnailUrl ?? null,
       });
     }
 
@@ -98,6 +124,9 @@ export function taskRoutes({ store, workspaces, captions, exporter, harvester, p
         error: j.error ?? null,
         at: iso(j.created_at),
         link: { section: 'galeri', sub: j.id, label: j.status === 'ready' ? 'Videoyu gör' : 'Videoya git' },
+        // Hazır olana kadar küçük görsel yoktur; ham kaynağın bir karesi gösterilir.
+        thumbUrl: j.thumbnail_url ?? (ws.clipEditor.hasRaw(j.id) ? `/api/jobs/${j.id}/raw-frame` : null),
+        cancel: active ? `/api/jobs/${j.id}/cancel` : null,
       });
     }
 
@@ -117,6 +146,7 @@ export function taskRoutes({ store, workspaces, captions, exporter, harvester, p
           error: null,
           at: iso(rec.started_at),
           link: { section: 'canli', sub: null, label: 'Canlıya git' },
+          cancel: '/api/live/record/stop',
         });
       }
       if (pct != null || (rec.final_status && recent(rec.completed_at ?? rec.started_at))) {
@@ -133,6 +163,7 @@ export function taskRoutes({ store, workspaces, captions, exporter, harvester, p
           error: rec.final_error ?? null,
           at: iso(rec.completed_at ?? rec.started_at),
           link: { section: 'galeri', sub: `k${rec.id}`, label: 'Kayda git' },
+          cancel: running ? `/api/recordings/${rec.id}/final/cancel` : null,
         });
       }
     }
@@ -151,6 +182,7 @@ export function taskRoutes({ store, workspaces, captions, exporter, harvester, p
         error: r.error,
         at: new Date(r.startedAt).toISOString(),
         link: done ? { section: 'galeri', sub: r.jobId, label: 'Videoyu gör' } : { section: 'editor', sub: r.projectId, label: 'Projeye git' },
+        cancel: done || r.error ? null : `/api/projects/${r.projectId}/render/cancel`,
       });
     }
 
@@ -168,6 +200,7 @@ export function taskRoutes({ store, workspaces, captions, exporter, harvester, p
         error: null,
         at: new Date().toISOString(),
         link: { section: 'ayarlar', sub: null, label: 'Ayarlara git' },
+        cancel: '/api/captions/models/cancel',
       });
     }
 

@@ -6,14 +6,16 @@ Kick yayıncıları için klip stüdyosu. Kurulduğu bilgisayarda çalışır; b
 - **Klipler**: Kanalın Kick/KickBot kliplerini tara, seç, toplu olarak dikey videoya çevir. Yüz kamerası tespiti, altyazı ve 9:16 kompozisyon otomatik yapılır. Klip bağlantısı yapıştırarak da eklenebilir.
 - **Geçmiş yayınlar**: Kick'in sakladığı yayını indir; istersen "Aralık" ile yalnız belirli bir başlangıç–bitiş kısmını (dakika ya da sa:dk:sn) indir, aynı yayından istediğin kadar aralık al. Zaman çizelgesinde sürükleyerek ya da I/O ile kesit işaretle, en iyi anları otomatik buldur.
 - **Kanal sekmeleri**: Üst ortada Kick'te arayarak kanal seçilir; her yayıncı bir sekme olur, "+" yeni sekme açar. Etkin sekme tarama, kayıt ve nöbetin varsayılanıdır.
-- **Canlı**: Elle yayın kaydı (geçmişten başlatılabilir), canlı önizleme, süren yayından indirme (şu ana kadarı ya da yazılan bir başlangıç–bitiş aralığı; bitiş ileride olabilir, yayın o ana gelince dosya kapanır ve Geçmiş yayınlar'a düşer), chat'e düşen klipleri yakalayıp otomatik işleme, sohbete `!clip 30…180` gönderen anlık klip düğmeleri (kanalda klip botu varsa çalışır; Ayarlar'da kendi Kick uygulamanı bağlaman gerekir) ve kanala eklenen yeni Kick kliplerini arka planda indiren klip takibi.
+- **Canlı**: Elle yayın kaydı (geçmişten başlatılabilir), canlı önizleme, süren yayından indirme (şu ana kadarı ya da yazılan başlangıç–bitiş aralıkları; tek seferde birden çok aralık girilir, "şu andan geriye" kipiyle "80 dk önce → 50 dk önce" denebilir; bitiş ileride olabilir, yayın o ana gelince dosya kapanır ve Geçmiş yayınlar'a düşer), chat'e düşen klipleri yakalayıp otomatik işleme, anlık kesit düğmeleri ve kanala eklenen yeni Kick kliplerini arka planda indiren klip takibi.
+- **Kesitler**: Yayın sürerken 30–180 sn düğmesine basınca yayının o kadar saniye öncesi Kick'in süren yayın kaydından alınır (sohbete hiçbir şey yazılmaz), ham olarak Kesitler'de listelenir, istenirse kendiliğinden dikey videoya çevrilir. Ham kesit indirilebilir; yayın kaydı canlıdan yarım dakika kadar geride geldiğinden kesit o kadar sonra iner.
 - **Nöbet**: Takip edilen kanalı arka planda yoklar. Yayın açılınca chat klip yakalamayı başlatır; yayın bitince Kick'in yayın kaydını indirir ve Geçmiş yayınlar'a koyar — hiçbir şey otomatik işlenmez, editörde sen kesersin. Tarayıcı kapalıyken de çalışır (Kesit açık ve bilgisayar uyanık olmalı); yeniden başlatmada geri kurulur.
-- **Kayıtlar**: Yayına hazır çıktı, kesitleri ayrı klip/kesit olarak üretme, istenmeyen kısımları çıkarma, küçültülmüş indirme, Zernio ile YouTube'a taslak → yayın.
+- **Kayıtlar**: Yayına hazır çıktı, kesitleri ayrı klip/kesit olarak üretme, istenmeyen kısımları çıkarma, küçültülmüş indirme (sürerken iptal edilebilir), Zernio ile YouTube'a taslak → yayın.
+- **Galeri**: Dikey videolar dikey kart olarak görünür; kartın üstünde bekleyince kart büyür ve video sesli oynar. Her işlenmiş klibin ham kaynağı saklanır: "Ham" ile indirilir, "Kadrajı düzelt" ile kamera ve oyun alanı ham kare üzerinde çizilip video yeniden üretilir. Süren işler Anasayfa, Galeri ve Görev yöneticisi'nden iptal edilir (alt süreçler öldürülür, ham kaynak kalır).
 - **Paylaşım**: Her kullanıcı kendi Zernio API anahtarını bağlar. Anahtar veritabanında AES-GCM ile şifreli durur. Hemen ya da planlı paylaşım yapılabilir; TikTok için açık onay zorunludur.
 - **Arşiv**: Üretilen her klip, kayıt ve indirilen yayın günlük bir defterde tutulur. Dosya silinse bile kayıt, küçük görsel ve paylaşım geçmişi kalır. Isı haritasından güne göre süzülebilir.
 - **Ayarlar**: Kendi Kick uygulamanı bağlama (sohbete klip atma), altyazı motoru (önerilen yerel whisper modeli tek tıkla indirilir ya da ElevenLabs anahtarı bağlanır), hazır videoların kopyalanacağı klasör (varsayılan `~/Downloads/Kesit`, Dikey/Yatay/Kayıtlar), disk kullanımı ve önbellek/video temizliği, telefondan erişim (eşleme koduyla).
 - **Silme**: Hiçbir silme onay sormaz; bildirimdeki "Geri al" ile 6 saniye içinde geri alınır.
-- **Marka ve şablon**: Logo, marka/vurgu rengi ve altyazı stili. Üretim varsayılanları Dikey ve Yatay olarak ayrıdır; önizleme motorun gerçek oranlarıyla çizilir. Logo sürüklenir; merkeze, üçte birlere ve güvenli kenarlara yapışır, 3x3 hizalama vardır. Yatayda altyazı varsayılan kapalıdır. Intro/outro yalnız yatay videolara eklenir. Çıktı ayarları Kayıtlar'daki "Çıktıyı üret" içindir; hiçbir çıktı kendiliğinden üretilmez.
+- **Marka ve şablon**: Logo, marka/vurgu rengi ve altyazı stili. Üretim varsayılanları Dikey ve Yatay olarak ayrıdır; önizleme motorun gerçek oranlarıyla çizilir. Logo sürüklenir; merkeze, üçte birlere ve güvenli kenarlara yapışır, 3x3 hizalama vardır, %15'e kadar küçültülür. Dikeyde "Kamera + oyun" seçiliyken örnek bir yayın karesinde kamera ve oyun alanı çizilir; otomatik üretimler (Dikey klipler, canlı yakalama, bot takibi) bu kadrajı kullanır, kadraj yoksa ve yüz kamerası bulunamazsa varsayılan köşe kadrajına düşülür — bölünmüş düzen istenen klip asla tek kare çıkmaz. Her kanal sekmesine "bu sekme için özel" denerek ayrı logo, renk ve üretim ayarı verilebilir (`channel_brands`, `clips/<kullanıcı>/brand/<kanal>/logo.png`). Dikey klipler sayfasındaki altyazı/yerleşim seçimi bu varsayılanlara yazılır, yani kalıcıdır. Yatayda altyazı varsayılan kapalıdır. Intro/outro yalnız yatay videolara eklenir. Çıktı ayarları Kayıtlar'daki "Çıktıyı üret" içindir; hiçbir çıktı kendiliğinden üretilmez.
 
 ## Kurulum (Kesit App)
 
@@ -82,7 +84,8 @@ server/services/        Workspaces (kullanıcı başına motor), Autopilot (Nöb
                         Exporter (İndirilenler'e kopya), Storage (disk/temizlik), Retention (saklama),
                         LanAccess (telefon eşleme), ArchiveLedger (arşiv defteri),
                         Projects + ProjectRenderer (editör projeleri ve ffmpeg dışa aktarma),
-                        SystemMonitor (görev yöneticisi: işlemci/bellek/disk/süreçler)
+                        SystemMonitor (görev yöneticisi: işlemci/bellek/disk/süreçler),
+                        Snippets (Kesitler: yayının son N saniyesi)
 server/routes/          Alan başına API uçları
 server/engine/          Klip motoru (LivoBot'tan taşındı, CommonJS)
 shared/                 İstemci ve sunucunun ortak tipleri
@@ -109,6 +112,7 @@ sunucu yazı tipine bağımlı değildir. Çıktı Galeri'ye hazır video (`edit
 - **Zernio**: `ZernioPublisher` kullanıcı başına API anahtarı alır.
 - **Kuyruk**: `VodScanManager` Redis yoksa süreç içi kuyruğa (`LocalQueue`) düşer.
 - **Altyazı motoru**: `Transcriber` whisper ikilisini ve modelini çalışma anında okur.
+- **Ham kaynak ve iptal**: `ClipEditorManager` her işin kaynağını `raw/<id>.mp4` olarak saklar (yeniden üretim `reprocess`, ham indirme). Alt süreçler `ProcTracker` ile iş anahtarına bağlanır; `cancel` sıradaki işi kuyruktan çıkarır, süren işin ffmpeg/whisper süreçlerini öldürür.
 - **Otomatik başlık/açıklama** ve **kayıt bitince otomatik çıktı** kapalıdır.
 
 Motor `server/engine.ts` üzerinden içe aktarılır. Bu dosya ortam yapılandırmasının motordan önce yüklenmesini sağlar.

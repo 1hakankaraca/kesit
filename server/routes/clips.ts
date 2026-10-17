@@ -1,5 +1,6 @@
 import express from 'express';
 import fs from 'node:fs';
+import path from 'node:path';
 import type { AppContext } from '../context.ts';
 import { ClipCompressor, ClipEditorManager } from '../engine.ts';
 import { accountsFrom, badRequest, clipOptionsFrom, downloadName, engine, intParam, notFound, oneOf, slugOrThrow } from '../http.ts';
@@ -85,20 +86,60 @@ export function clipRoutes({ workspaces, store, publishing }: AppContext) {
 
   /* ── Üretilen işler ──────────────────────────────────────────────────── */
 
+  /** Ham kaynak saklanmışsa indirme adresi eklenir (yeniden üretim ve ham indirme için). */
+  const withRaw = (ws: { clipEditor: any }, job: Record<string, unknown>) => ({
+    ...job,
+    raw_url: ws.clipEditor.hasRaw(job.id) ? `/api/jobs/${job.id}/raw` : null,
+  });
+
   r.get('/jobs', async (req, res) => {
+    const ws = await workspaces.get(req.user!.id);
     const limit = Math.min(300, Math.max(1, Number(req.query.limit) || 120));
-    res.json({ jobs: await store.getEditedClips(req.user!.id, limit), queue: ClipEditorManager.getQueueStatus() });
+    const jobs = (await store.getEditedClips(req.user!.id, limit)).map((j) => withRaw(ws, j));
+    res.json({ jobs, queue: ClipEditorManager.getQueueStatus() });
   });
 
   r.get('/jobs/:id', async (req, res) => {
+    const ws = await workspaces.get(req.user!.id);
     const job = await store.getEditedClipById(intParam(req.params.id), req.user!.id);
     if (!job) throw notFound('Klip bulunamadı');
-    res.json({ job });
+    res.json({ job: withRaw(ws, job) });
   });
 
   r.post('/jobs/:id/retry', async (req, res) => {
     const ws = await workspaces.get(req.user!.id);
     res.json({ job: await engine(() => ws.clipEditor.retry(intParam(req.params.id))) });
+  });
+
+  /** Süren ya da sıradaki işi iptal eder (alt süreçler öldürülür; ham kaynak kalır). */
+  r.post('/jobs/:id/cancel', async (req, res) => {
+    const ws = await workspaces.get(req.user!.id);
+    res.json({ cancelled: await engine(() => ws.clipEditor.cancel(intParam(req.params.id))) });
+  });
+
+  /** Hazır dikey klibi ham kaynağından, istenirse elle çizilen kadrajla yeniden üretir. */
+  r.post('/jobs/:id/reprocess', async (req, res) => {
+    const ws = await workspaces.get(req.user!.id);
+    const composition = oneOf(req.body?.composition, ['auto', 'split', 'single'] as const, null as unknown as 'auto');
+    const job = await engine(() => ws.clipEditor.reprocess(intParam(req.params.id), { manualLayout: req.body?.manualLayout ?? null, composition: composition || null }));
+    res.json({ job: withRaw(ws, job) });
+  });
+
+  r.get('/jobs/:id/raw', async (req, res) => {
+    const ws = await workspaces.get(req.user!.id);
+    const job = await store.getEditedClipById(intParam(req.params.id), req.user!.id);
+    if (!job || !ws.clipEditor.hasRaw(job.id)) throw notFound('Ham klip bulunamadı');
+    res.download(ws.clipEditor.rawPath(job.id), downloadName(job.gen_title || job.title, `klip-${job.id}`, '-ham.mp4'));
+  });
+
+  /** Ham klibin bir karesi — manuel kadraj çizmek için. */
+  r.get('/jobs/:id/raw-frame', async (req, res) => {
+    const ws = await workspaces.get(req.user!.id);
+    const job = await store.getEditedClipById(intParam(req.params.id), req.user!.id);
+    if (!job) throw notFound('Klip bulunamadı');
+    const frame = await engine(() => ws.clipEditor.rawFrame(job.id), 500);
+    if (!frame) throw notFound('Ham klip saklanmamış');
+    res.set('Cache-Control', 'no-store').sendFile(path.resolve(frame));
   });
 
   r.post('/jobs/:id/recrop', async (req, res) => {
@@ -132,6 +173,11 @@ export function clipRoutes({ workspaces, store, publishing }: AppContext) {
     const source = `${ws.clipEditor.outputDir}/${job.id}.mp4`;
     const result = await engine(() => ws.compressor.sikistir(job.id, profile, source));
     res.json({ ...result, downloadUrl: `/api/jobs/${job.id}/compress/download?profile=${profile}` });
+  });
+
+  r.post('/jobs/:id/compress/cancel', async (req, res) => {
+    const ws = await workspaces.get(req.user!.id);
+    res.json({ cancelled: !!ws.compressor.iptal(intParam(req.params.id), String(req.body?.profile || '')) });
   });
 
   r.get('/jobs/:id/compress/download', async (req, res) => {

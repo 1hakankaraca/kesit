@@ -139,13 +139,23 @@ export function Modal({
   className?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  // onClose her çizimde yeni bir işlev olabilir; etki yalnız açılışa bağlıdır.
+  // Aksi hâlde üst bileşen her yeniden çizildiğinde (ör. kutuya yazarken ya da
+  // saniyelik sayaçta) odak pencereye çekilip yazı yazmayı kesiyordu.
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && closeRef.current();
     document.addEventListener('keydown', onKey);
-    ref.current?.focus();
-    return () => document.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+    const t = setTimeout(() => {
+      if (ref.current && !ref.current.contains(document.activeElement)) ref.current.focus();
+    }, 0);
+    return () => {
+      clearTimeout(t);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
   return (
     <AnimatePresence>
       {open && (

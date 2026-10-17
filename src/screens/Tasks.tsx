@@ -21,6 +21,7 @@ const KIND: Record<Task['kind'], { icon: IconName; label: string }> = {
   'hazir-video': { icon: 'sparkle', label: 'Paylaşıma hazır video' },
   model: { icon: 'download', label: 'Altyazı modeli indirme' },
   proje: { icon: 'scissors', label: 'Editör dışa aktarma' },
+  kesit: { icon: 'bolt', label: 'Yayından kesit alma' },
 };
 
 /** Görev yöneticisi: bilgisayarın durumu, Kesit'in süreçleri ve süren işler. */
@@ -209,10 +210,13 @@ function TaskRow({ task: t, live }: { task: Task; live?: { progress: number | nu
     }
   };
 
-  const cancelRender = async () => {
+  /** Sunucunun bildirdiği iptal ucuna gönderir (video, kesit, kayıt çıktısı, dışa aktarma…). */
+  const cancelTask = async () => {
+    if (!t.cancel) return;
     setBusy(true);
     try {
-      await api.post(`/api/projects/${t.key.replace('proje-', '')}/render/cancel`);
+      await api.post(t.cancel);
+      toast('İptal edildi', 'ok');
       await refreshTasks();
     } catch (err) {
       toastError(err);
@@ -223,9 +227,7 @@ function TaskRow({ task: t, live }: { task: Task; live?: { progress: number | nu
 
   return (
     <li className={`task task-${t.group}`}>
-      <span className="task-icon">
-        <Icon name={KIND[t.kind].icon} size={18} />
-      </span>
+      <span className={t.thumbUrl ? 'task-icon task-icon-img' : 'task-icon'}>{t.thumbUrl ? <img src={t.thumbUrl} alt="" loading="lazy" /> : <Icon name={KIND[t.kind].icon} size={18} />}</span>
       <div className="task-body">
         <div className="task-top">
           <b className="task-title">{t.title}</b>
@@ -261,8 +263,8 @@ function TaskRow({ task: t, live }: { task: Task; live?: { progress: number | nu
             Listeden kaldır
           </button>
         )}
-        {t.kind === 'proje' && t.group === 'hazirlaniyor' && (
-          <button type="button" className="btn btn-quiet btn-small" disabled={busy} onClick={() => void cancelRender()}>
+        {t.kind !== 'yayin' && t.cancel && running && (
+          <button type="button" className="btn btn-quiet btn-small" disabled={busy} onClick={() => void cancelTask()}>
             İptal
           </button>
         )}

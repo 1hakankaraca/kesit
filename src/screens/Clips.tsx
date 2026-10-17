@@ -10,7 +10,7 @@ import { refreshJobs } from '../lib/jobs.ts';
 import { navigate, sectionPath } from '../lib/router.ts';
 import { useSession } from '../lib/session.ts';
 import { toast, toastError } from '../lib/toast.ts';
-import type { KickClip } from '../lib/types.ts';
+import type { ClipOptions, KickClip, Studio } from '../lib/types.ts';
 
 type Source = 'kick' | 'kickbot';
 type Time = 'all' | 'month' | 'week' | 'day';
@@ -34,12 +34,35 @@ export function Clips() {
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState<string | null>(null);
   const [selected, setSelected] = useState<Map<string, KickClip>>(new Map());
-  const [subtitles, setSubtitles] = useState(true);
-  const [composition, setComposition] = useState<Composition>('auto');
+  // Altyazı ve yerleşim tercihi kalıcıdır: Logo ve görünüm'deki dikey
+  // varsayılanlardan okunur, değiştirilince oraya yazılır (sekmeye özel
+  // profil varsa ona). Böylece kapatılan altyazı bir daha açılmaz.
+  const [prefs, setPrefs] = useState<ClipOptions | null>(null);
+  const subtitles = prefs?.subtitles ?? true;
+  const composition: Composition = prefs?.composition ?? 'auto';
   const [link, setLink] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [preview, setPreview] = useState<KickClip | null>(null);
   const [aligning, setAligning] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .get<Studio>(`/api/studio${query({ channel: user?.channelSlug })}`)
+      .then((s) => alive && setPrefs(s.defaults.vertical))
+      .catch(() => alive && setPrefs(null));
+    return () => {
+      alive = false;
+    };
+  }, [user?.channelSlug]);
+
+  const savePrefs = (patch: Partial<ClipOptions>) => {
+    // Varsayılanlar henüz okunmadıysa eksik nesne gönderilip diğer ayarlar sıfırlanmasın.
+    if (!prefs) return;
+    const next = { ...prefs, ...patch };
+    setPrefs(next);
+    api.put('/api/studio/defaults', { format: 'vertical', channel: user?.channelSlug ?? null, options: next }).catch(toastError);
+  };
 
   const browse = async (append = false, override?: string) => {
     const slug = (override ?? channel).trim();
@@ -97,11 +120,11 @@ export function Clips() {
         clips: [...selected.values()].map((c) => ({ id: c.id, type: c.type, title: c.title })),
         options: manualLayout ? { ...options, composition: 'split', manualLayout } : options,
       });
-      toast(`${res.jobs.length} klip sıraya alındı${res.errors.length ? `, ${res.errors.length} hata` : ''}${manualLayout ? ' (manuel kadraj)' : ''}`, 'ok');
+      // Sayfada kalınır; işler arkada sürer, sonuç Galeri'ye düşer.
+      toast(`${res.jobs.length} klip arka planda hazırlanıyor${res.errors.length ? `, ${res.errors.length} hata` : ''}${manualLayout ? ' (manuel kadraj)' : ''}`, 'ok', { label: "Galeri'ye git", run: () => navigate(sectionPath('galeri')) }, 6000);
       setSelected(new Map());
       setAligning(false);
       await refreshJobs();
-      navigate(sectionPath('galeri'));
     } catch (err) {
       toastError(err);
     } finally {
@@ -129,9 +152,8 @@ export function Clips() {
     setSubmitting(true);
     try {
       await api.post('/api/clips/popular', { channel: channel.trim(), limit: 5, time: time === 'all' ? 'week' : time, options });
-      toast('En popüler 5 klip sıraya alındı', 'ok');
+      toast('En popüler 5 klip arka planda hazırlanıyor', 'ok', { label: "Galeri'ye git", run: () => navigate(sectionPath('galeri')) }, 6000);
       await refreshJobs();
-      navigate(sectionPath('galeri'));
     } catch (err) {
       toastError(err);
     } finally {
@@ -141,7 +163,7 @@ export function Clips() {
 
   return (
     <>
-      <WorkspaceHead guide="klipler" title="Dikey" tape="klipler" lead="Kanalın Kick kliplerini getir, beğendiklerini seç ve işleme gönder; dikey videoya kendiliğinden çevrilip Galeri'ye düşer." />
+      <WorkspaceHead guide="klipler" title="Dikey" tape="klipler" lead="Kanalın Kick kliplerini getir, beğendiklerini seç ve işleme gönder; sen bu sayfada kalırsın, videolar arkada hazırlanıp Galeri'ye düşer." />
 
       <div className="toolbar panel">
         <form
@@ -260,19 +282,24 @@ export function Clips() {
           <section className="panel">
             <span className="panel-tape" aria-hidden="true" />
             <h2 className="panel-title">Üretim</h2>
-            <p className="panel-sub">Seçtiğin kliplere uygulanır. Ayrıntılı varsayılanlar Marka bölümünde.</p>
+            <p className="panel-sub">Seçtiğin kliplere uygulanır ve hatırlanır; ayrıntılı ayarlar Logo ve görünüm'de.</p>
             <div className="stack">
-              <Switch checked={subtitles} onChange={setSubtitles} label="Altyazı" hint="Konuşma yazıya dökülür, önemli anlar vurgulanır" />
+              <Switch checked={subtitles} onChange={(v) => savePrefs({ subtitles: v })} label="Altyazı" hint={subtitles ? 'Konuşma yazıya dökülür, önemli anlar vurgulanır' : 'Kapalı — sen açana kadar kapalı kalır'} />
               <Segmented
                 label="Yerleşim"
                 value={composition}
-                onChange={setComposition}
+                onChange={(v) => savePrefs({ composition: v })}
                 options={[
                   { value: 'auto', label: 'Otomatik' },
                   { value: 'split', label: 'Kamera + oyun' },
                   { value: 'single', label: 'Tek kare' },
                 ]}
               />
+              {composition === 'split' && (
+                <p className="field-help">
+                  {prefs?.manualLayout ? 'Kamera ve oyun alanı Logo ve görünüm\'de çizdiğin kadrajla alınır.' : 'Yüz kamerası aranır; bulunamazsa varsayılan köşe kadrajı kullanılır. Kendi kadrajını Logo ve görünüm\'de çizebilirsin.'}
+                </p>
+              )}
               <button type="button" className="btn btn-secondary" onClick={autoPopular} disabled={submitting || !channel.trim()}>
                 <Icon name="sparkle" size={16} /> En popüler 5'i otomatik işle
               </button>
@@ -350,7 +377,7 @@ export function Clips() {
         )}
       </AnimatePresence>
 
-      <AlignDialog open={aligning} clips={[...selected.values()]} submitting={submitting} onClose={() => setAligning(false)} onSubmit={(layout) => void process(layout)} />
+      <AlignDialog open={aligning} frames={[...selected.values()].map((c) => ({ id: c.id, title: c.title, imageUrl: c.thumbnailUrl }))} submitting={submitting} onClose={() => setAligning(false)} onSubmit={(layout) => void process(layout)} />
     </>
   );
 }

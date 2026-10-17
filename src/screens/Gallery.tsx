@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { AlignDialog } from '../components/AlignDialog.tsx';
 import { ChannelScopeToggle } from '../components/ChannelScopeToggle.tsx';
 import { Icon, type IconName } from '../components/Icon.tsx';
 import { PublishDialog, platformLabel } from '../components/PublishDialog.tsx';
@@ -418,6 +419,11 @@ function Grid({ jobs, loaded, recordings, projects, progress, onDeleted }: { job
                   <Icon name="trash" size={14} />
                 </button>
               )}
+              {!selecting && it.kind === 'video' && it.status === 'busy' && (
+                <button type="button" className="gcard-x" title="Hazırlamayı iptal et" aria-label={`${it.title} — iptal`} onClick={() => void api.post(`/api/jobs/${it.job!.id}/cancel`).then(() => toast('İptal edildi', 'ok'), toastError)}>
+                  <Icon name="x" size={14} />
+                </button>
+              )}
             </motion.li>
           ))}
         </ul>
@@ -450,21 +456,30 @@ function Grid({ jobs, loaded, recordings, projects, progress, onDeleted }: { job
   );
 }
 
-/** YouTube benzeri kart: üstünde bekleyince sessiz önizleme oynar; seçim modunda tıklamak seçer. */
+/** YouTube benzeri kart: üstünde bekleyince kart büyür ve video sesli oynar; seçim modunda tıklamak seçer. */
 function GalleryCard({ item, progress, selecting, selected, onToggle }: { item: Item; progress?: number; selecting: boolean; selected: boolean; onToggle: (range: boolean) => void }) {
   const [hover, setHover] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const enter = () => {
     if (!item.previewUrl || selecting) return;
-    timer.current = setTimeout(() => setHover(true), 450);
+    timer.current = setTimeout(() => setHover(true), 350);
   };
   const leave = () => {
     if (timer.current) clearTimeout(timer.current);
     setHover(false);
   };
+  // Tarayıcı sesli otomatik oynatmaya izin vermezse sessiz dener.
+  const playLoud = (v: HTMLVideoElement) => {
+    v.muted = false;
+    v.volume = 0.8;
+    v.play().catch(() => {
+      v.muted = true;
+      void v.play().catch(() => {});
+    });
+  };
   const kindIcon: IconName = item.kind === 'recording' ? 'record' : item.kind === 'project' ? 'scissors' : item.format === 'vertical' ? 'vertical' : 'horizontal';
   const pickable = canDelete(item);
-  const cls = ['gcard', `gcard-${item.format}`, selecting && selected && 'gcard-on', selecting && !pickable && 'gcard-off'].filter(Boolean).join(' ');
+  const cls = ['gcard', `gcard-${item.format}`, hover && 'gcard-live', selecting && selected && 'gcard-on', selecting && !pickable && 'gcard-off'].filter(Boolean).join(' ');
   return (
     <a
       href={item.href}
@@ -486,7 +501,9 @@ function GalleryCard({ item, progress, selecting, selected, onToggle }: { item: 
           </span>
         )}
         {item.thumb ? <img src={item.thumb} alt="" loading="lazy" /> : <Icon name={kindIcon} size={28} />}
-        {hover && item.previewUrl && <video className="gcard-preview" src={item.previewUrl} muted autoPlay loop playsInline preload="none" />}
+        {hover && item.previewUrl && <video className="gcard-preview" src={item.previewUrl} loop playsInline preload="none" ref={(v) => {
+              if (v) playLoud(v);
+            }} />}
         {item.status === 'busy' && (
           <span className="gcard-busy">
             <Spinner size={14} /> {item.statusLabel}
@@ -534,6 +551,10 @@ function VideoDetail({ job, progress, others }: { job: Job; progress?: number; o
   const horizontal = isHorizontal(job);
   const [busy, setBusy] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
+  const [fixing, setFixing] = useState(false);
+  const [compressing, setCompressing] = useState<string | null>(null);
+  const canReprocess = !horizontal && (job.status === 'ready' || job.status === 'failed') && (!!job.raw_url || !!job.source_clip_id);
+  const savedLayout = parseJson<{ manualLayout?: { cam: { x: number; y: number; w: number; h: number }; content: { x: number; y: number; w: number; h: number } } | null }>(job.options, {}).manualLayout ?? null;
   const videoRef = useRef<HTMLVideoElement>(null);
   const tags = parseJson<string[]>(job.gen_hashtags, []);
   const platforms = parseJson<{ platform: string; status: string; url?: string }[]>(job.publish_platforms, []);
@@ -570,6 +591,32 @@ function VideoDetail({ job, progress, others }: { job: Job; progress?: number; o
     });
 
   const copy = (text: string) => navigator.clipboard.writeText(text).then(() => toast('Kopyalandı', 'ok'), () => toast('Kopyalanamadı', 'error'));
+
+  const reprocess = (manualLayout: unknown) =>
+    act(
+      'reprocess',
+      async () => {
+        await api.post(`/api/jobs/${job.id}/reprocess`, { manualLayout });
+        setFixing(false);
+        await refreshJobs();
+      },
+      'Yeniden üretiliyor — bitince burada yenilenir',
+    );
+
+  const compress = (p: string) =>
+    act(
+      `c-${p}`,
+      async () => {
+        setCompressing(p);
+        try {
+          const res = await api.post<{ downloadUrl: string }>(`/api/jobs/${job.id}/compress`, { profile: p });
+          location.assign(res.downloadUrl);
+        } finally {
+          setCompressing(null);
+        }
+      },
+      `${p} sürüm hazır`,
+    );
 
   return (
     <div className="watch">
@@ -621,36 +668,41 @@ function VideoDetail({ job, progress, others }: { job: Job; progress?: number; o
                 <a className="btn btn-secondary" href={`/api/jobs/${job.id}/download`}>
                   <Icon name="download" size={16} /> İndir
                 </a>
+                {job.raw_url && (
+                  <a className="btn btn-secondary" href={job.raw_url} title="İşlenmemiş kaynak klibi indir">
+                    <Icon name="download" size={16} /> Ham
+                  </a>
+                )}
                 <button type="button" className="btn btn-secondary" onClick={() => void takeSnapshot('clip', job.id, videoRef.current?.currentTime ?? 0)} title="Videonun o anki karesini kaydet">
                   <Icon name="image" size={16} /> Ekran görüntüsü
                 </button>
                 <div className="btn-group" role="group" aria-label="Küçültülmüş indir">
                   {COMPRESS_PROFILES.map((p) => (
-                    <button
-                      key={p}
-                      type="button"
-                      className="btn btn-quiet btn-small"
-                      disabled={!!busy}
-                      onClick={() =>
-                        act(
-                          `c-${p}`,
-                          async () => {
-                            const res = await api.post<{ downloadUrl: string }>(`/api/jobs/${job.id}/compress`, { profile: p });
-                            location.assign(res.downloadUrl);
-                          },
-                          `${p} sürüm hazır`,
-                        )
-                      }
-                    >
+                    <button key={p} type="button" className="btn btn-quiet btn-small" disabled={!!busy} onClick={() => compress(p)}>
                       {busy === `c-${p}` ? <Spinner size={12} /> : p}
                     </button>
                   ))}
+                  {compressing && (
+                    <button type="button" className="btn btn-quiet btn-small" onClick={() => void api.post(`/api/jobs/${job.id}/compress/cancel`, { profile: compressing }).catch(toastError)}>
+                      <Icon name="x" size={12} /> İptal
+                    </button>
+                  )}
                 </div>
               </>
+            )}
+            {canReprocess && (
+              <button type="button" className="btn btn-secondary" disabled={!!busy} onClick={() => setFixing(true)} title="Kamera ve oyun alanını kendin çizip videoyu yeniden ürettir">
+                <Icon name="crop" size={16} /> Kadrajı düzelt
+              </button>
             )}
             {job.status === 'failed' && (
               <button type="button" className="btn btn-secondary" disabled={!!busy} onClick={() => act('retry', () => api.post(`/api/jobs/${job.id}/retry`).then(refreshJobs), 'Yeniden sıraya alındı')}>
                 <Icon name="refresh" size={16} /> Yeniden dene
+              </button>
+            )}
+            {isActive(job) && (
+              <button type="button" className="btn btn-secondary" disabled={!!busy} onClick={() => act('cancel', () => api.post(`/api/jobs/${job.id}/cancel`).then(refreshJobs), 'İptal edildi')}>
+                <Icon name="x" size={16} /> İptal et
               </button>
             )}
             <button type="button" className="btn btn-quiet stage-delete" onClick={remove} disabled={isActive(job)}>
@@ -734,6 +786,21 @@ function VideoDetail({ job, progress, others }: { job: Job; progress?: number; o
         </aside>
       </div>
       <PublishDialog job={publishing ? job : null} onClose={() => setPublishing(false)} onDone={() => void refreshJobs()} />
+      <AlignDialog
+        open={fixing}
+        frames={[{ id: String(job.id), title: jobTitle(job), imageUrl: job.raw_url ? `/api/jobs/${job.id}/raw-frame?t=${job.created_at}` : job.thumbnail_url }]}
+        initial={savedLayout}
+        submitting={busy === 'reprocess'}
+        onClose={() => setFixing(false)}
+        onSubmit={(layout) => void reprocess(layout)}
+        title="Kadrajı düzelt ve yeniden üret"
+        submitLabel="Bu kadrajla yeniden üret"
+        lead={
+          <>
+            Ham kare üzerinde <b>Kamera</b> ve <b>Yayın alanı</b> kutularını yerleştir; video bu kadrajla baştan üretilir. Eski video üzerine yazılır.
+          </>
+        }
+      />
     </div>
   );
 }
@@ -858,6 +925,10 @@ function OutputPanel({ rec, onChange }: { rec: Recording; onChange: () => void }
     }
   });
   const finalBusy = rec.final_status === 'processing';
+  const cancelCompress = () => {
+    if (!compress) return;
+    api.post(`/api/recordings/${rec.id}/compress/cancel`, { profile: compress.profile }).then(() => setCompress(null), toastError);
+  };
   return (
     <section className="panel">
       <h2 className="panel-title">Paylaşıma hazır video</h2>
@@ -891,7 +962,12 @@ function OutputPanel({ rec, onChange }: { rec: Recording; onChange: () => void }
         <div className="pad-top">
           {compress && !compress.ready ? (
             <div className="stack-s">
-              <span className="muted">{compress.profile} sürüm hazırlanıyor</span>
+              <div className="row-gap">
+                <span className="muted">{compress.profile} sürüm hazırlanıyor{compress.percent !== null ? ` · %${compress.percent}` : ''}</span>
+                <button type="button" className="btn btn-quiet btn-small" onClick={cancelCompress}>
+                  <Icon name="x" size={12} /> İptal
+                </button>
+              </div>
               <Progress value={compress.percent} />
             </div>
           ) : compress?.ready ? (

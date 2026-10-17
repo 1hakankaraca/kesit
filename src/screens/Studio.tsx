@@ -1,10 +1,12 @@
 import { useEffect, useState, type CSSProperties } from 'react';
+import { DEFAULT_LAYOUT, LayoutEditor, type LayoutFrame, type ManualLayout } from '../components/AlignDialog.tsx';
 import { FramePreview } from '../components/FramePreview.tsx';
 import { Icon } from '../components/Icon.tsx';
-import { Field, Segmented, Spinner, Switch, WorkspaceHead } from '../components/basics.tsx';
-import { api } from '../lib/api.ts';
+import { Field, Modal, Segmented, Spinner, Switch, WorkspaceHead } from '../components/basics.tsx';
+import { api, query } from '../lib/api.ts';
 import { bytes, duration } from '../lib/format.ts';
 import { alignTo, logoBox } from '../lib/frame.ts';
+import { useSession } from '../lib/session.ts';
 import { deleteWithUndo, toast, toastError } from '../lib/toast.ts';
 import type { BrandMedia, ClipOptions, RecordingOutput, Studio as StudioData } from '../lib/types.ts';
 import { useResource } from '../lib/useResource.ts';
@@ -16,9 +18,80 @@ const FORMATS: { value: Format; label: string; hint: string }[] = [
   { value: 'horizontal', label: 'Yatay 16:9', hint: 'Geçmiş yayın ve kayıtlardan alınan yatay kesitler' },
 ];
 
-/** Marka ve şablon: kimlik, önizleme ve üretim varsayılanları. */
+/**
+ * Marka ve şablon: kimlik, önizleme ve üretim varsayılanları. Üstteki kapsam
+ * seçimiyle "Genel" ya da seçili kanal sekmesi düzenlenir; sekmenin kendi
+ * profili varsa o kanalın klipleri yalnız onun logosunu ve ayarlarını kullanır.
+ */
 export function Studio() {
-  const studio = useResource(() => api.get<StudioData>('/api/studio'));
+  const { user } = useSession();
+  const tab = user?.channelSlug ?? null;
+  const [scope, setScope] = useState<'general' | 'tab'>('general');
+  const channel = scope === 'tab' ? tab : null;
+  const studio = useResource(() => api.get<StudioData>(`/api/studio${query({ channel })}`), [channel]);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!tab) setScope('general');
+  }, [tab]);
+
+  const createProfile = async () => {
+    setBusy(true);
+    try {
+      await api.post('/api/studio/profile', { channel: tab });
+      toast(`${tab} için özel ayar oluşturuldu — genel ayarlardan kopyalandı`, 'ok');
+      await studio.reload();
+    } catch (err) {
+      toastError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const dropProfile = () =>
+    deleteWithUndo({
+      label: `${tab} özel ayarı kaldırıldı, genel ayarlara dönüldü`,
+      hide: () => {},
+      restore: () => void studio.reload(),
+      commit: () => api.del(`/api/studio/profile/${tab}`),
+      done: () => void studio.reload(),
+    });
+
+  const scopeBar = tab && (
+    <section className="panel studio-scope" aria-label="Hangi ayarlar">
+      <Segmented
+        size="small"
+        label="Kapsam"
+        value={scope}
+        onChange={setScope}
+        options={[
+          { value: 'general', label: 'Genel' },
+          { value: 'tab', label: `${tab}${studio.data?.scope.custom && scope === 'tab' ? ' · özel' : ''}` },
+        ]}
+      />
+      {scope === 'general' ? (
+        <p className="muted">Genel ayar bütün kanal sekmelerinde geçerli. Bir sekmeye farklı logo ya da görünüm vermek için üstten o sekmeyi seç.</p>
+      ) : studio.data?.scope.custom ? (
+        <>
+          <p className="muted">
+            <b>{tab}</b> kendi logosunu, renklerini ve üretim ayarlarını kullanıyor; buradaki değişiklikler yalnız bu sekmeyi etkiler.
+          </p>
+          <button type="button" className="btn btn-quiet btn-small" onClick={dropProfile}>
+            Özel ayarı kaldır
+          </button>
+        </>
+      ) : (
+        <>
+          <p className="muted">
+            <b>{tab}</b> şu an genel ayarları kullanıyor.
+          </p>
+          <button type="button" className="btn btn-accent btn-small" disabled={busy} onClick={() => void createProfile()}>
+            {busy ? <Spinner size={12} /> : <Icon name="plus" size={14} />} Bu sekme için özel ayar oluştur
+          </button>
+        </>
+      )}
+    </section>
+  );
+
   if (studio.loading && !studio.data) {
     return (
       <div className="center-pad">
@@ -27,15 +100,17 @@ export function Studio() {
     );
   }
   if (!studio.data) return <p className="field-error">{studio.error}</p>;
-  return <StudioEditor data={studio.data} reload={studio.reload} />;
+  // Kapsam değişince düzenleyici sıfırdan kurulur (yerel taslaklar karışmasın).
+  return <StudioEditor key={`${channel ?? 'genel'}:${studio.data.scope.custom}`} data={studio.data} reload={studio.reload} scopeBar={scopeBar} channel={studio.data.scope.custom ? channel : null} />;
 }
 
-function StudioEditor({ data, reload }: { data: StudioData; reload: () => void }) {
+function StudioEditor({ data, reload, scopeBar, channel }: { data: StudioData; reload: () => void; scopeBar: React.ReactNode; channel: string | null }) {
   const [brand, setBrand] = useState(data.brand);
   const [format, setFormat] = useState<Format>('vertical');
   const [defaults, setDefaults] = useState<Record<Format, ClipOptions>>(data.defaults);
   const [output, setOutput] = useState<RecordingOutput>(data.recordingOutput);
   const [saving, setSaving] = useState<string | null>(null);
+  const [drawing, setDrawing] = useState(false);
   const opts = defaults[format];
   const vertical = format === 'vertical';
   const styleKey = opts.subtitleStyle ?? brand.subtitleStyle;
@@ -61,7 +136,8 @@ function StudioEditor({ data, reload }: { data: StudioData; reload: () => void }
 
   return (
     <div style={style}>
-      <WorkspaceHead guide="marka" title="Logo ve" tape="görünüm" lead="Logo, renk ve altyazı kimliğini bir kez ayarla. Dikey ve yatay videoların ayarları ayrı; önizleme gerçek yerleşimi gösterir." />
+      <WorkspaceHead guide="marka" title="Logo ve" tape="görünüm" lead="Logo, renk ve altyazı kimliğini bir kez ayarla. Dikey ve yatay videoların ayarları ayrı; istersen her kanal sekmesine ayrı logo ve görünüm ver." />
+      {scopeBar}
 
       <div className="studio-grid">
         <section className="panel studio-defaults" aria-label="Üretim varsayılanları">
@@ -71,7 +147,7 @@ function StudioEditor({ data, reload }: { data: StudioData; reload: () => void }
               <h2 className="panel-title">Üretim varsayılanları</h2>
               <p className="panel-sub">{FORMATS.find((f) => f.value === format)!.hint}.</p>
             </div>
-            <button type="button" className="btn btn-accent" disabled={saving === 'defaults'} onClick={() => save('defaults', () => api.put('/api/studio/defaults', { format, options: defaults[format] }), `${vertical ? 'Dikey' : 'Yatay'} ayarlar kaydedildi`)}>
+            <button type="button" className="btn btn-accent" disabled={saving === 'defaults'} onClick={() => save('defaults', () => api.put('/api/studio/defaults', { format, channel, options: defaults[format] }), `${vertical ? 'Dikey' : 'Yatay'} ayarlar kaydedildi${channel ? ` (${channel})` : ''}`)}>
               {saving === 'defaults' ? <Spinner /> : <Icon name="check" size={16} />} {vertical ? 'Dikey' : 'Yatay'} ayarlarını kaydet
             </button>
           </header>
@@ -96,7 +172,7 @@ function StudioEditor({ data, reload }: { data: StudioData; reload: () => void }
               <h3 className="eyebrow">Logo</h3>
               <Switch checked={opts.logo} onChange={(v) => setOpt({ logo: v })} label="Logoyu ekle" hint={data.logo.exists ? 'Önizlemede sürükle ya da aşağıdan hizala' : 'Sağdaki "Kimlik" bölümünden logo yükle'} />
               <Field label={`Boyut · %${Math.round(opts.logoScale * 100)}`}>
-                <input type="range" className="range" min={0.5} max={2} step={0.05} value={opts.logoScale} disabled={!opts.logo} onChange={(e) => setOpt({ logoScale: Number(e.target.value) })} />
+                <input type="range" className="range" min={0.15} max={2} step={0.05} value={opts.logoScale} disabled={!opts.logo} onChange={(e) => setOpt({ logoScale: Number(e.target.value) })} />
               </Field>
               <Field label={`Görünürlük · %${Math.round(opts.logoOpacity * 100)}`}>
                 <input type="range" className="range" min={0.05} max={1} step={0.05} value={opts.logoOpacity} disabled={!opts.logo} onChange={(e) => setOpt({ logoOpacity: Number(e.target.value) })} />
@@ -137,19 +213,40 @@ function StudioEditor({ data, reload }: { data: StudioData; reload: () => void }
               <Switch checked={opts.subtitleFollowsTheme} onChange={(v) => setOpt({ subtitleFollowsTheme: v })} label="Vurgu rengi altyazıda" hint="Kapalıyken marka rengi" />
               <Switch checked={opts.censor} onChange={(v) => setOpt({ censor: v })} label="Küfür sansürü" hint="Geçen anlar biplenir" />
               {vertical ? (
-                <Field label="Yerleşim">
-                  <Segmented
-                    size="small"
-                    label="Yerleşim"
-                    value={opts.composition}
-                    onChange={(v) => setOpt({ composition: v })}
-                    options={[
-                      { value: 'auto', label: 'Otomatik' },
-                      { value: 'split', label: 'Kamera + oyun' },
-                      { value: 'single', label: 'Tek kare' },
-                    ]}
-                  />
-                </Field>
+                <>
+                  <Field label="Yerleşim" help={opts.composition === 'split' ? 'Kamera üstte, oyun altta. Kadraj çizilmişse yüz aranmaz, o kadraj kullanılır.' : opts.composition === 'auto' ? 'Yüz kamerası bulunursa kamera + oyun; bulunamazsa çizili kadraj varsa o, yoksa tek kare.' : 'Kamera aranmaz; kare odak noktasına göre kırpılır.'}>
+                    <Segmented
+                      size="small"
+                      label="Yerleşim"
+                      value={opts.composition}
+                      onChange={(v) => setOpt({ composition: v })}
+                      options={[
+                        { value: 'auto', label: 'Otomatik' },
+                        { value: 'split', label: 'Kamera + oyun' },
+                        { value: 'single', label: 'Tek kare' },
+                      ]}
+                    />
+                  </Field>
+                  {opts.composition !== 'single' && (
+                    <Field label="Kamera ve oyun alanı" help="Örnek bir yayın karesinde kamera kutusunu ve oyun alanını işaretle; bütün otomatik üretimler bu kadrajı kullanır.">
+                      <div className="row-gap">
+                        <button type="button" className="btn btn-secondary btn-small" onClick={() => setDrawing(true)}>
+                          <Icon name="crop" size={14} /> {opts.manualLayout ? 'Kadrajı düzenle' : 'Kadrajı çiz'}
+                        </button>
+                        {opts.manualLayout ? (
+                          <>
+                            <span className="status status-ready">Kadraj çizildi</span>
+                            <button type="button" className="btn btn-quiet btn-small" onClick={() => setOpt({ manualLayout: null })}>
+                              Kaldır
+                            </button>
+                          </>
+                        ) : (
+                          <span className="muted">Çizilmedi{opts.composition === 'split' ? ' — varsayılan köşe kadrajı kullanılır' : ''}</span>
+                        )}
+                      </div>
+                    </Field>
+                  )}
+                </>
               ) : (
                 <>
                   <Switch checked={opts.intro} onChange={(v) => setOpt({ intro: v })} label="Açılış videosu ekle" hint={data.intro.exists ? `${duration(data.intro.durationSec)} başa eklenir` : 'Yüklenmedi'} disabled={!data.intro.exists} />
@@ -167,9 +264,9 @@ function StudioEditor({ data, reload }: { data: StudioData; reload: () => void }
 
         <aside className="ws-stack">
           <section className="panel">
-            <h2 className="panel-title">Kimlik</h2>
+            <h2 className="panel-title">Kimlik{channel ? ` · ${channel}` : ''}</h2>
             <div className="stack">
-              <LogoUpload logo={data.logo} max={data.limits.logoMaxBytes} onChange={reload} />
+              <LogoUpload logo={data.logo} max={data.limits.logoMaxBytes} onChange={reload} channel={channel} />
               <div className="color-row">
                 <ColorField label="Marka rengi" value={brand.brandColor} onChange={(v) => setBrand({ ...brand, brandColor: v })} />
                 <ColorField label="Vurgu rengi" value={brand.accentColor} onChange={(v) => setBrand({ ...brand, accentColor: v })} />
@@ -195,7 +292,7 @@ function StudioEditor({ data, reload }: { data: StudioData; reload: () => void }
                   { value: 'en', label: 'English' },
                 ]}
               />
-              <button type="button" className="btn btn-primary" disabled={saving === 'brand'} onClick={() => save('brand', () => api.put('/api/studio/brand', brand))}>
+              <button type="button" className="btn btn-primary" disabled={saving === 'brand'} onClick={() => save('brand', () => api.put('/api/studio/brand', { ...brand, channel }))}>
                 {saving === 'brand' ? <Spinner /> : null} Kimliği kaydet
               </button>
             </div>
@@ -266,7 +363,85 @@ function StudioEditor({ data, reload }: { data: StudioData; reload: () => void }
           </section>
         </aside>
       </div>
+
+      <LayoutDialog open={drawing} layout={opts.manualLayout ?? DEFAULT_LAYOUT} onClose={() => setDrawing(false)} onSubmit={(layout) => setOpt({ manualLayout: layout, composition: opts.composition === 'single' ? 'split' : opts.composition })} />
     </div>
+  );
+}
+
+/**
+ * Varsayılan kadraj çizimi: örnek kare indirilmiş bir yayından ya da kayıttan
+ * alınır; yoksa bilgisayardan bir ekran görüntüsü seçilebilir.
+ */
+function LayoutDialog({ open, layout: initial, onClose, onSubmit }: { open: boolean; layout: ManualLayout; onClose: () => void; onSubmit: (layout: ManualLayout) => void }) {
+  const [layout, setLayout] = useState(initial);
+  const [sample, setSample] = useState<string | null>(null);
+  const [custom, setCustom] = useState<string | null>(null);
+  const [checked, setChecked] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setLayout(initial);
+    if (checked) return;
+    setChecked(true);
+    fetch('/api/studio/sample-frame', { credentials: 'same-origin' })
+      .then((r) => (r.ok ? r.blob() : null))
+      .then((b) => b && setSample(URL.createObjectURL(b)))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const pick = (file: File | undefined) => {
+    if (!file) return;
+    if (custom) URL.revokeObjectURL(custom);
+    setCustom(URL.createObjectURL(file));
+  };
+
+  const frames: LayoutFrame[] = [{ id: 'sample', title: 'Örnek kare', imageUrl: custom ?? sample }];
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      wide
+      className="modal-align"
+      title="Kamera ve oyun alanını çiz"
+      footer={
+        <>
+          <button type="button" className="btn btn-quiet" onClick={() => setLayout(DEFAULT_LAYOUT)}>
+            Sıfırla
+          </button>
+          <button type="button" className="btn btn-secondary" onClick={onClose}>
+            Vazgeç
+          </button>
+          <button
+            type="button"
+            className="btn btn-accent"
+            onClick={() => {
+              onSubmit(layout);
+              onClose();
+            }}
+          >
+            <Icon name="check" size={16} /> Kadrajı kullan
+          </button>
+        </>
+      }
+    >
+      <p className="muted hz-lead">
+        <b>Kamera</b> kutusunu yüz kamerasının, <b>Yayın alanı</b> kutusunu oyunun/ekranın üstüne çek. Kaydettikten sonra "Dikey ayarlarını kaydet" demeyi unutma.
+      </p>
+      <LayoutEditor
+        layout={layout}
+        onChange={setLayout}
+        frames={frames}
+        footer={
+          <label className="btn btn-secondary btn-small">
+            <Icon name="image" size={14} /> {frames[0].imageUrl ? 'Başka kare seç' : 'Bilgisayardan kare seç'}
+            <input type="file" accept="image/*" hidden onChange={(e) => pick(e.target.files?.[0])} />
+          </label>
+        }
+      />
+    </Modal>
   );
 }
 
@@ -347,7 +522,7 @@ function SequenceStrip({ intro, outro, withIntro, withOutro }: { intro: BrandMed
 
 /* ── Yüklemeler ────────────────────────────────────────────────────────── */
 
-export function LogoUpload({ logo: loaded, max, onChange }: { logo: StudioData['logo']; max: number; onChange: () => void }) {
+export function LogoUpload({ logo: loaded, max, onChange, channel = null }: { logo: StudioData['logo']; max: number; onChange: () => void; channel?: string | null }) {
   const [busy, setBusy] = useState(false);
   const [removed, setRemoved] = useState(false);
   const logo = removed ? { exists: false, url: null } : loaded;
@@ -356,7 +531,7 @@ export function LogoUpload({ logo: loaded, max, onChange }: { logo: StudioData['
     if (file.size > max) return toast(`Logo ${bytes(max)} sınırını aşıyor`, 'error');
     setBusy(true);
     try {
-      await api.upload('/api/studio/logo', file);
+      await api.upload(`/api/studio/logo${query({ channel })}`, file);
       toast('Logo yüklendi', 'ok');
       onChange();
     } catch (err) {
@@ -385,7 +560,7 @@ export function LogoUpload({ logo: loaded, max, onChange }: { logo: StudioData['
                   label: 'Logo kaldırıldı',
                   hide: () => setRemoved(true),
                   restore: () => setRemoved(false),
-                  commit: () => api.del('/api/studio/logo'),
+                  commit: () => api.del(`/api/studio/logo${query({ channel })}`),
                   done: () => {
                     setRemoved(false);
                     onChange();

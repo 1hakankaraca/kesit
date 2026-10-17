@@ -15,6 +15,7 @@ import { deleteWithUndo, toast, toastError } from '../lib/toast.ts';
 import { useSocketEvent } from '../lib/socket.ts';
 import type { ChannelInfo, LiveState } from '../lib/types.ts';
 import { useInterval, useResource } from '../lib/useResource.ts';
+import { QuickCapturePanel } from './Kesitler.tsx';
 
 /** Canlı: nöbet, kayıt ve chat'ten klip yakalama. */
 export function Live() {
@@ -41,7 +42,7 @@ export function Live() {
       <WorkspaceHead
         title="Canlı"
         tape="yayın"
-        lead="Şu an süren yayını kaydet, klipleri yakala, sohbete klip komutu at ya da yayının o ana kadarki kısmını kesmek için indir."
+        lead="Şu an süren yayını kaydet, klipleri yakala, anlık kesit al ya da yayının o ana kadarki kısmını kesmek için indir."
         guide="canli"
       />
       {channel && <ChannelBanner info={info.data} loading={info.loading} channel={channel} />}
@@ -60,7 +61,7 @@ export function Live() {
         </div>
         <div className="ws-stack">
           <WatcherPanel live={live} channel={channel} />
-          <QuickClipPanel channel={channel} isLive={!!info.data?.isLive} chatAccess={live.chatAccess} />
+          <QuickCapturePanel channel={channel} isLive={!!info.data?.isLive} compact />
         </div>
       </div>
     </>
@@ -240,10 +241,11 @@ function LiveCapturePanel({ channel, isLive, startedAt }: { channel: string; isL
     }
   };
 
-  const captureRange = async (range: TimeRange) => {
-    await api.post('/api/vods/capture-live', { channel, startSec: range.startSec, endSec: range.endSec });
-    const future = range.endSec > elapsed;
-    toast(future ? `Aralık kaydediliyor — yayın ${duration(range.endSec)} noktasına gelince dosya kapanır` : 'Aralık indiriliyor — Yayın geçmişleri\'nde görünecek', 'ok', toTasks, 6000);
+  const captureRange = async (ranges: TimeRange[]) => {
+    for (const range of ranges) await api.post('/api/vods/capture-live', { channel, startSec: range.startSec, endSec: range.endSec });
+    const future = ranges.some((r) => r.endSec > elapsed);
+    const label = ranges.length > 1 ? `${ranges.length} aralık indiriliyor` : future ? `Aralık kaydediliyor — yayın ${duration(ranges[0].endSec)} noktasına gelince dosya kapanır` : 'Aralık indiriliyor — Yayın geçmişleri\'nde görünecek';
+    toast(label, 'ok', toTasks, 6000);
   };
 
   return (
@@ -351,54 +353,6 @@ function WatcherPanel({ live, channel }: { live: LiveState; channel: string }) {
         </ul>
       ) : (
         w.watching && <p className="muted pad-top">Henüz klip düşmedi. Yayında biri klip aldığında burada görünecek.</p>
-      )}
-    </section>
-  );
-}
-
-const QUICK_SECONDS = [30, 60, 90, 120, 180] as const;
-
-/** Anlık klip: sohbete "!clip <sn>" yazar; kanalda klip botu varsa klip alınır ve yukarıda yakalanır. */
-function QuickClipPanel({ channel, isLive, chatAccess }: { channel: string; isLive: boolean; chatAccess: boolean }) {
-  const [sending, setSending] = useState<number | null>(null);
-  const send = async (seconds: number) => {
-    setSending(seconds);
-    try {
-      await api.post('/api/live/quick-clip', { channel, seconds });
-      toast(`Sohbete "!clip ${seconds}" yazıldı — klip gelince yukarıda yakalanır`, 'ok');
-    } catch (err) {
-      toastError(err);
-    } finally {
-      setSending(null);
-    }
-  };
-  return (
-    <section className="panel" aria-labelledby="qc-title">
-      <header className="panel-head">
-        <div>
-          <h2 id="qc-title" className="panel-title">
-            <Icon name="bolt" size={18} /> Anlık klip
-          </h2>
-          <p className="panel-sub">Yayın sırasında sohbete klip komutu gönderir. Yayıncının kanalında klip botu (ör. KickBot) destekliyorsa çalışır.</p>
-        </div>
-      </header>
-      <div className="quick-grid">
-        {QUICK_SECONDS.map((sec) => (
-          <button key={sec} type="button" className="quick-btn" disabled={!chatAccess || !channel || sending !== null} onClick={() => void send(sec)}>
-            {sending === sec ? <Spinner size={14} /> : <b>{sec}</b>}
-            <span>sn</span>
-          </button>
-        ))}
-      </div>
-      {!chatAccess ? (
-        <p className="field-help pad-top">
-          Sohbete yazabilmek için kendi Kick uygulamanı bağlaman gerekiyor.{' '}
-          <button type="button" className="link" onClick={() => navigate(sectionPath('ayarlar'))}>
-            Ayarlar'da kur
-          </button>
-        </p>
-      ) : (
-        !isLive && <p className="field-help pad-top">Kanal şu an yayında değil; klip botları yalnız yayında klip alır.</p>
       )}
     </section>
   );

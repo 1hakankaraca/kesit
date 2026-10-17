@@ -13,7 +13,7 @@
  * dosyasına göre hesaplanırken bu kayma keyframeBefore() ile telafi edilir;
  * aksi hâlde tam ekran anları 1-2 sn erken gelirdi.
  */
-const { execFile } = require('child_process');
+const { execFile } = require('./ProcTracker');
 
 const MAX_ARALIK = 50;
 const MIN_SURE_SN = 0.3;

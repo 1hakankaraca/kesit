@@ -8,6 +8,8 @@ const STEPS: Record<string, string> = {
   hazırlanıyor: 'Hazırlanıyor',
   'kaynak bulunuyor': 'Yayın bulunuyor',
   'facecam tespiti': 'Yüz kamerası aranıyor',
+  'kadraj hazırlanıyor': 'Kadraj hazırlanıyor',
+  iptal: 'İptal edildi',
   'hareket analizi': 'Görüntü inceleniyor',
   'yüz takibi': 'Yüz takip ediliyor',
   'transkript çıkarılıyor': 'Konuşma yazıya dökülüyor',

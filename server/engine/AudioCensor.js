@@ -7,7 +7,7 @@
  * kodlanır (filtre grafiği ses akışını decode etmeyi gerektirir, stream
  * copy ile bir arada kullanılamaz).
  */
-const { spawn } = require('child_process');
+const { spawn } = require('./ProcTracker');
 const fs = require('fs');
 const path = require('path');
 

@@ -69,10 +69,11 @@ function VodList() {
     }
   };
 
-  const downloadRange = async (range: TimeRange) => {
+  const downloadRange = async (ranges: TimeRange[]) => {
     if (!rangeFor) return;
-    await request(rangeFor, range);
-    toast(`${clockText(range.startSec)}–${clockText(range.endSec)} aralığı indiriliyor`, 'ok', { label: 'Görevlere git', run: () => navigate(sectionPath('gorevler')) }, 5000);
+    for (const range of ranges) await request(rangeFor, range);
+    const label = ranges.length === 1 ? `${clockText(ranges[0].startSec)}–${clockText(ranges[0].endSec)} aralığı indiriliyor` : `${ranges.length} aralık indiriliyor`;
+    toast(label, 'ok', { label: 'Görevlere git', run: () => navigate(sectionPath('gorevler')) }, 5000);
     await jobs.reload();
   };
 

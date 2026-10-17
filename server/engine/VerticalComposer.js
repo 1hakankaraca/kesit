@@ -5,7 +5,7 @@
  * Facecam yoksa / tam kamera: içerik odak noktasına ortalanmış tek kırpma.
  * Altyazı ASS dosyası varsa videoya gömülür.
  */
-const { execFile } = require('child_process');
+const { execFile } = require('./ProcTracker');
 const fs = require('fs');
 const path = require('path');
 const CamFull = require('./CamFull');

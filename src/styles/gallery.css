@@ -331,3 +331,31 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Dikey videolar dikey kart: 9:16 küçük resim; satırlar üstten hizalanır. */
+.gallery-grid {
+  align-items: start;
+}
+
+.gcard-vertical .gcard-thumb {
+  aspect-ratio: 9 / 16;
+  max-height: 440px;
+}
+
+.gcard-vertical .gcard-thumb img {
+  object-fit: cover;
+}
+
+/* Üstünde bekleyince kart büyür ve video sesli oynar. */
+.gallery-grid > li:has(.gcard-live) {
+  z-index: 5;
+}
+
+.gcard-live .gcard-thumb {
+  transform: scale(1.08) translateY(-4px);
+  box-shadow: 0 28px 50px -22px rgb(0 0 0 / 0.7);
+}
+
+.gcard-preview {
+  object-fit: cover;
+}

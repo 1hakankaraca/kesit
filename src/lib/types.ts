@@ -34,6 +34,8 @@ export interface Job {
   file_size_bytes: number | null;
   vod_scan_job_id: number | null;
   created_at: string;
+  /** Ham kaynak saklanmışsa indirme adresi (yeniden üretim de mümkündür). */
+  raw_url?: string | null;
 }
 
 export interface QueueStatus {
@@ -216,6 +218,8 @@ export interface ClipOptions {
   introAsk: boolean;
   outro: boolean;
   camFullRanges: { start: number; end: number }[];
+  /** Elle çizilmiş kamera/yayın alanı kadrajı (0-1 oranlı); "Kamera + oyun" seçiliyse tespit yerine bu kullanılır. */
+  manualLayout: { cam: { x: number; y: number; w: number; h: number }; content: { x: number; y: number; w: number; h: number } } | null;
 }
 
 export interface RecordingOutput {
@@ -232,6 +236,8 @@ export interface RecordingOutput {
 
 export interface Studio {
   styles: { key: string; label: string; hint: string }[];
+  /** Hangi sekme için okundu; custom ise o sekmenin kendi profili var. */
+  scope: { channel: string | null; custom: boolean };
   brand: { subtitleStyle: string; brandColor: string; accentColor: string; language: 'tr' | 'en' };
   defaults: Record<'vertical' | 'horizontal', ClipOptions>;
   logo: { exists: boolean; url: string | null };
@@ -240,6 +246,22 @@ export interface Studio {
   limits: { mediaMaxSeconds: number; mediaMaxBytes: number; logoMaxBytes: number };
   recordingOutput: RecordingOutput;
   hevcAvailable: boolean;
+}
+
+/** Anlık klip düğmesiyle yayından alınan ham kesit. */
+export interface Snippet {
+  id: number;
+  channel: string;
+  title: string;
+  seconds: number;
+  status: 'downloading' | 'ready' | 'failed';
+  error: string | null;
+  sizeBytes: number | null;
+  durationSec: number | null;
+  jobId: number | null;
+  videoUrl: string | null;
+  thumbUrl: string | null;
+  createdAt: string;
 }
 
 export interface SocialAccount {

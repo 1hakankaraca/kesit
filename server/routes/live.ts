@@ -31,7 +31,7 @@ function sameHost(candidate: string, source: string) {
  * Canlı: chat klip yakalama, yayın kaydı, canlı önizleme vekili ve
  * Nöbetçi (bilgisayar başında değilken otomatik kayıt/klip).
  */
-export function liveRoutes({ workspaces, autopilot, publishing, kickChat, harvester }: AppContext) {
+export function liveRoutes({ workspaces, autopilot, publishing, kickChat, harvester, snippets }: AppContext) {
   const r = express.Router();
 
   r.get('/live', async (req, res) => {
@@ -44,11 +44,44 @@ export function liveRoutes({ workspaces, autopilot, publishing, kickChat, harves
     });
   });
 
-  /** Anlık klip: takip edilen kanalın sohbetine "!clip <sn>" yazar (kanalda klip botu varsa çalışır). */
+  /**
+   * Anlık klip: yayının son N saniyesini Kick'in süren yayın kaydından kesit
+   * olarak alır, ham saklar ve dikey videoya çevirir. Sohbete komut yazılmaz.
+   * (Sohbete "!clip" yazmak isteyenler için eski uç: /live/chat-clip.)
+   */
   r.post('/live/quick-clip', async (req, res) => {
     const ws = await workspaces.get(req.user!.id);
     const channel = slugOrThrow(req.body?.channel || ws.clipWatcher.channelSlug || req.user!.channelSlug);
+    res.json(await snippets.capture(req.user!.id, channel, Number(req.body?.seconds), { autoEdit: req.body?.autoEdit !== false }));
+  });
+
+  r.post('/live/chat-clip', async (req, res) => {
+    const ws = await workspaces.get(req.user!.id);
+    const channel = slugOrThrow(req.body?.channel || ws.clipWatcher.channelSlug || req.user!.channelSlug);
     res.json(await kickChat.sendClipCommand(req.user!.id, channel, Number(req.body?.seconds)));
+  });
+
+  /* ── Kesitler ─────────────────────────────────────────────────────────── */
+
+  r.get('/snippets', (req, res) => {
+    res.json({ snippets: snippets.list(req.user!.id) });
+  });
+
+  r.post('/snippets/capture', async (req, res) => {
+    const channel = slugOrThrow(req.body?.channel || req.user!.channelSlug);
+    res.json(await snippets.capture(req.user!.id, channel, Number(req.body?.seconds), { autoEdit: req.body?.autoEdit !== false }));
+  });
+
+  r.post('/snippets/:id/edit', async (req, res) => {
+    res.json({ job: await engine(() => snippets.edit(req.user!.id, intParam(req.params.id)), 502) });
+  });
+
+  r.post('/snippets/:id/cancel', (req, res) => {
+    res.json({ cancelled: snippets.cancel(req.user!.id, intParam(req.params.id)) });
+  });
+
+  r.delete('/snippets/:id', async (req, res) => {
+    res.json({ ok: await snippets.remove(req.user!.id, intParam(req.params.id)) });
   });
 
   /* ── Kanal klip takibi (Kick'e eklenen yeni klipleri indirir) ─────── */

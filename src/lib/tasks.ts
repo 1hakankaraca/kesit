@@ -5,7 +5,7 @@ import { createStore } from './store.ts';
 export interface Task {
   key: string;
   group: 'iniyor' | 'hazirlaniyor' | 'bitti' | 'hata';
-  kind: 'yayin' | 'klip-indir' | 'video' | 'kayit' | 'hazir-video' | 'model' | 'proje';
+  kind: 'yayin' | 'klip-indir' | 'video' | 'kayit' | 'hazir-video' | 'model' | 'proje' | 'kesit';
   title: string;
   channel: string | null;
   step: string;
@@ -15,6 +15,10 @@ export interface Task {
   at: string;
   link: { section: string; sub: number | string | null; label: string } | null;
   vodJobId?: number;
+  /** Kartta gösterilecek görsel (varsa). */
+  thumbUrl?: string | null;
+  /** Süren iş iptal edilebiliyorsa POST edilecek uç. */
+  cancel?: string | null;
 }
 
 /** Yayın indirmesinin anlık hızı (yalnız socket ile gelir). */
@@ -76,7 +80,7 @@ export function wireTaskEvents() {
       }
       soon();
     });
-    for (const ev of ['clipedit:update', 'recorder:final', 'recorder:status', 'recorder:finished', 'harvest:update', 'captions:download', 'recorder:segments', 'project:render']) {
+    for (const ev of ['clipedit:update', 'recorder:final', 'recorder:status', 'recorder:finished', 'harvest:update', 'captions:download', 'recorder:segments', 'project:render', 'snippet:update']) {
       s.on(ev, soon);
     }
     s.on('connect', soon);

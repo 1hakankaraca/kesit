@@ -33,6 +33,7 @@ const {
     normalizePublishStatus,
 } = require('./PublishingPolicy');
 const ViralScorer = require('./ViralScorer');
+const ProcTracker = require('./ProcTracker');
 
 // Kesit: otomatik başlık/açıklama üretimi kapalı (ürün kararı) — kod yerinde, açmak tek satır.
 const AUTO_METADATA = false;
@@ -61,11 +62,20 @@ const MAX_CONCURRENT_JOBS = Math.max(1, Math.min(
 const jobQueue = [];
 let runningJobs = 0;
 
-function scheduleJob(task) {
+function scheduleJob(task, key = null) {
     return new Promise((resolve) => {
-        jobQueue.push({ task, resolve });
+        jobQueue.push({ task, resolve, key });
         drainQueue();
     });
+}
+
+/** Kuyrukta bekleyen (henüz başlamamış) işi çıkarır; çıkarıldıysa true. */
+function dequeueJob(key) {
+    const i = jobQueue.findIndex(j => j.key === key);
+    if (i === -1) return false;
+    const [entry] = jobQueue.splice(i, 1);
+    entry.resolve();
+    return true;
 }
 
 function drainQueue() {
@@ -110,6 +120,73 @@ class ClipEditorManager {
 
         this.outputDir = path.join(CLIP_OUTPUT_DIR, String(userId), 'vertical');
         this.workDir = path.join(CLIP_OUTPUT_DIR, String(userId), 'work');
+        // Ham kaynak klipler: yeniden üretim (başka kadrajla) ve ham indirme için saklanır.
+        this.rawDir = path.join(CLIP_OUTPUT_DIR, String(userId), 'raw');
+        /** İptal istenen işler; adım sınırlarında kontrol edilir. */
+        this._cancelled = new Set();
+        /** Şu an bu süreçte işlenen işler. */
+        this._running = new Set();
+    }
+
+    rawPath(jobId) {
+        return path.join(this.rawDir, `${jobId}.mp4`);
+    }
+
+    hasRaw(jobId) {
+        return fs.existsSync(this.rawPath(jobId));
+    }
+
+    /** Ham klibin bir karesi (manuel kadraj çizmek için); ham yoksa null. */
+    async rawFrame(jobId) {
+        const raw = this.rawPath(jobId);
+        if (!fs.existsSync(raw)) return null;
+        const out = path.join(this.rawDir, `${jobId}_frame.jpg`);
+        let fresh = false;
+        try { fresh = fs.statSync(out).mtimeMs >= fs.statSync(raw).mtimeMs; } catch { /* yok */ }
+        if (!fresh) {
+            await this.composer._run('ffmpeg', ['-y', '-loglevel', 'error', '-ss', '1', '-i', raw, '-frames:v', '1', '-vf', 'scale=960:-2', out], 30000);
+        }
+        return fs.existsSync(out) ? out : null;
+    }
+
+    /** Sekmeye özel marka profili (user_settings.channel_brands[slug]) ya da null. */
+    static channelProfile(settings, channelSlug) {
+        if (!channelSlug) return null;
+        try {
+            const all = JSON.parse(settings?.channel_brands || '{}') || {};
+            const p = all[String(channelSlug).toLowerCase()];
+            return p && typeof p === 'object' ? p : null;
+        } catch {
+            return null;
+        }
+    }
+
+    /** Elle çizilmiş kadraj yoksa "kamera üstte, oyun altta" için kullanılan varsayılan kadraj. */
+    static DEFAULT_MANUAL_LAYOUT = {
+        cam: { x: 0.72, y: 0.62, w: 0.26, h: 0.36 },
+        content: { x: 0, y: 0, w: 1, h: 1 },
+    };
+
+    /**
+     * Tespitten ÖNCE yerleşim kararı (saf): "Kamera + oyun" seçilmiş ve kadraj
+     * elle çizilmişse tespit yapılmaz, o kadraj birebir kullanılır.
+     */
+    static layoutBeforeDetect(opts) {
+        if (opts.composition === 'split' && opts.manualLayout) return opts.manualLayout;
+        return null;
+    }
+
+    /**
+     * Tespitten SONRA yerleşim kararı (saf). Bölünmüş düzen çıkmadıysa ve
+     * "Tek kare" seçilmemişse: kayıtlı kadraj varsa o; "Kamera + oyun"
+     * istenmişse varsayılan kadraj. Böylece bölünmüş düzen istenen bir klip
+     * asla yalnız kameradan ibaret tek kare çıkmaz.
+     */
+    static layoutAfterDetect(opts, facecam) {
+        if (opts.composition === 'single') return null;
+        if (VerticalComposer.isSplit(facecam, opts.composition)) return null;
+        if (opts.manualLayout) return opts.manualLayout;
+        return opts.composition === 'split' ? ClipEditorManager.DEFAULT_MANUAL_LAYOUT : null;
     }
 
     // ==========================================
@@ -232,12 +309,19 @@ class ClipEditorManager {
         return ClipEditorManager.normalizeClipOptions({ ...(ClipEditorManager.GROUP_BASE_DEFAULTS[group] || {}), ...saved });
     }
 
-    /** Kullanıcı varsayılanları + iş bazlı override → normalize edilmiş seçenekler */
-    async resolveOptions(override = {}, group = 'live') {
+    /**
+     * Kullanıcı varsayılanları + iş bazlı override → normalize edilmiş seçenekler.
+     * Kanal sekmesinin kendi profili varsa (Logo ve görünüm → "Bu sekme için
+     * özel") onun varsayılanları kullanılır.
+     */
+    async resolveOptions(override = {}, group = 'live', channelSlug = null) {
         let parsed = {};
         try {
             const settings = await this.db.getSettings(this.userId);
-            parsed = JSON.parse(settings?.clip_defaults || '{}') || {};
+            const profile = ClipEditorManager.channelProfile(settings, channelSlug || this.channelSlug);
+            parsed = (profile?.clip_defaults && typeof profile.clip_defaults === 'object')
+                ? profile.clip_defaults
+                : (JSON.parse(settings?.clip_defaults || '{}') || {});
         } catch { /* bozuk ayar → şema varsayılanları */ }
         return ClipEditorManager.normalizeClipOptions({ ...ClipEditorManager.groupDefaults(parsed, group), ...override });
     }
@@ -251,7 +335,7 @@ class ClipEditorManager {
         if (clips.length === 0) {
             throw new Error('Kanalda klip bulunamadı');
         }
-        const merged = await this._mergeOptions(subtitles, options, 'gezgin');
+        const merged = await this._mergeOptions(subtitles, options, 'gezgin', channelSlug);
 
         const jobs = [];
         for (const clip of clips) {
@@ -276,12 +360,12 @@ class ClipEditorManager {
      * varsayılanlarıyla birleştir. `subtitles` yalnız açıkça false ise
      * varsayılanı ezer (true çağıranların "belirtmedim" durumudur).
      */
-    async _mergeOptions(subtitles, options, group = 'live') {
+    async _mergeOptions(subtitles, options, group = 'live', channelSlug = null) {
         const override = { ...(options || {}) };
         if (subtitles === false && override.subtitles === undefined) {
             override.subtitles = false;
         }
-        return this.resolveOptions(override, group);
+        return this.resolveOptions(override, group, channelSlug);
     }
 
     /**
@@ -297,7 +381,7 @@ class ClipEditorManager {
         if (!fs.existsSync(localPath)) {
             throw new Error('Yerel klip dosyası bulunamadı');
         }
-        const merged = await this._mergeOptions(subtitles, options, group);
+        const merged = await this._mergeOptions(subtitles, options, group, this.channelSlug);
         const record = await this.db.addEditedClip(this.userId, {
             source,
             sourceClipId: null,
@@ -323,7 +407,7 @@ class ClipEditorManager {
      */
     async enqueueKickClip(clipId, { title = '', channelSlug = '', source = 'chat', subtitles, options = null, group = 'gezgin' } = {}) {
         const info = await this.fetcher.getClipInfo(clipId);
-        const merged = await this._mergeOptions(subtitles, options, group);
+        const merged = await this._mergeOptions(subtitles, options, group, channelSlug || this.channelSlug);
         const record = await this.db.addEditedClip(this.userId, {
             source,
             sourceClipId: clipId,
@@ -344,7 +428,7 @@ class ClipEditorManager {
      */
     async enqueueKickbotClip(clipId, { title = '', channelSlug = '', source = 'chat', subtitles, options = null, group = 'gezgin' } = {}) {
         const info = await this.fetcher.resolveKickbotClip(clipId);
-        const merged = await this._mergeOptions(subtitles, options, group);
+        const merged = await this._mergeOptions(subtitles, options, group, channelSlug || this.channelSlug);
         const record = await this.db.addEditedClip(this.userId, {
             source,
             // Kick native ID'lerle çakışmasın diye önek
@@ -415,8 +499,18 @@ class ClipEditorManager {
     /**
      * Kullanıcının yüklediği logonun dosya yolu (varsa)
      */
-    getLogoPath() {
-        const logoPath = path.join(CLIP_OUTPUT_DIR, String(this.userId), 'logo.png');
+    getLogoPath(channelSlug = null) {
+        const base = path.join(CLIP_OUTPUT_DIR, String(this.userId));
+        if (channelSlug) {
+            // Sekmeye özel profil (Logo ve görünüm → "bu sekme için özel"): klasör
+            // varsa yalnız oradaki logo geçerlidir; yoksa logo basılmaz.
+            const dir = path.join(base, 'brand', String(channelSlug).toLowerCase());
+            if (fs.existsSync(dir)) {
+                const own = path.join(dir, 'logo.png');
+                return fs.existsSync(own) ? own : null;
+            }
+        }
+        const logoPath = path.join(base, 'logo.png');
         return fs.existsSync(logoPath) ? logoPath : null;
     }
 
@@ -436,7 +530,11 @@ class ClipEditorManager {
         let requeued = 0;
         let failed = 0;
         for (const job of pending) {
-            if (job.source_url) {
+            if (this.hasRaw(job.id)) {
+                await this.db.updateEditedClip(job.id, this.userId, { status: 'queued', step: '', error: null });
+                this._schedule(job.id, { localPath: this.rawPath(job.id) });
+                requeued++;
+            } else if (job.source_url) {
                 await this.db.updateEditedClip(job.id, this.userId, {
                     status: 'queued', step: '', error: null,
                 });
@@ -464,14 +562,65 @@ class ClipEditorManager {
         // Yalnız başarısız iş yeniden denenir: işlenen bir iş ikinci kez kuyruğa
         // girerse iki süreç aynı çalışma dizinine ve çıktıya yazar.
         if (job.status !== 'failed') throw new Error('Yalnız başarısız klipler yeniden denenebilir');
-        // Yerel kaynaklı işlerde (!clip çıktısı) source_url NULL olur; çalışma
-        // dizini de temizlendiğinden yeniden denenecek bir kaynak yoktur
-        if (!job.source_url) {
+        // Ham kaynak saklandıysa oradan; yoksa kaynak adresinden yeniden indirilir.
+        const raw = this.hasRaw(jobId);
+        if (!raw && !job.source_url) {
             throw new Error('Bu klibin kaynağı yerel dosyaydı ve artık yok — yeniden deneme yapılamaz.');
         }
         await this.db.updateEditedClip(jobId, this.userId, { status: 'queued', step: '', error: null });
-        this._schedule(jobId, { videoUrl: job.source_url });
+        this._schedule(jobId, raw ? { localPath: this.rawPath(jobId) } : { videoUrl: job.source_url });
         return true;
+    }
+
+    /**
+     * Hazır (ya da başarısız) bir dikey klibi ham kaynağından yeniden üretir —
+     * kullanıcı kamera ve oyun alanını elle çizdiyse o kadrajla (tespit
+     * atlanır). Ham kaynak saklanmamışsa kaynak adresinden yeniden indirilir.
+     */
+    async reprocess(jobId, { manualLayout = null, composition = null } = {}) {
+        const job = await this.db.getEditedClipById(jobId, this.userId);
+        if (!job) throw new Error('İş bulunamadı');
+        if (job.status === 'queued' || job.status === 'processing') throw new Error('Bu iş zaten sürüyor');
+        let rawOpts = {};
+        try { rawOpts = JSON.parse(job.options || '{}') || {}; } catch { /* eski kayıt */ }
+        if (rawOpts.outputFormat === 'horizontal') throw new Error('Yatay kesitlerde kadraj seçilmez');
+        const raw = this.hasRaw(jobId);
+        if (!raw && !job.source_url) throw new Error('Bu klibin ham kaynağı saklanmamış — yeniden üretilemez');
+        const layout = ClipEditorManager.normalizeManualLayout(manualLayout);
+        const next = ClipEditorManager.normalizeClipOptions({
+            ...rawOpts,
+            outputFormat: 'vertical',
+            ...(layout ? { manualLayout: layout, composition: 'split' } : {}),
+            ...(composition ? { composition } : {}),
+        });
+        await this.db.updateEditedClip(jobId, this.userId, { status: 'queued', step: '', error: null, options: next, qc_verdict: null, qc_issues: null });
+        this._emit(jobId, 'queued', '');
+        this._schedule(jobId, raw ? { localPath: this.rawPath(jobId) } : { videoUrl: job.source_url });
+        return this.db.getEditedClipById(jobId, this.userId);
+    }
+
+    /**
+     * Süren ya da sırada bekleyen işi iptal eder. Sıradaysa kuyruktan çıkarılır;
+     * işleniyorsa alt süreçleri (ffmpeg/whisper) öldürülür ve iş "İptal edildi"
+     * olarak biter. Ham kaynak saklı kalır; iş sonradan yeniden üretilebilir.
+     */
+    async cancel(jobId) {
+        const job = await this.db.getEditedClipById(jobId, this.userId);
+        if (!job) throw new Error('İş bulunamadı');
+        if (job.status !== 'queued' && job.status !== 'processing') throw new Error('Yalnız süren işler iptal edilebilir');
+        const key = this._jobKey(jobId);
+        if (dequeueJob(key) || !this._running.has(jobId)) {
+            await this.db.updateEditedClip(jobId, this.userId, { status: 'failed', step: 'iptal', error: 'İptal edildi' });
+            this._emit(jobId, 'failed', 'İptal edildi');
+            return true;
+        }
+        this._cancelled.add(jobId);
+        ProcTracker.kill(key);
+        return true;
+    }
+
+    _jobKey(jobId) {
+        return `clip:${this.userId}:${jobId}`;
     }
 
     /**
@@ -552,6 +701,9 @@ class ClipEditorManager {
         if (job.status === 'queued' || job.status === 'processing') throw new Error('İşlenmekte olan klip silinemez — bitmesini bekle');
         for (const suffix of ['.mp4', '_thumb.jpg']) {
             try { fs.unlinkSync(path.join(this.outputDir, `${jobId}${suffix}`)); } catch { /* yok */ }
+        }
+        for (const suffix of ['.mp4', '_frame.jpg']) {
+            try { fs.unlinkSync(path.join(this.rawDir, `${jobId}${suffix}`)); } catch { /* yok */ }
         }
         await this.db.deleteEditedClip(jobId, this.userId);
         return true;
@@ -738,7 +890,7 @@ class ClipEditorManager {
     }
 
     _schedule(jobId, inputs) {
-        scheduleJob(() => this._process(jobId, inputs));
+        scheduleJob(() => this._process(jobId, inputs), this._jobKey(jobId));
     }
 
     /** İş kuyruğu durumu — makine geneli (panel gösterir) */
@@ -746,13 +898,51 @@ class ClipEditorManager {
         return getQueueStatus();
     }
 
-    async _process(jobId, { videoUrl, localPath }) {
+    async _process(jobId, inputs) {
         // Session yok edildiyse eski closure çalışmasın — iş DB'de 'queued'
         // kalır, bir sonraki session açılışında recoverPendingJobs devralır.
         if (this._destroyed) {
             console.log(`[ClipEditor:${this.userId}] İş ${jobId} atlandı — session kapatılmış`);
             return;
         }
+        // İşin açtığı alt süreçler anahtara yazılır; iptal hepsini öldürür.
+        this._running.add(jobId);
+        try {
+            await ProcTracker.run(this._jobKey(jobId), () => this._processInner(jobId, inputs));
+        } finally {
+            this._running.delete(jobId);
+            this._cancelled.delete(jobId);
+        }
+    }
+
+    /**
+     * Ham kaynağı kalıcı yere alır: indirilen klip doğrudan raw/<id>.mp4'e iner,
+     * yerel dosya (kesit, anlık klip) oraya kopyalanır. Zaten oradaysa dokunulmaz.
+     * @returns {Promise<string>} ham dosyanın yolu
+     */
+    async _materializeSource(jobId, { videoUrl, localPath }, jobWorkDir) {
+        const raw = this.rawPath(jobId);
+        fs.mkdirSync(this.rawDir, { recursive: true });
+        if (fs.existsSync(raw) && fs.statSync(raw).size > 0) {
+            await this._setStep(jobId, 'processing', 'hazırlanıyor');
+            return raw;
+        }
+        if (localPath && fs.existsSync(localPath)) {
+            await this._setStep(jobId, 'processing', 'hazırlanıyor');
+            if (path.resolve(localPath) !== path.resolve(raw)) fs.copyFileSync(localPath, raw);
+            return raw;
+        }
+        if (!videoUrl) throw new Error('Klibin kaynağı bulunamadı');
+        await this._setStep(jobId, 'processing', 'indiriliyor');
+        // Yeni oluşturulan klipler (özellikle KickBot) CDN'de henüz hazır
+        // olmayabilir — geçici indirme hatalarında backoff ile tekrar dene
+        const tmp = path.join(jobWorkDir, 'source.mp4');
+        await this._downloadWithRetry(jobId, videoUrl, tmp);
+        fs.renameSync(tmp, raw);
+        return raw;
+    }
+
+    async _processInner(jobId, inputs) {
         const jobWorkDir = path.join(this.workDir, String(jobId));
         fs.mkdirSync(jobWorkDir, { recursive: true });
         fs.mkdirSync(this.outputDir, { recursive: true });
@@ -771,41 +961,45 @@ class ClipEditorManager {
             const language = opts.subtitleLang !== 'auto'
                 ? opts.subtitleLang
                 : (userSettings?.language === 'en' ? 'en' : 'tr');
+            // Sekmeye özel marka (renk/altyazı stili/logo) varsa genel ayarı ezer.
+            const profile = ClipEditorManager.channelProfile(userSettings, jobRow?.channel_slug);
+            const brand = { ...(userSettings || {}), ...((profile && profile.brand) || {}) };
 
-            // 1. Kaynak video
-            let inputPath = localPath;
-            if (!inputPath) {
-                await this._setStep(jobId, 'processing', 'indiriliyor');
-                inputPath = path.join(jobWorkDir, 'source.mp4');
-                // Yeni oluşturulan klipler (özellikle KickBot) CDN'de henüz hazır
-                // olmayabilir — geçici indirme hatalarında backoff ile tekrar dene
-                await this._downloadWithRetry(jobId, videoUrl, inputPath);
-            } else {
-                await this._setStep(jobId, 'processing', 'hazırlanıyor');
-            }
+            // 1. Kaynak video — ham kopya saklanır (yeniden üretim ve ham indirme için)
+            const inputPath = await this._materializeSource(jobId, inputs, jobWorkDir);
 
             // 1b. Yatay kesit (VOD sahne taraması) — facecam/dikey kompozisyon
             // tamamen atlanır; kaynak zaten doğru segmente kesilmiş olarak gelir.
             if (opts.outputFormat === 'horizontal') {
-                await this._processHorizontal(jobId, inputPath, jobWorkDir, jobRow, opts, language);
+                await this._processHorizontal(jobId, inputPath, jobWorkDir, jobRow, opts, language, brand);
                 return;
             }
 
             // 2. Facecam tespiti — kompozisyon tercihi tespiti ezebilir ('single').
-            // Kullanıcı kadrajı elle çizdiyse (manuel hizalama) tespit ve
-            // hareket analizi atlanır: kamera kutusu ve içerik alanı onundur.
+            // "Kamera + oyun" seçilmiş ve kadraj elle çizilmişse tespit atlanır;
+            // tespit bölünmüş düzen bulamazsa kayıtlı/varsayılan kadraja düşülür
+            // (bölünmüş düzen istenen klip asla tek kare çıkmaz).
             let facecam;
             let contentRect = null;
-            if (opts.manualLayout) {
-                await this._setStep(jobId, 'processing', 'kadraj hazırlanıyor');
-                const meta = await this.detector.probe(inputPath);
-                const manual = ClipEditorManager.manualRects(opts.manualLayout, meta);
+            const useManual = async (layout, step) => {
+                await this._setStep(jobId, 'processing', step);
+                const meta = facecam?.meta || await this.detector.probe(inputPath);
+                const manual = ClipEditorManager.manualRects(layout, meta);
                 facecam = { found: true, fullCam: false, rect: manual.cam, meta, method: 'manual', face: null };
                 contentRect = manual.content;
                 opts.composition = 'split';
+            };
+            const preset = ClipEditorManager.layoutBeforeDetect(opts);
+            if (preset) {
+                await useManual(preset, 'kadraj hazırlanıyor');
             } else {
                 await this._setStep(jobId, 'processing', 'facecam tespiti');
                 facecam = await this.detector.detect(inputPath);
+                const fallback = ClipEditorManager.layoutAfterDetect(opts, facecam);
+                if (fallback) {
+                    console.log(`[ClipEditor:${this.userId}] İş ${jobId} — webcam kutusu bulunamadı, ${opts.manualLayout ? 'kayıtlı' : 'varsayılan'} kadraj kullanılıyor`);
+                    await useManual(fallback, 'kadraj hazırlanıyor');
+                }
             }
             const isSplit = VerticalComposer.isSplit(facecam, opts.composition);
 
@@ -841,7 +1035,7 @@ class ClipEditorManager {
             }
 
             // Logo (yüklüyse + tercihte açıksa) — altyazı konumu logoya göre hesaplanır
-            const logoPath = opts.logo ? this.getLogoPath() : null;
+            const logoPath = opts.logo ? this.getLogoPath(jobRow?.channel_slug) : null;
 
             // 4. Transkript + altyazı — iş bazında kapatılabilir (subtitles=false).
             // Sansür (censor) altyazı kapalıyken de transkripti gerektirir —
@@ -869,10 +1063,10 @@ class ClipEditorManager {
                     // Altyazı stili + vurgu rengi: iş seçeneği > kullanıcı marka kiti;
                     // "temayı izle" açıksa vurgu panel accent renginden gelir
                     this.transcriber.buildAss(transcript.segments, assPath, layout, {
-                        key: opts.subtitleStyle || userSettings?.subtitle_style || 'classic',
+                        key: opts.subtitleStyle || brand.subtitle_style || 'classic',
                         accent: (opts.subtitleFollowsTheme
-                            ? userSettings?.accent_color
-                            : userSettings?.brand_color) || '#53fc18',
+                            ? brand.accent_color
+                            : brand.brand_color) || '#53fc18',
                     });
                 }
             } else if (!wantSubtitles) {
@@ -962,11 +1156,13 @@ class ClipEditorManager {
                 console.log(`[ClipEditor:${this.userId}] 🔥 Viral skor: ${viral.score}/100 — ${viral.reason}`);
             }
 
+            // Sürüm damgası: yeniden üretimde tarayıcı eski dosyayı önbellekten göstermesin.
+            const stamp = Date.now();
             await this.db.updateEditedClip(jobId, this.userId, {
                 status: 'ready',
                 step: 'tamamlandı',
-                video_url: `/clips/${this.userId}/vertical/${jobId}.mp4`,
-                thumbnail_url: fs.existsSync(thumbPath) ? `/clips/${this.userId}/vertical/${jobId}_thumb.jpg` : null,
+                video_url: `/clips/${this.userId}/vertical/${jobId}.mp4?v=${stamp}`,
+                thumbnail_url: fs.existsSync(thumbPath) ? `/clips/${this.userId}/vertical/${jobId}_thumb.jpg?v=${stamp}` : null,
                 duration: Math.round(facecam.meta.duration || 0),
                 layout: isSplit ? 'split' : 'single',
                 transcript: transcript ? JSON.stringify(transcript.segments) : null,
@@ -989,12 +1185,22 @@ class ClipEditorManager {
             });
 
         } catch (err) {
-            console.error(`[ClipEditor:${this.userId}] ❌ İş ${jobId} hatası:`, err.message);
+            const cancelled = this._cancelled.has(jobId);
+            if (cancelled) {
+                console.log(`[ClipEditor:${this.userId}] ⏹️ İş ${jobId} iptal edildi`);
+                // Yarım çıktı kalmasın; ham kaynak saklı kalır (yeniden üretilebilir).
+                for (const suffix of ['.mp4', '_thumb.jpg']) {
+                    try { fs.unlinkSync(path.join(this.outputDir, `${jobId}${suffix}`)); } catch { /* yok */ }
+                }
+            } else {
+                console.error(`[ClipEditor:${this.userId}] ❌ İş ${jobId} hatası:`, err.message);
+            }
             // Ham ffmpeg/ffprobe çıktısı kullanıcıya hiçbir şey ifade etmiyordu
-            const friendly = ClipEditorManager.friendlyError(err.message);
+            const friendly = cancelled ? 'İptal edildi' : ClipEditorManager.friendlyError(err.message);
             await this.db.updateEditedClip(jobId, this.userId, {
                 status: 'failed',
                 error: friendly,
+                ...(cancelled ? { step: 'iptal' } : {}),
             }).catch(() => {});
             this._emit(jobId, 'failed', friendly);
         } finally {
@@ -1035,7 +1241,7 @@ class ClipEditorManager {
      * (ör. 2 saatlik oyun bölümü) salt açıklama üretmek için transkribe
      * etmek gereksiz maliyetli olurdu.
      */
-    async _processHorizontal(jobId, inputPath, jobWorkDir, jobRow, opts, language) {
+    async _processHorizontal(jobId, inputPath, jobWorkDir, jobRow, opts, language, brand = null) {
         await this._setStep(jobId, 'processing', 'kontrol ediliyor');
         const meta = await this.detector.probe(inputPath);
         const duration = meta.duration || 0;
@@ -1057,12 +1263,12 @@ class ClipEditorManager {
         }
 
         const outputPath = path.join(this.outputDir, `${jobId}.mp4`);
-        const logoPath = opts.logo ? this.getLogoPath() : null;
+        const logoPath = opts.logo ? this.getLogoPath(jobRow?.channel_slug) : null;
 
         // Altyazı: kesitin kendi ölçüsünde (PlayRes) üretilir ki her çözünürlükte oran aynı kalsın.
         let assPath = null;
         if (opts.subtitles && transcript?.segments?.length && meta.width && meta.height) {
-            const userSettings = await this.db.getSettings(this.userId).catch(() => null);
+            const userSettings = brand || await this.db.getSettings(this.userId).catch(() => null);
             assPath = path.join(jobWorkDir, 'subtitles.ass');
             this.transcriber.buildAss(transcript.segments, assPath, HorizontalComposer.subtitleLayout(meta), {
                 key: opts.subtitleStyle || userSettings?.subtitle_style || 'classic',
@@ -1127,11 +1333,12 @@ class ClipEditorManager {
             });
         }
 
+        const stamp = Date.now();
         await this.db.updateEditedClip(jobId, this.userId, {
             status: 'ready',
             step: 'tamamlandı',
-            video_url: `/clips/${this.userId}/vertical/${jobId}.mp4`,
-            thumbnail_url: fs.existsSync(thumbPath) ? `/clips/${this.userId}/vertical/${jobId}_thumb.jpg` : null,
+            video_url: `/clips/${this.userId}/vertical/${jobId}.mp4?v=${stamp}`,
+            thumbnail_url: fs.existsSync(thumbPath) ? `/clips/${this.userId}/vertical/${jobId}_thumb.jpg?v=${stamp}` : null,
             duration: Math.round(check.info.duration || (duration + introDuration)),
             layout: 'horizontal',
             transcript: transcript ? JSON.stringify(transcript.segments) : null,
@@ -1179,6 +1386,7 @@ class ClipEditorManager {
         'indiriliyor': 10,
         'hazırlanıyor': 10,
         'facecam tespiti': 30,
+        'kadraj hazırlanıyor': 30,
         'hareket analizi': 45,
         'yüz takibi': 50,
         'transkript çıkarılıyor': 60,
@@ -1191,6 +1399,8 @@ class ClipEditorManager {
     };
 
     async _setStep(jobId, status, step) {
+        // İptal istendiyse bir sonraki adıma geçilmez; iş catch'te "İptal edildi" olur.
+        if (this._cancelled.has(jobId)) throw new Error('İptal edildi');
         await this.db.updateEditedClip(jobId, this.userId, { status, step }).catch(() => {});
         this._emit(jobId, status, step);
     }

@@ -18,6 +18,7 @@ import { Clips } from './Clips.tsx';
 import { Editor } from '../editor/Editor.tsx';
 import { Gallery } from './Gallery.tsx';
 import { Home } from './Home.tsx';
+import { Kesitler } from './Kesitler.tsx';
 import { Live } from './Live.tsx';
 import { Nobet } from './Nobet.tsx';
 import { Onboarding } from './Onboarding.tsx';
@@ -33,6 +34,7 @@ const NAV: { group: string; items: { id: Section; label: string; icon: IconName 
     items: [
       { id: 'anasayfa', label: 'Anasayfa', icon: 'home' },
       { id: 'canli', label: 'Canlı yayın', icon: 'live' },
+      { id: 'kesitler', label: 'Kesitler', icon: 'bolt' },
       { id: 'galeri', label: 'Galeri', icon: 'library' },
       { id: 'klipler', label: 'Dikey klipler', icon: 'vertical' },
       { id: 'yayinlar', label: 'Yayın geçmişleri', icon: 'film' },
@@ -248,6 +250,8 @@ function SectionView({ section, sub }: { section: Section; sub: string | null })
       return <Vods openId={sub ? Number(sub) : null} />;
     case 'canli':
       return <Live />;
+    case 'kesitler':
+      return <Kesitler />;
     case 'nobet':
       return <Nobet />;
     case 'ayarlar':

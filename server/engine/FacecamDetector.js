@@ -12,8 +12,8 @@
  *  Dikdörtgen bulunamazsa (çerçevesiz kamera) genişletilmiş yüz kutusuna düşülür.
  *  Yüz kareye göre çok büyükse video "tam kamera" (IRL) sayılır.
  */
-const { spawn } = require('child_process');
-const { execFile } = require('child_process');
+const { spawn } = require('./ProcTracker');
+const { execFile } = require('./ProcTracker');
 const fs = require('fs');
 const path = require('path');
 

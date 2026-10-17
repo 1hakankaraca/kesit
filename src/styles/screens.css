@@ -3661,3 +3661,104 @@ button.rail-phone {
     grid-column: 2;
   }
 }
+
+/* ── Aralık indirme: birden çok satır ───────────────────────────────────── */
+
+.range-rows {
+  display: grid;
+  gap: 8px;
+}
+
+.range-row {
+  display: grid;
+  grid-template-columns: 22px auto auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--sunken);
+}
+
+.range-row .field {
+  gap: 4px;
+}
+
+.range-row-no {
+  align-self: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-3);
+}
+
+.range-row-sum {
+  align-self: center;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 640px) {
+  .range-row {
+    grid-template-columns: 22px minmax(0, 1fr) minmax(0, 1fr) auto;
+  }
+
+  .range-row-sum {
+    grid-column: 2 / 4;
+  }
+}
+
+/* ── Görev satırında görsel ─────────────────────────────────────────────── */
+
+.task-icon-img {
+  width: 64px;
+  height: 40px;
+  padding: 0;
+  overflow: hidden;
+}
+
+.task-icon-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* ── Kesitler ───────────────────────────────────────────────────────────── */
+
+.snippet-list {
+  display: grid;
+  margin-top: 4px;
+  border-top: 1px solid var(--line);
+}
+
+.snippet-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.snippet-thumb {
+  width: 112px;
+  height: 63px;
+}
+
+/* ── Logo ve görünüm: kapsam çubuğu ─────────────────────────────────────── */
+
+.studio-scope {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+  margin-bottom: 20px;
+  padding: 12px 16px;
+}
+
+.studio-scope p {
+  flex: 1 1 260px;
+  margin: 0;
+  font-size: 13.5px;
+}

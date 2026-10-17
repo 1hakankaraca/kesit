@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useMemo, useState } from 'react';
 import { Icon, type IconName } from '../components/Icon.tsx';
-import { Pill } from '../components/basics.tsx';
+import { Pill, Spinner } from '../components/basics.tsx';
 import { api } from '../lib/api.ts';
 import { bytes, dayKey, duration, relative } from '../lib/format.ts';
 import { jobsStore } from '../lib/jobs.ts';
@@ -9,7 +9,7 @@ import { liveStore } from '../lib/live.ts';
 import { navigate, sectionPath, type Section } from '../lib/router.ts';
 import { useSession } from '../lib/session.ts';
 import { isActiveTask, refreshTasks, tasksStore, type LiveDownload, type Task } from '../lib/tasks.ts';
-import { toastError } from '../lib/toast.ts';
+import { toast, toastError } from '../lib/toast.ts';
 import { useInterval } from '../lib/useResource.ts';
 import { etaLabel, speedLabel, stepLabel } from '../lib/words.ts';
 import { isHorizontal, jobTitle } from './Gallery.tsx';
@@ -38,6 +38,19 @@ const KIND_LABEL: Record<Task['kind'], string> = {
   'hazir-video': 'Paylaşıma hazırlanıyor',
   model: 'Altyazı modeli iniyor',
   proje: 'Dışa aktarılıyor',
+  kesit: 'Yayından kesit alınıyor',
+};
+
+/** Kartta "ne oluyor" cümlesi: türüne göre kısa, anlaşılır açıklama. */
+const KIND_HINT: Record<Task['kind'], string> = {
+  yayin: 'Yayın bilgisayara iniyor; bitince Yayın geçmişleri\'nden kesebilirsin.',
+  'klip-indir': 'Kick\'e eklenen klip indiriliyor.',
+  video: 'Klip dikey/yatay videoya çevriliyor; bitince Galeri\'ye düşer.',
+  kayit: 'Canlı yayın dosyaya kaydediliyor.',
+  'hazir-video': 'Kayda logo ve açılış/kapanış ekleniyor, boyutu küçültülüyor.',
+  model: 'Altyazı modeli bir kez indiriliyor.',
+  proje: 'Editör projesi videoya dönüştürülüyor.',
+  kesit: 'Yayının son saniyeleri Kick kaydından alınıyor.',
 };
 
 function greeting() {
@@ -223,22 +236,44 @@ async function newProject() {
   }
 }
 
-/** Süren bir işin kartı: halka ilerleme + adımlar + hız/kalan süre. */
+/** Süren bir işin kartı: görsel + halka ilerleme + adımlar + hız/kalan süre + iptal. */
 function NowCard({ task: t, live, jobProgress }: { task: Task; live?: LiveDownload; jobProgress?: number }) {
+  const [busy, setBusy] = useState(false);
   const pct = live?.progress ?? t.progress ?? jobProgress ?? null;
   const stepIndex = t.kind === 'video' ? PIPELINE.findIndex((p) => p.match.test((t.step || '').toLocaleLowerCase('tr'))) : -1;
   const details = [live?.bytes ? `${bytes(live.bytes)} indi` : null, speedLabel(live?.speedBps), etaLabel(pct, live?.startedAt)].filter(Boolean);
   const go = () => t.link && navigate(sectionPath(t.link.section as Section, t.link.sub));
+  const cancel = async () => {
+    if (!t.cancel) return;
+    setBusy(true);
+    try {
+      await api.post(t.cancel);
+      toast(`${t.title} iptal edildi`, 'ok');
+      await refreshTasks();
+    } catch (err) {
+      toastError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
-    <button type="button" className="now-card" onClick={go}>
-      <Ring value={pct} />
+    <div className="now-card">
+      <button type="button" className="now-visual" onClick={go} aria-label={t.link?.label ?? t.title}>
+        {t.thumbUrl ? <img src={t.thumbUrl} alt="" loading="lazy" /> : <span className="now-visual-empty"><Icon name={t.kind === 'yayin' ? 'film' : t.kind === 'kayit' ? 'record' : t.kind === 'proje' ? 'scissors' : t.kind === 'kesit' ? 'bolt' : 'vertical'} size={22} /></span>}
+        <span className="now-visual-ring">
+          <Ring value={pct} size={52} />
+        </span>
+      </button>
       <span className="now-body">
-        <b className="now-title">{t.title}</b>
         <span className="now-kind">
-          {KIND_LABEL[t.kind]}
+          <b>{KIND_LABEL[t.kind]}</b>
           {t.channel ? ` · ${t.channel}` : ''}
         </span>
-        <span className="now-step">{stepLabel(t.step)}</span>
+        <b className="now-title">{t.title}</b>
+        <span className="now-step">
+          <Spinner size={11} /> {stepLabel(t.step)}
+          {pct !== null ? ` · %${Math.round(pct)}` : ''}
+        </span>
         {t.kind === 'video' && (
           <span className="pipeline" aria-hidden="true">
             {PIPELINE.map((p, i) => (
@@ -249,9 +284,21 @@ function NowCard({ task: t, live, jobProgress }: { task: Task; live?: LiveDownlo
             ))}
           </span>
         )}
-        {details.length > 0 && <span className="now-details">{details.join(' · ')}</span>}
+        <span className="now-hint">{details.length > 0 ? details.join(' · ') : KIND_HINT[t.kind]}</span>
+        <span className="now-actions">
+          {t.link && (
+            <button type="button" className="btn btn-quiet btn-small" onClick={go}>
+              {t.link.label}
+            </button>
+          )}
+          {t.cancel && (
+            <button type="button" className="btn btn-quiet btn-small now-cancel" disabled={busy} onClick={() => void cancel()}>
+              {busy ? <Spinner size={12} /> : <Icon name="x" size={12} />} İptal
+            </button>
+          )}
+        </span>
       </span>
-    </button>
+    </div>
   );
 }
 

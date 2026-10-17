@@ -6,7 +6,7 @@
  * Klip video_url'leri m3u8 playlist'tir, ffmpeg ile mp4'e indirilir.
  */
 const axios = require('axios');
-const { spawn } = require('child_process');
+const { spawn } = require('./ProcTracker');
 const fs = require('fs');
 const path = require('path');
 

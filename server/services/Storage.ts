@@ -62,20 +62,20 @@ export class Storage {
     let cache = 0;
     let brand = 0;
     for (const dir of await userDirs()) {
-      videos += (await sizeOf(path.join(dir, 'vertical'))) + (await sizeOf(path.join(dir, 'recordings'))) + (await sizeOf(path.join(dir, 'harvest')));
+      for (const sub of ['vertical', 'recordings', 'harvest', 'raw', 'snippets']) videos += await sizeOf(path.join(dir, sub));
       const vodWork = path.join(dir, 'vod-work');
       for (const job of await fs.promises.readdir(vodWork).catch(() => [] as string[])) {
         videos += await sizeOf(path.join(vodWork, job, 'vod.mp4'));
       }
       for (const p of await cachePaths(dir)) cache += await sizeOf(p);
-      for (const f of ['logo.png', 'intro.mp4', 'outro.mp4']) brand += await sizeOf(path.join(dir, f));
+      for (const f of ['logo.png', 'intro.mp4', 'outro.mp4', 'brand']) brand += await sizeOf(path.join(dir, f));
     }
     const models = await sizeOf(path.join(config.dataDir, 'models'));
     const archive = await sizeOf(config.archiveDir);
     let db = 0;
     for (const f of ['kesit.db', 'kesit.db-wal', 'kesit.db-shm']) db += await sizeOf(path.join(config.dataDir, f));
     const categories = [
-      { id: 'videos', label: 'Üretilen videolar ve kayıtlar', hint: 'Klipler, yayın kayıtları, indirilen yayınlar, takipten inen klipler', bytes: videos, cleanable: true },
+      { id: 'videos', label: 'Üretilen videolar ve kayıtlar', hint: 'Klipler ve ham kaynakları, kesitler, yayın kayıtları, indirilen yayınlar, takipten inen klipler', bytes: videos, cleanable: true },
       { id: 'cache', label: 'Önbellek', hint: 'Ara dosyalar, küçültülmüş kopyalar, film şeritleri — gerektiğinde yeniden oluşur', bytes: cache, cleanable: true },
       { id: 'models', label: 'Altyazı modeli', hint: 'Ayarlar\'dan kaldırılabilir', bytes: models, cleanable: false },
       { id: 'brand', label: 'Marka dosyaları', hint: 'Logo, intro, outro', bytes: brand, cleanable: false },
@@ -135,6 +135,10 @@ export class Storage {
     for (const row of this.store.all("SELECT id, file_path FROM harvested_clips WHERE user_id = ? AND status = 'ready'", [userId])) {
       if (row.file_path) fs.rmSync(row.file_path, { force: true });
       this.store.run("UPDATE harvested_clips SET status = 'seen', file_path = NULL WHERE id = ?", [row.id]);
+    }
+    for (const row of this.store.all("SELECT id, file_path, thumb_path FROM snippets WHERE user_id = ? AND status != 'downloading'", [userId])) {
+      for (const f of [row.file_path, row.thumb_path]) if (f) fs.rmSync(f, { force: true });
+      this.store.run('DELETE FROM snippets WHERE id = ?', [row.id]);
     }
     const after = (await this.report()).categories.find((c) => c.id === 'videos')!.bytes;
     return { freed: Math.max(0, before - after), skipped };

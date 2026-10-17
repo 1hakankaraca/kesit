@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
-import type { KickClip } from '../lib/types.ts';
 import { Icon } from './Icon.tsx';
 import { Modal, Spinner } from './basics.tsx';
 
@@ -14,6 +13,13 @@ export interface Rect {
 export interface ManualLayout {
   cam: Rect;
   content: Rect;
+}
+
+/** Üzerine kadraj çizilecek yatay kare. */
+export interface LayoutFrame {
+  id: string;
+  title?: string | null;
+  imageUrl: string | null;
 }
 
 const STORAGE_KEY = 'kesit.klip.hizalama.v1';
@@ -36,7 +42,7 @@ const HANDLES: Exclude<Handle, 'move'>[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 const round = (v: number) => Math.round(v * 1000) / 1000;
 
-function loadSaved(): ManualLayout {
+export function loadSavedLayout(): ManualLayout {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT_LAYOUT;
@@ -44,6 +50,14 @@ function loadSaved(): ManualLayout {
     return p?.cam && p?.content ? p : DEFAULT_LAYOUT;
   } catch {
     return DEFAULT_LAYOUT;
+  }
+}
+
+export function saveLayout(layout: ManualLayout) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(layout));
+  } catch {
+    /* yok say */
   }
 }
 
@@ -87,23 +101,36 @@ function coverStyle(region: Rect, boxW: number, boxH: number, aspect: number): C
 }
 
 /**
- * Manuel hizalama: klibin karesi üzerinde iki kutu çizilir — "Kamera" üste,
- * "Yayın alanı" alta gelir. Sağda motorun üreteceği 9:16 sonucun önizlemesi
- * vardır. Son çizim hatırlanır; aynı yayıncının klipleri için tek seferlik iş.
+ * Kadraj düzenleyici: bir yatay kare üzerinde iki kutu çizilir — "Kamera"
+ * üste, "Yayın alanı" alta gelir. Sağda motorun üreteceği 9:16 sonucun
+ * önizlemesi vardır. Diyalogda (klipler, yeniden üretim) ve Logo ve görünüm
+ * sayfasında (varsayılan kadraj) kullanılır.
  */
-export function AlignDialog({ open, clips, submitting, onClose, onSubmit }: { open: boolean; clips: KickClip[]; submitting: boolean; onClose: () => void; onSubmit: (layout: ManualLayout) => void }) {
-  const [layout, setLayout] = useState<ManualLayout>(loadSaved);
+export function LayoutEditor({
+  layout,
+  onChange,
+  frames,
+  previewWidth = 216,
+  footer,
+}: {
+  layout: ManualLayout;
+  onChange: (layout: ManualLayout) => void;
+  frames: LayoutFrame[];
+  previewWidth?: number;
+  /** Önizlemenin altına eklenecek içerik (ör. örnek kare seçme). */
+  footer?: React.ReactNode;
+}) {
   const [index, setIndex] = useState(0);
   const [aspect, setAspect] = useState(16 / 9);
   const frame = useRef<HTMLDivElement>(null);
   const drag = useRef<{ key: keyof ManualLayout; handle: Handle; start: Rect; px: number; py: number } | null>(null);
-  const clip = clips[Math.min(index, clips.length - 1)];
+  const current = frames[Math.min(index, Math.max(0, frames.length - 1))];
 
   useEffect(() => {
-    if (open) setIndex(0);
-  }, [open]);
+    setIndex(0);
+  }, [frames.length]);
 
-  const set = (key: keyof ManualLayout, rect: Rect) => setLayout((l) => ({ ...l, [key]: rect }));
+  const set = (key: keyof ManualLayout, rect: Rect) => onChange({ ...layout, [key]: rect });
 
   const pointer = (e: ReactPointerEvent) => {
     const r = frame.current!.getBoundingClientRect();
@@ -130,24 +157,111 @@ export function AlignDialog({ open, clips, submitting, onClose, onSubmit }: { op
     drag.current = null;
   };
 
-  const submit = () => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(layout));
-    } catch {
-      /* yok say */
-    }
-    onSubmit(layout);
-  };
-
   const preview = useMemo(() => {
-    const pw = 216;
+    const pw = previewWidth;
     const ph = Math.round((pw * OUT_H) / OUT_W);
     const camH = Math.round((pw * camHeightFor(layout.cam, aspect)) / OUT_W);
     return { pw, ph, camH, contentH: ph - camH };
-  }, [layout, aspect]);
+  }, [layout, aspect, previewWidth]);
 
   const pct = (v: number) => `${v * 100}%`;
   const boxStyle = (r: Rect): CSSProperties => ({ left: pct(r.x), top: pct(r.y), width: pct(r.w), height: pct(r.h) });
+
+  return (
+    <div className="hz-grid">
+      <div className="hz-stage">
+        <div ref={frame} className="hz-frame" onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
+          {current?.imageUrl ? (
+            <img src={current.imageUrl} alt="" draggable={false} onLoad={(e) => e.currentTarget.naturalWidth && setAspect(e.currentTarget.naturalWidth / e.currentTarget.naturalHeight)} />
+          ) : (
+            <span className="hz-noimg">Önizleme karesi yok — kutuları yine de çizebilirsin.</span>
+          )}
+          {(['content', 'cam'] as const).map((key) => (
+            <div key={key} className={`hz-box hz-box-${key}`} style={boxStyle(layout[key])} onPointerDown={(e) => onDown(e, key, 'move')} role="group" aria-label={key === 'cam' ? 'Kamera kutusu' : 'Yayın alanı kutusu'}>
+              <span className="hz-label">
+                <Icon name={key === 'cam' ? 'camera' : 'monitor'} size={12} /> {key === 'cam' ? 'Kamera' : 'Yayın alanı'}
+              </span>
+              {HANDLES.map((h) => (
+                <span key={h} className={`hz-handle hz-handle-${h}`} onPointerDown={(e) => onDown(e, key, h)} />
+              ))}
+            </div>
+          ))}
+        </div>
+        {frames.length > 1 && (
+          <div className="hz-strip" role="tablist" aria-label="Kare seç">
+            {frames.map((c, i) => (
+              <button key={c.id} type="button" role="tab" aria-selected={i === index} className={i === index ? 'hz-thumb on' : 'hz-thumb'} onClick={() => setIndex(i)} title={c.title ?? undefined}>
+                {c.imageUrl ? <img src={c.imageUrl} alt="" loading="lazy" /> : <Icon name="film" size={16} />}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <aside className="hz-side">
+        <div className="hz-preview" style={{ width: preview.pw, height: preview.ph }} aria-label="Dikey sonuç önizlemesi">
+          <div className="hz-part hz-part-cam" style={{ height: preview.camH }}>
+            {current?.imageUrl && <img src={current.imageUrl} alt="" style={coverStyle(layout.cam, preview.pw, preview.camH, aspect)} />}
+          </div>
+          <div className="hz-part hz-part-content" style={{ height: preview.contentH }}>
+            {current?.imageUrl && <img src={current.imageUrl} alt="" style={coverStyle(layout.content, preview.pw, preview.contentH, aspect)} />}
+          </div>
+        </div>
+        <dl className="hz-facts">
+          <dt>Üst bölüm</dt>
+          <dd>{camHeightFor(layout.cam, aspect)} px</dd>
+          <dt>Kamera</dt>
+          <dd>
+            {Math.round(layout.cam.w * 100)}×{Math.round(layout.cam.h * 100)} %
+          </dd>
+          <dt>Yayın alanı</dt>
+          <dd>
+            {Math.round(layout.content.w * 100)}×{Math.round(layout.content.h * 100)} %
+          </dd>
+        </dl>
+        <p className="muted hz-tip">Kamera kutusunu biraz geniş tut: dar kutular üstte yakınlaştırılmış görünür. Yayın alanı kutusu alt bölüme ortalanarak sığdırılır.</p>
+        {footer}
+      </aside>
+    </div>
+  );
+}
+
+/**
+ * Manuel hizalama penceresi: klibin karesi üzerinde kadraj çizilir ve
+ * seçili kliplere uygulanır. Son çizim hatırlanır.
+ */
+export function AlignDialog({
+  open,
+  frames,
+  submitting,
+  onClose,
+  onSubmit,
+  initial,
+  title = 'Manuel hizalama',
+  submitLabel,
+  lead,
+}: {
+  open: boolean;
+  frames: LayoutFrame[];
+  submitting: boolean;
+  onClose: () => void;
+  onSubmit: (layout: ManualLayout) => void;
+  /** Açılışta gösterilecek kadraj (yoksa son çizim). */
+  initial?: ManualLayout | null;
+  title?: string;
+  submitLabel?: string;
+  lead?: React.ReactNode;
+}) {
+  const [layout, setLayout] = useState<ManualLayout>(() => initial ?? loadSavedLayout());
+
+  useEffect(() => {
+    if (open) setLayout(initial ?? loadSavedLayout());
+  }, [open, initial]);
+
+  const submit = () => {
+    saveLayout(layout);
+    onSubmit(layout);
+  };
 
   return (
     <Modal
@@ -155,7 +269,7 @@ export function AlignDialog({ open, clips, submitting, onClose, onSubmit }: { op
       onClose={onClose}
       wide
       className="modal-align"
-      title="Manuel hizalama"
+      title={title}
       footer={
         <>
           <button type="button" className="btn btn-quiet" onClick={() => setLayout(DEFAULT_LAYOUT)}>
@@ -164,70 +278,21 @@ export function AlignDialog({ open, clips, submitting, onClose, onSubmit }: { op
           <button type="button" className="btn btn-secondary" onClick={onClose}>
             Vazgeç
           </button>
-          <button type="button" className="btn btn-accent" onClick={submit} disabled={submitting || !clips.length}>
+          <button type="button" className="btn btn-accent" onClick={submit} disabled={submitting || !frames.length}>
             {submitting ? <Spinner /> : <Icon name="vertical" size={16} />}
-            {clips.length > 1 ? `${clips.length} klibi bu kadrajla işle` : 'Bu kadrajla işle'}
+            {submitLabel ?? (frames.length > 1 ? `${frames.length} klibi bu kadrajla işle` : 'Bu kadrajla işle')}
           </button>
         </>
       }
     >
       <p className="muted hz-lead">
-        Kutuları sürükle ve kenarlarından boyutlandır. <b>Kamera</b> üste, <b>Yayın alanı</b> alta gelir; yüz tespiti yapılmaz, çizdiğin kadraj birebir kullanılır.
+        {lead ?? (
+          <>
+            Kutuları sürükle ve kenarlarından boyutlandır. <b>Kamera</b> üste, <b>Yayın alanı</b> alta gelir; yüz tespiti yapılmaz, çizdiğin kadraj birebir kullanılır.
+          </>
+        )}
       </p>
-      <div className="hz-grid">
-        <div className="hz-stage">
-          <div ref={frame} className="hz-frame" onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
-            {clip?.thumbnailUrl ? (
-              <img src={clip.thumbnailUrl} alt="" draggable={false} onLoad={(e) => e.currentTarget.naturalWidth && setAspect(e.currentTarget.naturalWidth / e.currentTarget.naturalHeight)} />
-            ) : (
-              <span className="hz-noimg">Bu klibin önizleme karesi yok — kutuları yine de çizebilirsin.</span>
-            )}
-            {(['content', 'cam'] as const).map((key) => (
-              <div key={key} className={`hz-box hz-box-${key}`} style={boxStyle(layout[key])} onPointerDown={(e) => onDown(e, key, 'move')} role="group" aria-label={key === 'cam' ? 'Kamera kutusu' : 'Yayın alanı kutusu'}>
-                <span className="hz-label">
-                  <Icon name={key === 'cam' ? 'camera' : 'monitor'} size={12} /> {key === 'cam' ? 'Kamera' : 'Yayın alanı'}
-                </span>
-                {HANDLES.map((h) => (
-                  <span key={h} className={`hz-handle hz-handle-${h}`} onPointerDown={(e) => onDown(e, key, h)} />
-                ))}
-              </div>
-            ))}
-          </div>
-          {clips.length > 1 && (
-            <div className="hz-strip" role="tablist" aria-label="Kare seç">
-              {clips.map((c, i) => (
-                <button key={c.id} type="button" role="tab" aria-selected={i === index} className={i === index ? 'hz-thumb on' : 'hz-thumb'} onClick={() => setIndex(i)} title={c.title}>
-                  {c.thumbnailUrl ? <img src={c.thumbnailUrl} alt="" loading="lazy" /> : <Icon name="film" size={16} />}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <aside className="hz-side">
-          <div className="hz-preview" style={{ width: preview.pw, height: preview.ph }} aria-label="Dikey sonuç önizlemesi">
-            <div className="hz-part hz-part-cam" style={{ height: preview.camH }}>
-              {clip?.thumbnailUrl && <img src={clip.thumbnailUrl} alt="" style={coverStyle(layout.cam, preview.pw, preview.camH, aspect)} />}
-            </div>
-            <div className="hz-part hz-part-content" style={{ height: preview.contentH }}>
-              {clip?.thumbnailUrl && <img src={clip.thumbnailUrl} alt="" style={coverStyle(layout.content, preview.pw, preview.contentH, aspect)} />}
-            </div>
-          </div>
-          <dl className="hz-facts">
-            <dt>Üst bölüm</dt>
-            <dd>{camHeightFor(layout.cam, aspect)} px</dd>
-            <dt>Kamera</dt>
-            <dd>
-              {Math.round(layout.cam.w * 100)}×{Math.round(layout.cam.h * 100)} %
-            </dd>
-            <dt>Yayın alanı</dt>
-            <dd>
-              {Math.round(layout.content.w * 100)}×{Math.round(layout.content.h * 100)} %
-            </dd>
-          </dl>
-          <p className="muted hz-tip">Kamera kutusunu biraz geniş tut: dar kutular üstte yakınlaştırılmış görünür. Yayın alanı kutusu alt bölüme ortalanarak sığdırılır.</p>
-        </aside>
-      </div>
+      <LayoutEditor layout={layout} onChange={setLayout} frames={frames} />
     </Modal>
   );
 }

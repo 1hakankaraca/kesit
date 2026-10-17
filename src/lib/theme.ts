@@ -11,6 +11,7 @@ export const THEMES: Record<Section | 'gate', Theme> = {
   gate: { g1: '#f43f5e', g2: '#f97316' },
   anasayfa: { g1: '#f43f5e', g2: '#f97316' },
   canli: { g1: '#dc2626', g2: '#ea580c' },
+  kesitler: { g1: '#be123c', g2: '#f59e0b' },
   galeri: { g1: '#e11d48', g2: '#f59e0b' },
   klipler: { g1: '#7c3aed', g2: '#db2777' },
   yayinlar: { g1: '#2563eb', g2: '#0891b2' },

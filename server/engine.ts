@@ -30,4 +30,5 @@ export const KickClipFetcher = await load('KickClipFetcher');
 export const Transcriber = await load('Transcriber');
 export const FacecamDetector = await load('FacecamDetector');
 export const HorizontalComposer = await load('HorizontalComposer');
+export const VodSegmentFollower = await load('VodSegmentFollower');
 export const { BROWSER_HEADERS, SLUG_PATTERN } = KickClipFetcher as { BROWSER_HEADERS: Record<string, string>; SLUG_PATTERN: RegExp };

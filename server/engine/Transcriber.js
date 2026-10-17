@@ -8,7 +8,7 @@
  *    ses yüksekliği (RMS) + heyecan kelimeleri + ünlem/soru + büyük harf oranı
  * 4. Videoya gömülecek stilize ASS altyazı dosyası üretir
  */
-const { spawn, execFile } = require('child_process');
+const { spawn, execFile } = require('./ProcTracker');
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');

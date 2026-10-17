@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 
-export const SECTIONS = ['anasayfa', 'canli', 'galeri', 'klipler', 'yayinlar', 'nobet', 'editor', 'gorevler', 'paylasim', 'arsiv', 'marka', 'ayarlar', 'kurulum'] as const;
+export const SECTIONS = ['anasayfa', 'canli', 'kesitler', 'galeri', 'klipler', 'yayinlar', 'nobet', 'editor', 'gorevler', 'paylasim', 'arsiv', 'marka', 'ayarlar', 'kurulum'] as const;
 export type Section = (typeof SECTIONS)[number];
 
 /** Eski adresler yeni bölümlere yönlenir (yer imleri bozulmasın). */

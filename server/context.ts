@@ -9,6 +9,7 @@ import type { KickChat } from './services/KickChat.ts';
 import type { Storage } from './services/Storage.ts';
 import type { Projects } from './services/Projects.ts';
 import type { Publishing } from './services/Publishing.ts';
+import type { Snippets } from './services/Snippets.ts';
 import type { SystemMonitor } from './services/SystemMonitor.ts';
 import type { Workspaces } from './services/Workspaces.ts';
 
@@ -28,4 +29,5 @@ export interface AppContext {
   harvester: ClipHarvester;
   projects: Projects;
   system: SystemMonitor;
+  snippets: Snippets;
 }

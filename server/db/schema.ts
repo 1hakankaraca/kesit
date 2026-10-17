@@ -311,4 +311,29 @@ export const MIGRATIONS: { id: string; sql: string }[] = [
       ALTER TABLE vod_scan_jobs ADD COLUMN range_end_sec REAL;
     `,
   },
+  {
+    id: '010-sekme-markasi-ve-kesitler',
+    sql: `
+      -- Kanal sekmesine özel logo/görünüm: { "<slug>": { brand: {subtitle_style, brand_color, accent_color}, clip_defaults: {...} } }
+      ALTER TABLE user_settings ADD COLUMN channel_brands TEXT DEFAULT '{}';
+
+      -- Kesitler: anlık klip düğmesiyle yayının son N saniyesinden alınan ham parçalar.
+      CREATE TABLE snippets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        channel_slug TEXT NOT NULL,
+        title TEXT,
+        seconds INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'downloading',
+        file_path TEXT,
+        file_size INTEGER,
+        duration_sec REAL,
+        thumb_path TEXT,
+        error TEXT,
+        job_id INTEGER,
+        created_at TEXT NOT NULL DEFAULT ${NOW}
+      );
+      CREATE INDEX idx_snippets_user ON snippets (user_id, id DESC);
+    `,
+  },
 ];

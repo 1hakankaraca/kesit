@@ -5,7 +5,7 @@
  * çıkarır. Dikey formata kırpılırken pencere, hareketin en yoğun olduğu
  * bölgeye ortalanır (ör. oyunda aksiyonun geçtiği taraf).
  */
-const { spawn } = require('child_process');
+const { spawn } = require('./ProcTracker');
 
 const MAP_W = 96; // hareket haritası çözünürlüğü
 const SAMPLE_FPS = 2;

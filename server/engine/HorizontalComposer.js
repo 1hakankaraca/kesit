@@ -17,7 +17,7 @@
  *    filtresiyle tüm çıktı yeniden kodlanır. Uzun kesitlerde bu, düz kesime
  *    göre belirgin şekilde daha uzun sürer.
  */
-const { execFile, spawn } = require('child_process');
+const { execFile, spawn } = require('./ProcTracker');
 const fs = require('fs');
 const path = require('path');
 const CamFull = require('./CamFull');
