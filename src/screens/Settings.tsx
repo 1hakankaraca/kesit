@@ -13,6 +13,8 @@ import { markOnboarded, useSession } from '../lib/session.ts';
 
 interface SystemInfo {
   lan: string[];
+  /** Bilgisayarda Tailscale kuruluysa onun adresi (uzaktan erişim). */
+  tailscale: string | null;
   dataDir: string;
   hostname: string;
 }
@@ -42,6 +44,14 @@ export function usePhoneUrl(): string | null {
     api.get<SystemInfo>('/api/system').then(systemStore.set, () => (systemRequested = false));
   }, []);
   const ip = info?.lan[0];
+  if (!ip) return null;
+  return `${location.protocol}//${ip}${location.port ? `:${location.port}` : ''}`;
+}
+
+/** Tailscale üzerinden açılacak adres (kuruluysa). */
+export function useRemoteUrl(): string | null {
+  const info = systemStore.use();
+  const ip = info?.tailscale;
   if (!ip) return null;
   return `${location.protocol}//${ip}${location.port ? `:${location.port}` : ''}`;
 }
@@ -104,9 +114,10 @@ interface LanStatus {
   devices: { name: string; pairedAt: string }[];
 }
 
-/** Telefondan erişim: varsayılan kapalı; açıkken cihazlar ekrandaki kodla eşlenir. */
+/** Telefondan ve uzaktan erişim: varsayılan kapalı; açıkken cihazlar ekrandaki kodla eşlenir. */
 function LanPanel() {
   const phone = usePhoneUrl();
+  const remote = useRemoteUrl();
   const data = useResource(() => api.get<LanStatus>('/api/lan'));
   const [busy, setBusy] = useState(false);
   const d = data.data;
@@ -126,21 +137,35 @@ function LanPanel() {
     <section className="panel">
       <span className="panel-tape" aria-hidden="true" />
       <h2 className="panel-title">
-        <Icon name="phone" size={18} /> Telefondan erişim
+        <Icon name="phone" size={18} /> Telefondan ve uzaktan erişim
       </h2>
-      <p className="panel-sub">Kapalıyken Kesit'e yalnız bu bilgisayardan girilir. Açarsan aynı Wi-Fi'daki cihazlar, bu ekranda göstereceğin kodla eşlenerek girebilir.</p>
+      <p className="panel-sub">Kapalıyken Kesit'e yalnız bu bilgisayardan girilir. Açarsan aynı Wi-Fi'daki cihazlar ve Tailscale ağındaki kendi cihazların, bu ekranda göstereceğin kodla eşlenerek girebilir. Gerekmediğinde kapat; eşlenen cihazlar da düşer.</p>
       {!d ? (
         <Spinner />
       ) : (
         <div className="stack">
-          <Switch checked={d.enabled} disabled={busy} onChange={(v) => void call(() => api.put<LanStatus>('/api/lan', { enabled: v }))} label="Telefondan erişime izin ver" hint={d.enabled ? 'Kapatınca eşlenen cihazların erişimi de kalkar' : undefined} />
+          <Switch checked={d.enabled} disabled={busy} onChange={(v) => void call(() => api.put<LanStatus>('/api/lan', { enabled: v }))} label="Başka cihazdan erişime izin ver" hint={d.enabled ? 'Kapatınca eşlenen cihazların erişimi de kalkar' : undefined} />
           {d.enabled && (
             <>
               {phone && (
                 <>
                   <p className="big-url">{phone}</p>
-                  <p className="field-help">Telefonun tarayıcısına bu adresi yaz, sonra aşağıdaki kodu gir.</p>
+                  <p className="field-help">Aynı Wi-Fi'daki telefonun tarayıcısına bu adresi yaz, sonra aşağıdaki kodu gir.</p>
                 </>
+              )}
+              {remote ? (
+                <>
+                  <p className="big-url">{remote}</p>
+                  <p className="field-help">Evden uzaktayken: Tailscale açık olan telefon ya da bilgisayardan bu adresi aç, aynı kodla eşle.</p>
+                </>
+              ) : (
+                <p className="field-help">
+                  Evden uzaktan açmak için bu bilgisayara ve telefonuna{' '}
+                  <a className="link" href="https://tailscale.com/download" target="_blank" rel="noreferrer">
+                    Tailscale
+                  </a>{' '}
+                  kur (ücretsiz, port açmak gerekmez, kimse göremez). Kurulunca Tailscale adresi burada görünür; Kesit'i yeniden başlatman yeterli.
+                </p>
               )}
               {d.code ? (
                 <div className="pair-show">

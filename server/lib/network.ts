@@ -10,10 +10,19 @@ export function isLoopback(ip: string | undefined | null): boolean {
   return v === '::1' || v === 'localhost' || /^127\./.test(v);
 }
 
-/** Özel (yerel ağ) IPv4 aralıkları. */
+/** Tailscale/WireGuard benzeri kişisel ağların kullandığı CGNAT aralığı (100.64.0.0/10). */
+export function isTailscaleIp(ip: string | undefined | null): boolean {
+  return /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(plainIp(ip));
+}
+
+/**
+ * Özel (yerel ağ) IPv4 aralıkları. Tailscale'in 100.64/10 aralığı da özel
+ * sayılır: uzaktan erişim için port açmak yerine kişisel ağ kullanılır,
+ * oradaki cihazlar yerel ağdaki telefon gibi eşleme koduyla girer.
+ */
 export function isPrivateIp(ip: string | undefined | null): boolean {
   const v = plainIp(ip);
-  return /^10\./.test(v) || /^192\.168\./.test(v) || /^172\.(1[6-9]|2\d|3[01])\./.test(v) || /^169\.254\./.test(v);
+  return /^10\./.test(v) || /^192\.168\./.test(v) || /^172\.(1[6-9]|2\d|3[01])\./.test(v) || /^169\.254\./.test(v) || isTailscaleIp(v);
 }
 
 /**

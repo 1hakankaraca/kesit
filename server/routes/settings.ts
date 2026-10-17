@@ -4,6 +4,7 @@ import { config } from '../config.ts';
 import type { AppContext } from '../context.ts';
 import { badRequest, engine, requireLocal } from '../http.ts';
 import { normalizeSlug, searchChannels } from '../lib/kick.ts';
+import { isTailscaleIp } from '../lib/network.ts';
 
 const MAX_TABS = 12;
 
@@ -68,7 +69,9 @@ export function settingsRoutes({ store, captions, exporter, storage, kickChat }:
   });
 
   r.get('/system', requireLocal, (_req, res) => {
-    res.json({ lan: lanAddresses(), dataDir: config.dataDir, hostname: os.hostname(), platform: process.platform });
+    const all = lanAddresses();
+    // Tailscale adresi (100.64/10) ayrı verilir; yerel listeye karışmaz.
+    res.json({ lan: all.filter((a) => !isTailscaleIp(a)), tailscale: all.find(isTailscaleIp) ?? null, dataDir: config.dataDir, hostname: os.hostname(), platform: process.platform });
   });
 
   /* ── Kendi Kick uygulaması (sohbete klip atma) ───────────────────── */

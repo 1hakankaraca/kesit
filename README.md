@@ -61,9 +61,11 @@ npm start
 
 "Kick ile giriş" Kick'te kanalı arayıp hesabı bağlar; şifre ya da anahtar gerekmez. Sohbete klip atma (anlık klip) için her kullanıcı Ayarlar'da kendi Kick geliştirici uygulamasını kurar: Kick'te uygulama oluşturur, Ayarlar'da gösterilen dönüş adresini (`http://localhost:<port>/auth/kick/callback`) kaydeder, Client ID ve Secret'ı girer ve "Kick hesabını bağla" der.
 
-### Telefondan erişim
+### Telefondan ve uzaktan erişim
 
-Varsayılan olarak Kesit'e yalnız kurulu olduğu bilgisayardan girilir. Ayarlar → Telefondan erişim açılınca aynı Wi-Fi'daki bir cihaz, bilgisayar ekranında üretilen 6 haneli kodla eşlenir (30 gün). Bilgisayar geneli ayarlar (altyazı motoru, çıktı klasörü, disk temizliği, telefon erişimi) yalnız bilgisayarın kendisinden değiştirilebilir.
+Varsayılan olarak Kesit'e yalnız kurulu olduğu bilgisayardan girilir. Ayarlar → Telefondan ve uzaktan erişim açılınca aynı Wi-Fi'daki bir cihaz, bilgisayar ekranında üretilen 6 haneli kodla eşlenir (30 gün). Bilgisayar geneli ayarlar (altyazı motoru, çıktı klasörü, disk temizliği, telefon erişimi) yalnız bilgisayarın kendisinden değiştirilebilir.
+
+Evden uzaktayken yönetmek için port açılmaz: bilgisayara ve telefona/laptopa [Tailscale](https://tailscale.com/download) kurulur. Tailscale'in 100.64/10 aralığı yerel ağ sayılır; Ayarlar'da Tailscale adresi görünür ve o adres aynı eşleme koduyla açılır. Erişim gerekmediğinde anahtar kapatılır.
 
 ## Komutlar
 
@@ -124,7 +126,7 @@ Motor `server/engine.ts` üzerinden içe aktarılır. Bu dosya ortam yapılandı
 ## Güvenlik notları
 
 - Sunucu yalnız `localhost`, loopback, yerel ağ IP'leri ve bu bilgisayarın adıyla gelen istekleri kabul eder (DNS rebinding'e karşı).
-- Yerel ağ erişimi varsayılan kapalıdır; açıkken yalnız eşleme koduyla eşlenen cihazlar girer.
+- Yerel ağ erişimi varsayılan kapalıdır; açıkken yalnız eşleme koduyla eşlenen cihazlar girer. Tailscale (100.64/10) adresleri yerel ağ gibi değerlendirilir; genel internet adreslerinden gelen istekler her zaman reddedilir.
 - Kanal adıyla girişte kanalın sahibi olduğun doğrulanmaz; bu yüzden erişim bilgisayarın kendisi ve eşlenen cihazlarla sınırlıdır.
 - Zernio, ElevenLabs ve Kick uygulaması anahtarları AES-GCM ile şifreli, yalnız bu bilgisayarda tutulur. Kick dönüşü yalnız yerel adreslere yapılır.
 - Üretilen dosyalar `/clips/<kullanıcı>/...` altında sunulur ve yalnız sahibine açıktır.

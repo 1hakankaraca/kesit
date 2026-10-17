@@ -20,6 +20,10 @@ test('istemci sınıflandırma', () => {
   assert.equal(isLoopback('192.168.1.5'), false);
   assert.equal(isPrivateIp('::ffff:192.168.1.5'), true);
   assert.equal(isPrivateIp('172.32.0.1'), false);
+  assert.equal(isPrivateIp('100.101.5.9'), true, 'Tailscale aralığı yerel sayılır');
+  assert.equal(isPrivateIp('100.63.255.9'), false, '100.64/10 dışı Tailscale değil');
+  assert.equal(isPrivateIp('100.128.0.1'), false);
+  assert.equal(isAllowedHost('100.101.5.9:3002'), true, 'Tailscale adresiyle açılır');
 });
 
 test('eşleme: kapalıyken reddedilir, kod tek kullanımlık, kapatınca cihazlar düşer', () => {

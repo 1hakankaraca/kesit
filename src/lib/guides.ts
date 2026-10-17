@@ -149,7 +149,7 @@ export const GUIDES = {
       { title: 'Kayıt klasörü', text: 'Hazır videolar ve ekran görüntüleri İndirilenler/Kesit klasörüne kaydedilir. İstersen değiştirebilirsin.' },
       { title: 'Yer aç', text: 'Neyin ne kadar yer kapladığını gör. Geçici dosyaları silmek güvenlidir.' },
     ],
-    tips: ['Telefondan açmak için "Telefondan erişim"i aç ve telefonda ekrandaki kodu gir.'],
+    tips: ['Telefondan açmak için "Telefondan ve uzaktan erişim"i aç ve telefonda ekrandaki kodu gir.', 'Evden uzaktayken açmak için bilgisayara ve telefona Tailscale kur; port açılmaz, Kesit Tailscale adresinden aynı kodla açılır.'],
   },
 } satisfies Record<string, Guide>;
 
