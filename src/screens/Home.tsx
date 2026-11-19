@@ -16,9 +16,9 @@ import { isHorizontal, jobTitle } from './Gallery.tsx';
 
 const QUICK: { section: Section; icon: IconName; title: string; text: string; img: string }[] = [
   { section: 'canli', icon: 'live', title: 'Canlı yayın', text: 'Kaydet, klip yakala, !clip at', img: '/img/canli.jpg' },
-  { section: 'klipler', icon: 'vertical', title: 'Dikey klip üret', text: 'Kick kliplerini seç, işleme gönder', img: '/img/dikey.jpg' },
+  { section: 'klipler', icon: 'vertical', title: 'Kick klipleri', text: 'Klipleri seç, dikey videoya çevir', img: '/img/dikey.jpg' },
   { section: 'editor', icon: 'scissors', title: 'Editörü aç', text: 'Kes, birleştir, yazı ve müzik ekle', img: '/img/editor.jpg' },
-  { section: 'yayinlar', icon: 'film', title: 'Yayın indir', text: 'Geçmiş yayını bilgisayara al', img: '/img/indir.jpg' },
+  { section: 'yayinlar', icon: 'film', title: 'Geçmiş yayınlar', text: 'İndir, kes, anları tara', img: '/img/indir.jpg' },
 ];
 
 /** Video hazırlama hattının adımları — kartta hangi adımda olduğu gösterilir. */
@@ -43,7 +43,7 @@ const KIND_LABEL: Record<Task['kind'], string> = {
 
 /** Kartta "ne oluyor" cümlesi: türüne göre kısa, anlaşılır açıklama. */
 const KIND_HINT: Record<Task['kind'], string> = {
-  yayin: 'Yayın bilgisayara iniyor; bitince Yayın geçmişleri\'nden kesebilirsin.',
+  yayin: 'Yayın bilgisayara iniyor; bitince Geçmiş yayınlar\'dan kesebilirsin.',
   'klip-indir': 'Kick\'e eklenen klip indiriliyor.',
   video: 'Klip dikey/yatay videoya çevriliyor; bitince Galeri\'ye düşer.',
   kayit: 'Canlı yayın dosyaya kaydediliyor.',
@@ -81,85 +81,87 @@ export function Home() {
 
   return (
     <div className="home">
-      <section className="hero" aria-label="Hoş geldin">
-        <img className="hero-img" src="/img/hero.jpg" alt="" />
-        <div className="hero-shade" aria-hidden="true" />
-        <div className="hero-body">
-          <p className="hero-eyebrow">
+      <header className="dash-head">
+        <div>
+          <p className="dash-eyebrow">
             {greeting()}
             {isLive && (
-              <span className="hero-live">
+              <span className="dash-live">
                 <i /> şu an iş var
               </span>
             )}
           </p>
-          <h1 className="hero-title">
-            {user?.username ?? 'Kesit'} <span className="hero-tape">stüdyosu</span>
-          </h1>
-          <p className="hero-lead">Yayından klibe, klipten paylaşıma. Hazırlanan videoların ilerlemesini buradan izle; yeni bir işe de buradan başla.</p>
-          <div className="hero-actions">
-            <button type="button" className="btn btn-accent btn-large" onClick={() => navigate(sectionPath('klipler'))}>
-              <Icon name="vertical" size={18} /> Dikey klip üret
-            </button>
-            <button type="button" className="btn hero-ghost btn-large" onClick={() => void newProject()}>
-              <Icon name="scissors" size={18} /> Editörü aç
-            </button>
-          </div>
-          <div className="hero-stats" aria-label="Özet">
-            <span>
-              <b>{todayCount}</b> bugün hazırlanan
-            </span>
-            <span>
-              <b>{ready.length}</b> hazır video
-            </span>
-            <span>
-              <b>{active.length}</b> süren iş
-            </span>
-            <span>
-              <b>{bytes(totalBytes)}</b> videoların yeri
-            </span>
-          </div>
+          <h1 className="dash-title">{user?.username ?? 'Kesit'}</h1>
+          <p className="dash-lead">
+            {todayCount ? `Bugün ${todayCount} video hazırlandı` : 'Bugün henüz video hazırlanmadı'}
+            {active.length ? ` · ${active.length} iş sürüyor` : ''}
+          </p>
         </div>
-        {live && (live.recorder.recording || live.watcher.watching || live.autopilot.config.enabled) && (
-          <div className="hero-pills">
-            {live.recorder.recording && (
-              <button type="button" className="pill-button" onClick={() => navigate(sectionPath('canli'))}>
-                <Pill tone="live">Kaydediliyor · {live.recorder.channel}</Pill>
-              </button>
-            )}
-            {live.watcher.watching && (
-              <button type="button" className="pill-button" onClick={() => navigate(sectionPath('canli'))}>
-                <Pill tone="on">Klipler dinleniyor · {live.watcher.channel}</Pill>
-              </button>
-            )}
-            {live.autopilot.config.enabled && (
-              <button type="button" className="pill-button" onClick={() => navigate(sectionPath('nobet'))}>
-                <Pill tone={live.autopilot.live ? 'live' : 'ok'}>{live.autopilot.live ? 'Bot: yayında' : `Bot bekliyor · ${live.autopilot.config.channel}`}</Pill>
-              </button>
-            )}
-          </div>
-        )}
-      </section>
+        <div className="dash-actions">
+          <button type="button" className="btn btn-secondary" onClick={() => void newProject()}>
+            <Icon name="scissors" size={16} /> Editörü aç
+          </button>
+          <button type="button" className="btn btn-accent" onClick={() => navigate(sectionPath('klipler'))}>
+            <Icon name="plus" size={16} /> Dikey klip üret
+          </button>
+        </div>
+      </header>
 
-      <div className="home-quick">
+      {live && (live.recorder.recording || live.watcher.watching || live.autopilot.config.enabled) && (
+        <div className="dash-pills">
+          {live.recorder.recording && (
+            <button type="button" className="pill-button" onClick={() => navigate(sectionPath('canli'))}>
+              <Pill tone="live">Kaydediliyor · {live.recorder.channel}</Pill>
+            </button>
+          )}
+          {live.watcher.watching && (
+            <button type="button" className="pill-button" onClick={() => navigate(sectionPath('canli'))}>
+              <Pill tone="on">Klipler dinleniyor · {live.watcher.channel}</Pill>
+            </button>
+          )}
+          {live.autopilot.config.enabled && (
+            <button type="button" className="pill-button" onClick={() => navigate(sectionPath('nobet'))}>
+              <Pill tone={live.autopilot.live ? 'live' : 'ok'}>{live.autopilot.live ? 'Bot: yayında' : `Bot bekliyor · ${live.autopilot.config.channel}`}</Pill>
+            </button>
+          )}
+        </div>
+      )}
+
+      <dl className="dash-stats" aria-label="Özet">
+        <div>
+          <dt>Bugün hazırlanan</dt>
+          <dd>{todayCount}</dd>
+        </div>
+        <div>
+          <dt>Hazır video</dt>
+          <dd>{ready.length}</dd>
+        </div>
+        <div>
+          <dt>Süren iş</dt>
+          <dd>{active.length}</dd>
+        </div>
+        <div>
+          <dt>Videoların yeri</dt>
+          <dd>{bytes(totalBytes)}</dd>
+        </div>
+      </dl>
+
+      <div className="dash-quick">
         {QUICK.map((q, i) => (
           <motion.button
             key={q.section}
             type="button"
-            className="quick-tile"
-            initial={{ opacity: 0, y: 12 }}
+            className="dash-tile"
+            initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 + i * 0.05 }}
-            whileHover={{ y: -4 }}
+            transition={{ delay: 0.05 + i * 0.04 }}
             onClick={() => (q.section === 'editor' ? void newProject() : navigate(sectionPath(q.section)))}
           >
-            <img className="quick-img" src={q.img} alt="" loading="lazy" />
-            <span className="quick-shade" aria-hidden="true" />
-            <span className="quick-body">
-              <span className="quick-icon">
-                <Icon name={q.icon} size={18} />
-              </span>
-              <b>{q.title}</b>
+            <img className="dash-tile-img" src={q.img} alt="" loading="lazy" />
+            <span className="dash-tile-body">
+              <b>
+                <Icon name={q.icon} size={15} /> {q.title}
+              </b>
               <span>{q.text}</span>
             </span>
           </motion.button>
@@ -172,7 +174,7 @@ export function Home() {
             Şu an hazırlananlar {active.length > 0 && <span className="eyebrow-count">{active.length}</span>}
           </h2>
           <button type="button" className="link" onClick={() => navigate(sectionPath('gorevler'))}>
-            Görev yöneticisi →
+            Görevler →
           </button>
         </div>
         {active.length === 0 ? (

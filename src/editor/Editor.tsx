@@ -1,6 +1,8 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FORMAT_SIZE, fitFrame, type Asset, type Clip, type Project, type Rect } from '../../shared/project.ts';
+import { addChatLayer, chatForAsset, defaultChatLayer, missingChatRanges, neededChatRanges, updateChatLayer, type ChatLayer } from '../../shared/chat.ts';
+import { dropFrameClips, type FrameRegions } from '../../shared/frame.ts';
+import { ctaPlacePoint, FORMAT_SIZE, fitFrame, type Asset, type Clip, type Project, type Rect } from '../../shared/project.ts';
 import { Icon } from '../components/Icon.tsx';
 import { Empty, Modal, Progress, Spinner, WorkspaceHead } from '../components/basics.tsx';
 import { api } from '../lib/api.ts';
@@ -10,6 +12,8 @@ import { useSocketEvent } from '../lib/socket.ts';
 import { deleteWithUndo, toast, toastError } from '../lib/toast.ts';
 import type { ProjectSummary, RenderStatus, Studio } from '../lib/types.ts';
 import { useResource } from '../lib/useResource.ts';
+import { ChatPanel } from './ChatPanel.tsx';
+import { prepareChats } from './chatExport.ts';
 import { Inspector } from './Inspector.tsx';
 import { MediaPanel, type PanelTab } from './MediaPanel.tsx';
 import { Stage } from './Stage.tsx';
@@ -17,15 +21,24 @@ import { Tracks, type MenuItem, type TimelineTool } from './Tracks.tsx';
 import {
   LAYOUTS,
   addAssetClip,
+  addCamClip,
+  addChatClip,
+  addCtaClip,
+  addFrameClip,
   addTextClip,
   addTrack,
   applyLayout,
   clipEnd,
   closeGaps,
+  defaultCamRect,
   duplicateClip,
+  frameRangeFor,
+  mainClipAt,
   mainTrackId,
   moveToTrack,
+  newId,
   pasteClip,
+  removeChatEntirely,
   removeClips,
   removeTrack,
   rippleRemove,
@@ -36,8 +49,10 @@ import {
   type TextPreset,
 } from './model.ts';
 import { renderTextToBlob, textRenderKey } from './textRender.ts';
+import { useChat } from './useChat.ts';
 import { useProject } from './useProject.ts';
 
+const NO_CHATS: ChatLayer[] = [];
 const COACH_KEY = 'kesit.editor.rehber.v1';
 const MAGNET_KEY = 'kesit.editor.miknatis';
 
@@ -181,6 +196,7 @@ function Workspace({ id }: { id: number }) {
   const pr = useProject(id);
   const { project } = pr;
   const studio = useResource(() => api.get<Studio>('/api/studio'));
+  const chat = useChat(id, project?.chats ?? NO_CHATS);
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -199,6 +215,8 @@ function Workspace({ id }: { id: number }) {
 
   const total = useMemo(() => (project ? project.clips.reduce((m, c) => Math.max(m, clipEnd(c)), 0) : 0), [project]);
   const selected = project?.clips.find((c) => c.id === selectedId) ?? null;
+  // Sohbet parçası seçiliyken sağ panelde bağlı katmanın ayarları görünür.
+  const selectedChat = (selected?.kind === 'chat' && selected.chatId && project?.chats.find((c) => c.id === selected.chatId)) || null;
   const accent = studio.data?.brand.brandColor ?? '#f43f5e';
 
   /* ── Oynatma saati ───────────────────────────────────────────────────── */
@@ -235,6 +253,28 @@ function Workspace({ id }: { id: number }) {
 
   useEffect(() => writeFlag(MAGNET_KEY, magnetic), [magnetic]);
 
+  /* ── Sohbet: kullanılan bölüm genişleyince eksik kısım kendiliğinden çekilir ── */
+  const chatAutoTried = useRef(new Set<string>());
+  const { data: chatData, busy: chatBusy, ensure: ensureChat } = chat;
+  useEffect(() => {
+    if (!project?.chats.length) return;
+    // Sürükleme bitene kadar beklenir; aynı eksik için yalnız bir kez denenir (hata döngüsü olmasın).
+    const timer = setTimeout(() => {
+      for (const layer of project.chats) {
+        const data = chatData[layer.assetId];
+        if (!data || chatBusy[layer.assetId] !== undefined) continue;
+        const needed = neededChatRanges(project, layer.assetId);
+        const missing = missingChatRanges(needed, data.ranges);
+        if (!missing.length) continue;
+        const sig = `${layer.assetId}:${JSON.stringify(missing)}`;
+        if (chatAutoTried.current.has(sig)) continue;
+        chatAutoTried.current.add(sig);
+        void ensureChat(layer.assetId, needed).catch(() => {});
+      }
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [project, chatData, chatBusy, ensureChat]);
+
   /* ── Render durumu ───────────────────────────────────────────────────── */
   useSocketEvent<RenderStatus>('project:render', (e) => {
     if (e.projectId !== id) return;
@@ -251,13 +291,23 @@ function Workspace({ id }: { id: number }) {
   /* ── Komutlar ────────────────────────────────────────────────────────── */
   const split = () =>
     pr.update((p) => {
-      const r = splitAt(p, timeRef.current, selectedId ? [selectedId] : undefined);
+      const r = splitAt(p, timeRef.current, selected ? [selected.id] : undefined);
       if (!r.created.length) toast('Oynatma çizgisi bir parçanın içinde değil', 'info');
       return r.project;
     });
   const remove = (ripple = false) => {
     if (!selectedId) return;
-    pr.update((p) => (ripple ? rippleRemove(p, selectedId) : removeClips(p, [selectedId], magnetic)));
+    pr.update((p) => {
+      const next = ripple ? rippleRemove(p, selectedId) : removeClips(p, [selectedId], magnetic);
+      // Katmanın son sohbet parçası silinince katman da gider (yoksa eski kayıt kuralıyla her yerde görünürdü).
+      if (selectedChat && !next.clips.some((c) => c.kind === 'chat' && c.chatId === selectedChat.id)) return removeChatEntirely(next, selectedChat.id);
+      return next;
+    });
+    setSelectedId(null);
+  };
+  /** Sohbeti bütünüyle kaldırır: katman ve ona bağlı tüm parçalar. */
+  const removeChatAll = (layer: ChatLayer) => {
+    pr.update((p) => removeChatEntirely(p, layer.id));
     setSelectedId(null);
   };
   const trimSide = (side: 'left' | 'right') => selectedId && pr.update((p) => trimToPlayhead(p, selectedId, timeRef.current, side, magnetic));
@@ -371,8 +421,10 @@ function Workspace({ id }: { id: number }) {
   const removeAsset = async (asset: Asset) => {
     try {
       const res = await api.del<{ project: Project }>(`/api/projects/${id}/assets/${asset.id}`);
-      pr.replace({ ...pr.current()!, assets: res.project.assets, clips: pr.current()!.clips.filter((c) => c.assetId !== asset.id) });
-      if (selected?.assetId === asset.id) setSelectedId(null);
+      const cur = pr.current()!;
+      const gone = new Set(cur.chats.filter((c) => c.assetId === asset.id).map((c) => c.id));
+      pr.replace({ ...cur, assets: res.project.assets, clips: cur.clips.filter((c) => c.assetId !== asset.id && !(c.kind === 'chat' && c.chatId && gone.has(c.chatId))), chats: cur.chats.filter((c) => c.assetId !== asset.id) });
+      if (selected?.assetId === asset.id || selectedChat?.assetId === asset.id) setSelectedId(null);
     } catch (err) {
       toastError(err);
     }
@@ -384,6 +436,136 @@ function Workspace({ id }: { id: number }) {
       setSelectedId(r.clip.id);
       return r.project;
     });
+
+  /** Abone çağrısı: tasarım/yer/boyut Stüdyo'daki biçim ayarından başlar; sonra parçadan değiştirilir. */
+  const addCta = () =>
+    pr.update((p) => {
+      const cfg = studio.data?.cta.config;
+      const fmt = cfg?.overlay.formats[p.format];
+      const r = addCtaClip(p, timeRef.current, cfg ? { style: cfg.overlay.style, ...ctaPlacePoint(fmt?.place), size: fmt?.size } : {}, cfg?.overlay.seconds ?? 5);
+      setSelectedId(r.clip.id);
+      return r.project;
+    });
+
+  /** Kamera alanı: ana yoldaki videoda yüz kamerası aranır; bulunamazsa sağ üst köşe. */
+  const addCam = async () => {
+    const cur = pr.current();
+    if (!cur) return;
+    const main = mainClipAt(cur, timeRef.current);
+    const asset = main && cur.assets.find((a) => a.id === main.assetId);
+    if (!main || !asset) return toast('Önce ana yola bir video parçası ekle', 'error');
+    let rect: Rect | null = null;
+    // Aynı kaynaktan önce çizilmiş bir kamera alanı varsa onun kutusu kullanılır (tespit tekrarlanmaz).
+    const earlier = cur.clips.find((c) => c.kind === 'cam');
+    if (earlier) rect = earlier.crop;
+    else {
+      toast('Yüz kamerası aranıyor…', 'info');
+      try {
+        rect = (await api.post<{ rect: Rect | null }>(`/api/projects/${id}/assets/${asset.id}/facecam`)).rect;
+      } catch (err) {
+        toastError(err);
+      }
+    }
+    pr.update((p) => {
+      const r = addCamClip(p, timeRef.current, rect);
+      if (!r) return p;
+      setSelectedId(r.clip.id);
+      return r.project;
+    });
+    if (!earlier) toast(rect ? 'Kamera bulundu — bu aralıkta tam ekran' : 'Kamera bulunamadı; sağ üst köşe kullanıldı — sağ panelden kutuyu kameranın üstüne çek', rect ? 'ok' : 'info');
+  };
+
+  /**
+   * Kick sohbeti: seçili video parçasının (yoksa oynatma çizgisindeki ana
+   * videonun) yayın sohbeti çekilir; veri ve görünüm o videonun sohbet
+   * KATMANINDA tutulur, zaman çizelgesine ise o parçanın aralığına ayrı bir
+   * sohbet PARÇASI konur. Parça kısaltılıp taşınır; içerik yayın saatiyle eşli kalır.
+   */
+  const addChat = async () => {
+    const cur = pr.current();
+    if (!cur) return;
+    const target = (selected?.kind === 'video' ? selected : null) ?? mainClipAt(cur, timeRef.current);
+    const asset = target && cur.assets.find((a) => a.id === target.assetId);
+    if (!target || !asset) return toast('Önce zaman çizelgesine yayından bir video ekle', 'error');
+    const range = { start: target.start, end: clipEnd(target) };
+    let layer = chatForAsset(cur, asset.id);
+    if (!layer) {
+      toast('Sohbet Kick\'ten çekiliyor…', 'info');
+      try {
+        const data = await chat.ensure(asset.id, neededChatRanges(cur, asset.id));
+        toast(data.messages.length ? `${data.messages.length.toLocaleString('tr-TR')} mesaj çekildi` : 'Bu bölümde mesaj bulunamadı', data.messages.length ? 'ok' : 'info');
+      } catch (err) {
+        return toastError(err);
+      }
+      layer = defaultChatLayer(newId('h'), asset.id, cur.format);
+    }
+    const theLayer = layer;
+    pr.update((p) => {
+      const withLayer = p.chats.some((c) => c.id === theLayer.id) ? p : addChatLayer(p, theLayer);
+      const r = addChatClip(withLayer, theLayer.id, range);
+      if (!r) return p;
+      setSelectedId(r.clip.id);
+      return r.project;
+    });
+    toast(`Sohbet parçası ${duration(range.start)} – ${duration(range.end)} aralığına eklendi — kısaltıp taşıyabilirsin`, 'ok');
+  };
+
+  /** Projede kullanılan bölümlerin sohbetini yeniden ister (eksik kalan kısımlar çekilir). */
+  const refreshChat = async (layer: ChatLayer) => {
+    const cur = pr.current();
+    if (!cur) return;
+    try {
+      const data = await chat.ensure(layer.assetId, neededChatRanges(cur, layer.assetId));
+      toast(`Sohbet güncel — ${data.messages.length.toLocaleString('tr-TR')} mesaj`, 'ok');
+    } catch (err) {
+      toastError(err);
+    }
+  };
+
+  /**
+   * Yayın çerçevesi: Stüdyo'daki çerçeve PNG'si projeye varlık olarak bağlanır
+   * ve seçili parçanın (yoksa oynatma çizgisindeki ana videonun) aralığına
+   * çerçeve PARÇASI konur. O aralıkta ana yoldaki video pencereye, sohbet
+   * panele oturur; aralık dışı eskisi gibi kalır. Parça kısaltılıp taşınabilir.
+   */
+  const addFrame = async () => {
+    const cur = pr.current();
+    if (!cur) return;
+    if (cur.format !== 'horizontal') return toast('Çerçeve yatay projeler içindir', 'info');
+    const range = frameRangeFor(cur, selected, timeRef.current);
+    if (!range) return toast('Önce ana yola bir video parçası ekle; çerçeve seçili parçanın aralığına konur', 'error');
+    const overlapping = cur.clips.find((c) => c.kind === 'frame' && c.start < range.end && clipEnd(c) > range.start);
+    if (overlapping) {
+      setSelectedId(overlapping.id);
+      return toast('Bu aralıkta zaten bir çerçeve var — kısaltıp taşıyabilir ya da silebilirsin', 'info');
+    }
+    try {
+      const res = await api.post<{ asset: Asset; project: Project; frame: FrameRegions | null }>(`/api/projects/${id}/assets/link`, { from: { type: 'frame' } });
+      if (!res.frame) return toast('Çerçevenin bölgeleri okunamadı — Stüdyo\'dan yeniden yükle', 'error');
+      const regions = res.frame;
+      // Pencereye yayının tamamı değil kamera girer: önce çizilmiş kamera kutusu varsa o, yoksa yüz kamerası aranır, bulunamazsa sağ üst köşe.
+      const main = mainClipAt(cur, range.start + 0.01);
+      const mainAsset = main && cur.assets.find((a) => a.id === main.assetId);
+      let cam: Rect | null = cur.clips.find((c) => (c.kind === 'cam' || c.kind === 'frame') && c.crop.w < 0.999)?.crop ?? null;
+      if (!cam && mainAsset) {
+        toast('Yüz kamerası aranıyor…', 'info');
+        cam = (await api.post<{ rect: Rect | null }>(`/api/projects/${id}/assets/${mainAsset.id}/facecam`).catch(() => ({ rect: null }))).rect;
+        if (!cam) toast('Kamera bulunamadı; sağ üst köşe kullanıldı — sağ panelden kutuyu kameranın üstüne çek', 'info');
+      }
+      if (!cam) cam = defaultCamRect(mainAsset?.width || 16, mainAsset?.height || 9);
+      pr.update((p) => {
+        const r = addFrameClip({ ...p, assets: res.project.assets }, res.asset, regions, range, cam);
+        if (!r) return p;
+        setSelectedId(r.clip.id);
+        return r.project;
+      });
+      const latest = pr.current();
+      if (latest && !latest.chats.length && regions.chat) toast('Çerçeve eklendi. Sohbet paneli boş', 'info', { label: 'Sohbeti de ekle', run: () => void addChat() }, 8000);
+      else toast(`Çerçeve ${duration(range.start)} – ${duration(range.end)} aralığına eklendi`, 'ok');
+    } catch (err) {
+      toastError(err);
+    }
+  };
 
   const layout = async (key: LayoutPreset) => {
     const cur = pr.current();
@@ -430,6 +612,11 @@ function Workspace({ id }: { id: number }) {
       }
       pr.replace(next, { record: false });
       await pr.flush();
+      // Sohbet katmanları: satırlar çıktı çözünürlüğünde çizilip sunucuya yüklenir (önizlemeyle aynı çizim).
+      if (next.chats.length) {
+        await prepareChats(id, next, chat, setHint);
+        setHint(null);
+      }
       const res = await api.post<{ render: RenderStatus }>(`/api/projects/${id}/render`, { project: next });
       pr.setRender(res.render);
       toast('Dışa aktarma başladı', 'ok');
@@ -469,12 +656,19 @@ function Workspace({ id }: { id: number }) {
   const rendering = pr.render && !pr.render.jobId && !pr.render.error;
   const subtitleStyle = project.subtitles.style ?? studio.data?.brand.subtitleStyle ?? 'classic';
   const onProject = (changes: Partial<Project>) =>
-    pr.update((p) => {
+    pr.update((raw) => {
+      // Dikeye geçince çerçeve parçaları düşer (yalnız yatayda çalışır).
+      const p = changes.format && changes.format !== raw.format ? dropFrameClips(raw, changes.format) : raw;
       const next = { ...p, ...changes };
       if (changes.format && changes.format !== p.format) {
         next.clips = p.clips.map((c) => {
           const a = c.assetId ? p.assets.find((x) => x.id === c.assetId) : null;
           return a && c.kind !== 'audio' ? { ...c, frame: fitFrame(a.width || 16, a.height || 9, c.crop, changes.format!), renderAssetId: null } : c;
+        });
+        // Sohbet kutusu yeni biçimin varsayılan yerine ve yazı boyutuna döner.
+        next.chats = p.chats.map((c) => {
+          const d = defaultChatLayer(c.id, c.assetId, changes.format!);
+          return { ...c, frame: d.frame, size: d.size };
         });
       }
       return next;
@@ -486,7 +680,7 @@ function Workspace({ id }: { id: number }) {
     { key: 'q', label: 'Başını at', title: 'Seçili parçanın çizginin solunda kalan kısmını at (Q)', disabled: !inClip, run: () => void trimSide('left') },
     { key: 'w', label: 'Sonunu at', title: 'Seçili parçanın çizginin sağında kalan kısmını at (W)', disabled: !inClip, run: () => void trimSide('right') },
     { key: 'dup', label: 'Çoğalt', title: 'Seçili parçayı çoğalt (⌘D)', disabled: !selected, run: () => void duplicate() },
-    { key: 'mute', icon: selected?.muted ? 'mute' : 'volume', label: selected?.muted ? 'Sesi aç' : 'Sessiz', title: 'Seçili parçayı sessize al (M)', disabled: !selected || selected.kind === 'text' || selected.kind === 'image', run: () => void toggleMute() },
+    { key: 'mute', icon: selected?.muted ? 'mute' : 'volume', label: selected?.muted ? 'Sesi aç' : 'Sessiz', title: 'Seçili parçayı sessize al (M)', disabled: !selected || (selected.kind !== 'video' && selected.kind !== 'audio'), run: () => void toggleMute() },
     { key: 'del', icon: 'trash', label: 'Sil', title: 'Seçili parçayı kaldır (Sil)', disabled: !selected, danger: true, run: () => remove(false) },
     { key: 'layer', icon: 'layers', label: 'Katman', title: 'Yeni görüntü katmanı', run: () => pr.update((p) => addTrack(p, 'video')) },
     { key: 'magnetic', label: '', title: '', run: () => setMagnetic((m) => !m) },
@@ -501,7 +695,8 @@ function Workspace({ id }: { id: number }) {
       { label: 'Sonunu at (çizginin sağı)', shortcut: 'W', disabled: !inside, run: () => pr.update((p) => trimToPlayhead(p, c.id, timeRef.current, 'right', magnetic)) },
       { label: 'Çoğalt', shortcut: '⌘D', run: duplicate },
       { label: 'Kopyala', shortcut: '⌘C', run: copy },
-      { label: c.muted ? 'Sesi aç' : 'Sessize al', shortcut: 'M', disabled: c.kind === 'text' || c.kind === 'image', run: () => pr.update((p) => updateClip(p, c.id, { muted: !c.muted })) },
+      { label: c.muted ? 'Sesi aç' : 'Sessize al', shortcut: 'M', disabled: c.kind !== 'video' && c.kind !== 'audio', run: () => pr.update((p) => updateClip(p, c.id, { muted: !c.muted })) },
+      { label: 'Kick sohbeti ekle (bu aralığa)', disabled: c.kind !== 'video', run: () => (setSelectedId(c.id), void addChat()) },
       { label: 'Bir üst katmana taşı', disabled: c.kind === 'audio', run: () => pr.update((p) => moveToTrack(p, c.id, 'up')) },
       { label: 'Bir alt katmana taşı', disabled: c.kind === 'audio' || c.trackId === main, run: () => pr.update((p) => moveToTrack(p, c.id, 'down')) },
       { label: 'Bu yolda boşlukları kapat', run: () => pr.update((p) => closeGaps(p, c.trackId)) },
@@ -551,7 +746,7 @@ function Workspace({ id }: { id: number }) {
                 <b>2 · Kes</b> Alttaki çizelgede oynatma çizgisini istediğin yere getir, <em>Böl</em>'e bas (S); istemediğin parçayı seçip <em>Sil</em>.
               </li>
               <li>
-                <b>3 · Süsle ve çıkar</b> <em>Yazı</em>, <em>Düzen</em> ve <em>Marka</em> sekmeleriyle ekle; sağ panelden renk ve ses; en sonda <em>Dışa aktar</em>.
+                <b>3 · Süsle ve çıkar</b> <em>Yazı</em> (abone çağrısı ve Kick sohbeti dahil), <em>Düzen</em> (kamera alanı: o aralıkta webcam tam ekran) ve <em>Marka</em> (logo, yayın çerçevesi) sekmeleriyle ekle; sağ panelden renk ve ses; en sonda <em>Dışa aktar</em>.
               </li>
             </ol>
             <button
@@ -577,7 +772,7 @@ function Workspace({ id }: { id: number }) {
       </AnimatePresence>
 
       <div className="ed-body">
-        <MediaPanel project={project} tab={tab} onTab={setTab} hasSelection={selected?.kind === 'video'} onLink={link} onUpload={upload} onPlace={(a) => place(a)} onRemoveAsset={(a) => void removeAsset(a)} onAddText={addText} onLayout={(l) => void layout(l)} />
+        <MediaPanel project={project} tab={tab} onTab={setTab} hasSelection={selected?.kind === 'video'} onLink={link} onUpload={upload} onPlace={(a) => place(a)} onRemoveAsset={(a) => void removeAsset(a)} onAddText={addText} onAddCta={addCta} onAddChat={() => void addChat()} onAddCam={() => void addCam()} onAddFrame={() => void addFrame()} onLayout={(l) => void layout(l)} />
 
         <section className="ed-center" aria-label="Önizleme">
           <Stage
@@ -587,8 +782,12 @@ function Workspace({ id }: { id: number }) {
             selectedId={selectedId}
             subtitleStyle={subtitleStyle}
             safeZone={safeZone}
+            cta={studio.data ? { config: studio.data.cta.config, brandColor: studio.data.brand.brandColor, accentColor: studio.data.brand.accentColor } : null}
+            chat={chat}
             onSelect={setSelectedId}
             onFrame={(cid, frame: Rect) => pr.update((p) => updateClip(p, cid, { frame }), { record: false })}
+            onChatFrame={(cid, frame: Rect) => pr.update((p) => updateChatLayer(p, cid, { frame }), { record: false })}
+            onCtaMove={(cid, x, y) => pr.update((p) => updateClip(p, cid, { cta: { ...p.clips.find((c) => c.id === cid)!.cta!, x, y } }), { record: false })}
             onBegin={pr.begin}
             onEnd={pr.end}
           />
@@ -610,7 +809,24 @@ function Workspace({ id }: { id: number }) {
           </div>
         </section>
 
-        <Inspector project={project} clip={selected} studio={studio.data} onChange={(fn, record = true) => pr.update(fn, { record })} onBegin={pr.begin} onEnd={pr.end} onProject={onProject} onSeek={(t) => (setPlaying(false), seek(t))} />
+        {selectedChat && selected ? (
+          <ChatPanel
+            key={selected.id}
+            project={project}
+            layer={selectedChat}
+            clip={selected}
+            data={chat.data[selectedChat.assetId]}
+            busy={chat.busy[selectedChat.assetId]}
+            onChange={(fn, record = true) => pr.update(fn, { record })}
+            onBegin={pr.begin}
+            onEnd={pr.end}
+            onRefresh={() => void refreshChat(selectedChat)}
+            onRemoveClip={() => remove(false)}
+            onRemoveAll={() => removeChatAll(selectedChat)}
+          />
+        ) : (
+          <Inspector project={project} clip={selected} studio={studio.data} onChange={(fn, record = true) => pr.update(fn, { record })} onBegin={pr.begin} onEnd={pr.end} onProject={onProject} onSeek={(t) => (setPlaying(false), seek(t))} />
+        )}
       </div>
 
       <Tracks

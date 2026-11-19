@@ -7,6 +7,7 @@ import {
   FORMAT_SIZE,
   emptyProject,
   fitFrame,
+  frameAt,
   normalizeProject,
   projectDuration,
   timelineCaptions,
@@ -20,13 +21,19 @@ import {
 } from '../../shared/project.ts';
 import { config } from '../config.ts';
 import type { Store } from '../db/Store.ts';
-import { FacecamDetector, HorizontalComposer, IntroStore, Transcriber } from '../engine.ts';
+import { ClipEditorManager, FacecamDetector, HorizontalComposer, IntroStore, SubscribeCta, Transcriber, VideoEncoder } from '../engine.ts';
 import { HttpError, badRequest, notFound, receiveFile } from '../http.ts';
 import { probe, runFfmpeg, thumbnail, type FfmpegRun } from '../lib/media.ts';
-import { buildRenderPlan, type ClipSource } from './ProjectRenderer.ts';
+import { frameSubtitleBottom, type FrameRegions } from '../../shared/frame.ts';
+import { loadChatOverlay } from './ChatOverlay.ts';
+import { ctaEvents } from './ProjectCta.ts';
+import { buildRenderPlan, type ClipSource, type VideoCodecArgs } from './ProjectRenderer.ts';
+import { framePath, readRegions } from './StreamFrame.ts';
 
 const MAX_UPLOAD = { video: 6 * 1024 ** 3, audio: 300 * 1024 ** 2, image: 40 * 1024 ** 2 } as const;
 const PROJECT_LIMIT = 200;
+/** Dışa aktarmada ilerleme bu kadar saniye durursa ffmpeg kesilir (kodlayıcı yedeği devreye girer). */
+const RENDER_STALL_SEC = 120;
 
 export interface RenderStatus {
   projectId: number;
@@ -138,6 +145,7 @@ export class Projects {
     const knownIds = new Set(known.map((a) => a.id));
     project.assets = known;
     project.clips = project.clips.filter((c) => (c.assetId ? knownIds.has(c.assetId) : true)).map((c) => ({ ...c, renderAssetId: c.renderAssetId && knownIds.has(c.renderAssetId) ? c.renderAssetId : null }));
+    project.chats = project.chats.filter((c) => known.some((a) => a.id === c.assetId && a.kind === 'video'));
     this.store.updateProject(current.id, userId, { title: project.title, format: project.format, data: project, duration_sec: projectDuration(project) });
     void this.refreshThumb(userId, project).catch(() => {});
     return project;
@@ -201,9 +209,28 @@ export class Projects {
       case 'intro':
       case 'outro':
         return exists(path.join(this.userDir(userId), IntroStore.TURLER[origin.type]));
+      case 'cta': {
+        // Abone kesiti: kullanıcının kanal sekmesinin kendi dosyası varsa o, yoksa genel.
+        const slug = this.store.getUser(userId)?.channel_slug || null;
+        return (SubscribeCta.clipPath(userId, slug) as string | null) ?? (SubscribeCta.clipPath(userId, null) as string | null);
+      }
+      case 'frame':
+        return this.frameFiles(userId)?.file ?? null;
       default:
         return null;
     }
+  }
+
+  /** Yayın çerçevesi: kanal sekmesinin kendi dosyası varsa o, yoksa genel. */
+  private frameFiles(userId: number) {
+    const slug = this.store.getUser(userId)?.channel_slug || null;
+    return framePath(userId, slug) ?? framePath(userId, null);
+  }
+
+  /** Stüdyo'daki çerçevenin bölgeleri (pencere, sohbet alanı); çerçeve yoksa null. */
+  frameRegions(userId: number): FrameRegions | null {
+    const files = this.frameFiles(userId);
+    return files ? readRegions(files.dir) : null;
   }
 
   assetFile(userId: number, projectId: number, assetId: string) {
@@ -257,6 +284,10 @@ export class Projects {
         return 'Açılış videosu';
       case 'outro':
         return 'Kapanış videosu';
+      case 'cta':
+        return 'Abone kesiti';
+      case 'frame':
+        return 'Yayın çerçevesi';
       default:
         return null;
     }
@@ -288,6 +319,8 @@ export class Projects {
     fs.rmSync(path.join(this.assetsDir(userId, project.id), `${assetId}.jpg`), { force: true });
     project.assets = project.assets.filter((a) => a.id !== assetId);
     project.clips = project.clips.filter((c) => c.assetId !== assetId).map((c) => (c.renderAssetId === assetId ? { ...c, renderAssetId: null } : c));
+    project.chats = project.chats.filter((c) => c.assetId !== assetId);
+    fs.rmSync(path.join(this.dir(userId, project.id), 'chat', `${assetId}.json`), { force: true });
     this.store.updateProject(project.id, userId, { data: project, duration_sec: projectDuration(project) });
     return project;
   }
@@ -372,8 +405,22 @@ export class Projects {
     const dir = path.join(this.dir(userId, project.id), 'renders');
     fs.mkdirSync(dir, { recursive: true });
     const output = path.join(dir, `export-${Date.now()}.mp4`);
-    const assPath = await this.buildSubtitles(userId, project, dir);
-    const plan = buildRenderPlan(project, (clip) => this.sourceFor(userId, project, clip), { output, assPath });
+    const assPath = await this.buildAss(userId, project, dir);
+    const { w, h } = FORMAT_SIZE[project.format];
+    // Sohbet katmanları: arayüzün yüklediği satırlardan saydam kare akışı (ffmpeg'e standart girdiden verilir).
+    const chatWarnings: string[] = [];
+    const chat = loadChatOverlay(path.join(this.dir(userId, project.id), 'chat-render'), project, chatWarnings);
+    if (chatWarnings.length) console.warn(`[Proje ${project.id}] ${chatWarnings.join('; ')}`);
+    // Kodlama (ve az parçalı projede kaynak çözme) GPU'da; kodlayıcıya göre plan kurulur
+    const planFor = (enc: any) => {
+      const video: VideoCodecArgs = {
+        encode: VideoEncoder.videoArgs(enc, { width: w, height: h, fps: project.fps }),
+        decode: VideoEncoder.inputArgs(enc),
+        maxDecodeInputs: 4,
+      };
+      return buildRenderPlan(project, (clip) => this.sourceFor(userId, project, clip), { output, assPath, video, chat });
+    };
+    const plan = planFor(VideoEncoder.cpu('h264'));
     if (plan.warnings.length) console.warn(`[Proje ${project.id}] ${plan.warnings.join('; ')}`);
 
     const state: ActiveRender = { projectId: project.id, title: project.title, percent: 0, startedAt: Date.now(), error: null, jobId: null, run: null, cancelled: false };
@@ -383,16 +430,27 @@ export class Projects {
 
     void (async () => {
       try {
-        state.run = runFfmpeg(plan.args, {
-          totalSec: plan.totalSec,
-          onProgress: (pct) => {
-            if (pct !== state.percent) {
-              state.percent = pct;
-              emit();
-            }
+        await VideoEncoder.withFallback(
+          'h264',
+          (enc: any) => {
+            state.percent = 0;
+            state.run = runFfmpeg(planFor(enc).args, {
+              totalSec: plan.totalSec,
+              // GPU kodlayıcı takılırsa (VideoToolbox'ta görüldü) 2 dakika sonra kesilir, işlemciyle yeniden denenir.
+              stallSec: RENDER_STALL_SEC,
+              // Her denemede (kodlayıcı yedeği dahil) sohbet kareleri baştan üretilir.
+              feed: chat ? (stdin) => chat.feed(stdin) : undefined,
+              onProgress: (pct) => {
+                if (pct !== state.percent) {
+                  state.percent = pct;
+                  emit();
+                }
+              },
+            });
+            return state.run.done;
           },
-        });
-        await state.run.done;
+          { label: `Proje ${project.id} dışa aktarma`, canRetry: () => !state.cancelled },
+        );
         if (state.cancelled) throw new Error('İptal edildi');
         const jobId = await this.registerExport(userId, project, output, plan.totalSec);
         state.jobId = jobId;
@@ -429,21 +487,42 @@ export class Projects {
     return { file, kind: asset.kind, hasAudio: asset.hasAudio && asset.kind !== 'image' };
   }
 
-  private async buildSubtitles(userId: number, project: Project, dir: string): Promise<string | null> {
-    if (!project.subtitles.enabled) return null;
-    const caps = timelineCaptions(project);
-    if (!caps.length) return null;
+  /**
+   * Kareye basılacak ASS: altyazı (açıksa) + abone çağrısı parçaları.
+   * İkisi de yoksa null. Çağrının yazı ve renkleri kullanıcının kanal sekmesi
+   * profilinden, yoksa genel Stüdyo ayarından okunur.
+   */
+  private async buildAss(userId: number, project: Project, dir: string): Promise<string | null> {
+    const caps = project.subtitles.enabled ? timelineCaptions(project) : [];
+    const hasCta = project.clips.some((c) => c.kind === 'cta' && !project.tracks.find((t) => t.id === c.trackId)?.hidden);
+    if (!caps.length && !hasCta) return null;
     const settings = await this.store.getSettings(userId);
     const { w, h } = FORMAT_SIZE[project.format];
-    const layout = project.format === 'horizontal' ? HorizontalComposer.subtitleLayout({ width: w, height: h }) : { playResX: w, playResY: h, marginV: 320 };
-    const transcriber = new Transcriber();
-    const assPath = path.join(dir, `sub-${Date.now()}.ass`);
-    transcriber.buildAss(
-      caps.map((c) => ({ ...c, score: 0 })),
-      assPath,
-      layout,
-      { key: project.subtitles.style || settings.subtitle_style || 'classic', accent: project.subtitles.followTheme ? settings.accent_color : settings.brand_color },
-    );
+    let assPath: string | null = null;
+    if (caps.length) {
+      const layout = project.format === 'horizontal' ? HorizontalComposer.subtitleLayout({ width: w, height: h }) : { playResX: w, playResY: h, marginV: 320 };
+      const transcriber = new Transcriber();
+      assPath = path.join(dir, `sub-${Date.now()}.ass`);
+      // Yayın çerçevesi aralığındaki satırlar pencerenin içinde kalsın: alt boşluk pencerenin alt kenarına göre (satır başına MarginV).
+      const marginFor = (c: Caption) => {
+        const fr = frameAt(project, c.start);
+        return fr?.regions ? Math.round(frameSubtitleBottom(fr.regions) * h) : 0;
+      };
+      transcriber.buildAss(
+        caps.map((c) => ({ ...c, score: 0, marginV: marginFor(c) })),
+        assPath,
+        layout,
+        { key: project.subtitles.style || settings.subtitle_style || 'classic', accent: project.subtitles.followTheme ? settings.accent_color : settings.brand_color },
+      );
+    }
+    if (hasCta) {
+      const slug = this.store.getUser(userId)?.channel_slug || null;
+      const profile = ClipEditorManager.channelProfile(settings, slug);
+      const brand = { ...settings, ...((profile && profile.brand) || {}) };
+      const cfg = SubscribeCta.resolve(settings, profile);
+      const events = ctaEvents(SubscribeCta, project, cfg, { brandColor: brand.brand_color, accentColor: brand.accent_color, channel: slug });
+      assPath = SubscribeCta.attach(events, assPath, path.join(dir, `cta-${Date.now()}.ass`), { playResX: w, playResY: h });
+    }
     return assPath;
   }
 
@@ -498,7 +577,7 @@ export function originFrom(raw: unknown): AssetOrigin | null {
     const id = Number(o.id);
     return Number.isInteger(id) && id > 0 ? { type: o.type, id } : null;
   }
-  if (o.type === 'logo' || o.type === 'intro' || o.type === 'outro') return { type: o.type };
+  if (o.type === 'logo' || o.type === 'intro' || o.type === 'outro' || o.type === 'cta' || o.type === 'frame') return { type: o.type };
   return null;
 }
 
@@ -539,7 +618,10 @@ export function addClipFor(project: Project, asset: Asset, at?: number, range?: 
     fadeOut: 0,
     color: { brightness: 0, contrast: 1, saturation: 1, hue: 0 },
     text: null,
+    cta: null,
     captions: null,
+    regions: null,
+    chatId: null,
     renderAssetId: null,
   };
   return { ...project, clips: [...project.clips, clip] };

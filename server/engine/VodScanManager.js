@@ -196,6 +196,16 @@ class VodScanManager {
             rangeStartSec: aralik?.startSec ?? null,
             rangeEndSec: aralik?.endSec ?? null,
         });
+        // Yayının başlangıç saati: editördeki sohbet katmanı mesajları videoyla bundan
+        // eşler. Yayın Kick'in listesinden düştükten sonra öğrenilemez; şimdi yazılır.
+        // Kick saati UTC ve bölgesiz ("2026-11-09 18:32:34") verir; Date olarak yazılır ki ISO-UTC
+        // saklansın — bölgesiz metin geri okunurken yerel saat sanılır, eşleme saatlerce kayardı.
+        const baslangic = new Date(String(video.startedAt || '').replace(' ', 'T') + 'Z');
+        if (!Number.isNaN(baslangic.getTime()) && typeof this.db.run === 'function') {
+            try {
+                this.db.run('UPDATE vod_scan_jobs SET stream_started_at = ? WHERE id = ?', [baslangic, jobRow.id]);
+            } catch { /* eski şema — sohbet eklenirken yeniden denenir */ }
+        }
         // Takip girişi işten ÖNCE açılır: süreç içi kuyruk (LocalQueue) işi add()
         // dönmeden başlatabilir; giriş sonradan yazılsaydı indirme kendi girişini
         // açar, burada üzerine yazılır ve iptal sinyali indirmeye hiç ulaşmazdı.

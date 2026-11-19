@@ -1,14 +1,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFile } from 'node:child_process';
+import { execFile, type ChildProcess } from 'node:child_process';
 import type { Server as IOServer } from 'socket.io';
 import { config } from '../config.ts';
 import type { Row, Store } from '../db/Store.ts';
 import { StreamRecorder, VodSegmentFollower } from '../engine.ts';
 import { badRequest, notFound } from '../http.ts';
+import { classifyUrl, downloadToFile, titleFromName, toMp4, type ImportSource } from './SnippetImport.ts';
 import type { Workspaces } from './Workspaces.ts';
 
-export const SNIPPET_SECONDS = [30, 60, 90, 120, 180] as const;
+/** Düğmelerdeki süreler: 15 sn … 45 dk. Uzun kesitler de parça takipçisiyle iner. */
+export const SNIPPET_SECONDS = [15, 30, 45, 60, 90, 120, 180, 300, 600, 1200, 1800, 2700] as const;
+const label = (sec: number) => (sec >= 300 ? `${sec / 60} dk` : `${sec} sn`);
 
 /** Kick'in süren yayın kaydı canlıdan ~30 sn geride gelir; o kadar beklenir. */
 const PLAYLIST_LAG_NOTE = 'Yayın kaydı canlıdan yarım dakika kadar geride gelir; kesit birkaç saniye içinde iner.';
@@ -16,6 +19,9 @@ const PLAYLIST_LAG_NOTE = 'Yayın kaydı canlıdan yarım dakika kadar geride ge
 interface Active {
   follower: { abort(): unknown } | null;
   cancelled: boolean;
+  /** Dışarıdan alma: indirme/çevirme ilerlemesi (bayt) ve öldürülecek süreç. */
+  progress?: { bytes: number; total: number | null; stage: 'indiriliyor' | 'hazirlaniyor' } | null;
+  proc?: ChildProcess | null;
 }
 
 /**
@@ -48,7 +54,7 @@ export class Snippets {
     const video = await this.vodScanner.fetcher.getLiveVideo(channel).catch(() => null);
     if (!video) throw badRequest(`"${channel}" şu anda yayında değil ya da yayın kaydı kapalı`);
     const untilMs = Date.now();
-    const title = `${channel} · son ${seconds} sn · ${new Date(untilMs).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}`;
+    const title = `${channel} · son ${label(seconds)} · ${new Date(untilMs).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}`;
     const res = this.store.run('INSERT INTO snippets (user_id, channel_slug, title, seconds, status) VALUES (?, ?, ?, ?, ?)', [userId, channel, title, seconds, 'downloading']);
     const id = Number(res.lastInsertRowid);
     const state: Active = { follower: null, cancelled: false };
@@ -65,7 +71,103 @@ export class Snippets {
     if (!state) return false;
     state.cancelled = true;
     state.follower?.abort();
+    state.proc?.kill('SIGKILL');
     return true;
+  }
+
+  /**
+   * Bilgisayardan yüklenen dosya: geçici dosya MP4'e çevrilip kesit olur.
+   * Satır hemen döner, çevirme arkada sürer.
+   */
+  importFile(userId: number, channel: string, tmpPath: string, { title = '', autoEdit = true } = {}) {
+    const id = this.insertImport(userId, channel, titleFromName(title, 'Yüklenen video'), 'file');
+    const state: Active = { follower: null, cancelled: false, progress: { bytes: 0, total: null, stage: 'hazirlaniyor' } };
+    this.active.set(id, state);
+    this.emit(userId);
+    void this.finishImport(userId, id, tmpPath, autoEdit, state);
+    return this.get(userId, id)!;
+  }
+
+  /** Bağlantıdan (Google Drive paylaşımı ya da doğrudan video adresi) indirip kesit yapar. */
+  importUrl(userId: number, channel: string, rawUrl: string, { autoEdit = true } = {}) {
+    let target: ReturnType<typeof classifyUrl>;
+    try {
+      target = classifyUrl(rawUrl);
+    } catch (err) {
+      throw badRequest((err as Error).message);
+    }
+    const id = this.insertImport(userId, channel, target.source === 'drive' ? 'Google Drive videosu' : titleFromName(target.url.split('/').pop() || '', 'Bağlantıdan video'), target.source);
+    const state: Active = { follower: null, cancelled: false, progress: { bytes: 0, total: null, stage: 'indiriliyor' } };
+    const controller = new AbortController();
+    state.follower = { abort: () => controller.abort() };
+    this.active.set(id, state);
+    this.emit(userId);
+    void this.downloadImport(userId, id, target, autoEdit, state, controller.signal);
+    return this.get(userId, id)!;
+  }
+
+  private insertImport(userId: number, channel: string, title: string, source: ImportSource) {
+    const res = this.store.run('INSERT INTO snippets (user_id, channel_slug, title, seconds, status, source) VALUES (?, ?, ?, 0, ?, ?)', [userId, channel, title, 'downloading', source]);
+    return Number(res.lastInsertRowid);
+  }
+
+  private async downloadImport(userId: number, id: number, target: ReturnType<typeof classifyUrl>, autoEdit: boolean, state: Active, signal: AbortSignal) {
+    const dir = this.dir(userId);
+    fs.mkdirSync(dir, { recursive: true });
+    const raw = path.join(dir, `${id}_indirme.bin`);
+    try {
+      const result = await downloadToFile(target.url, raw, {
+        signal,
+        isDrive: target.source === 'drive',
+        onProgress: (bytes, total) => {
+          state.progress = { bytes, total, stage: 'indiriliyor' };
+          this.emit(userId);
+        },
+      });
+      if (state.cancelled) throw new Error('İptal edildi');
+      if (result.fileName) this.store.run('UPDATE snippets SET title = ? WHERE id = ?', [titleFromName(result.fileName, 'Bağlantıdan video'), id]);
+    } catch (err) {
+      fs.rmSync(raw, { force: true });
+      this.failImport(userId, id, state, err as Error);
+      return;
+    }
+    await this.finishImport(userId, id, raw, autoEdit, state);
+  }
+
+  /** Geçici kaynağı MP4'e çevirir, küçük resim ve süreyi yazar; kaynak silinir. */
+  private async finishImport(userId: number, id: number, src: string, autoEdit: boolean, state: Active) {
+    const dir = this.dir(userId);
+    const mp4 = path.join(dir, `${id}.mp4`);
+    const thumb = path.join(dir, `${id}_thumb.jpg`);
+    fs.mkdirSync(dir, { recursive: true });
+    try {
+      state.progress = { bytes: 0, total: null, stage: 'hazirlaniyor' };
+      this.emit(userId);
+      if (state.cancelled) throw new Error('İptal edildi');
+      const info = await toMp4(src, mp4, { onProc: (p) => (state.proc = p) });
+      if (state.cancelled) throw new Error('İptal edildi');
+      fs.rmSync(src, { force: true });
+      await run('ffmpeg', ['-y', '-loglevel', 'error', '-ss', info.duration > 2 ? '1' : '0', '-i', mp4, '-frames:v', '1', '-vf', 'scale=480:-2', thumb]).catch(() => {});
+      const duration = (await StreamRecorder.sureOku(mp4)) || info.duration;
+      this.store.run("UPDATE snippets SET status = 'ready', seconds = ?, file_path = ?, file_size = ?, duration_sec = ?, thumb_path = ? WHERE id = ?", [
+        Math.round(duration), mp4, fs.statSync(mp4).size, Math.round(duration), fs.existsSync(thumb) ? thumb : null, id,
+      ]);
+      this.active.delete(id);
+      this.emit(userId);
+      if (autoEdit) await this.edit(userId, id).catch((err) => console.warn(`[Kesitler ${userId}] Dikey üretim başlatılamadı:`, (err as Error).message));
+    } catch (err) {
+      for (const f of [src, mp4, thumb]) fs.rmSync(f, { force: true });
+      this.failImport(userId, id, state, err as Error);
+    } finally {
+      this.active.delete(id);
+    }
+  }
+
+  private failImport(userId: number, id: number, state: Active, err: Error) {
+    if (state.cancelled) this.store.run('DELETE FROM snippets WHERE id = ?', [id]);
+    else this.store.run("UPDATE snippets SET status = 'failed', error = ? WHERE id = ?", [String(err.message || err).slice(0, 300), id]);
+    this.active.delete(id);
+    this.emit(userId);
   }
 
   async remove(userId: number, id: number) {
@@ -155,12 +257,15 @@ export class Snippets {
   private toSnippet(r: Row) {
     const available = !!r.file_path && fs.existsSync(r.file_path);
     const base = `/clips/${r.user_id}/snippets`;
+    const progress = this.active.get(r.id as number)?.progress ?? null;
     return {
       id: r.id as number,
       channel: r.channel_slug as string,
       title: r.title as string,
       seconds: r.seconds as number,
+      source: ((r.source as string) || 'live') as 'live' | ImportSource,
       status: r.status as 'downloading' | 'ready' | 'failed',
+      progress: progress ? { ...progress, percent: progress.total ? Math.min(100, Math.round((progress.bytes / progress.total) * 100)) : null } : null,
       error: r.error as string | null,
       sizeBytes: r.file_size as number | null,
       durationSec: r.duration_sec as number | null,

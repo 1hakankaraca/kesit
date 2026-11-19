@@ -202,7 +202,7 @@ export function Toasts() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, x: 40 }}
           >
-            <Icon name={t.tone === 'error' ? 'x' : t.action?.label === 'Geri al' ? 'trash' : 'check'} size={16} />
+            <Icon name={t.tone === 'error' ? 'x' : t.tone === 'info' && t.action?.label === 'Geri al' ? 'trash' : 'check'} size={16} />
             <span>{t.text}</span>
             {t.action ? (
               <button type="button" className="toast-action" onClick={t.action.run}>
@@ -240,7 +240,8 @@ function markGuideSeen(k: GuideKey) {
 
 /** Çalışma alanı başlığı: dev başlık, bir kelimesi şerit üstünde; isteğe bağlı rehber. */
 export function WorkspaceHead({ title, tape, lead, actions, guide }: { title: string; tape: string; lead?: ReactNode; actions?: ReactNode; guide?: GuideKey }) {
-  const [open, setOpen] = useState(() => !!guide && !guideSeen(guide));
+  // Rehber artık kendiliğinden açılmaz (sayfanın yarısını kaplıyordu); "Nasıl kullanılır" ile açılır.
+  const [open, setOpen] = useState(false);
   const close = () => {
     setOpen(false);
     if (guide) markGuideSeen(guide);
@@ -250,13 +251,13 @@ export function WorkspaceHead({ title, tape, lead, actions, guide }: { title: st
       <header className="ws-head">
         <div>
           <h1 className="ws-title">
-            {title} <span className="ws-title-tape">{tape}</span>
+            {title} {tape && <span className="ws-title-tape">{tape}</span>}
           </h1>
           {lead && <p className="ws-lead">{lead}</p>}
         </div>
         <div className="ws-actions">
           {guide && (
-            <button type="button" className="btn btn-secondary" onClick={() => (open ? close() : setOpen(true))} aria-expanded={open}>
+            <button type="button" className={guideSeen(guide) ? 'btn btn-quiet' : 'btn btn-secondary'} onClick={() => (open ? close() : setOpen(true))} aria-expanded={open}>
               <Icon name="help" size={16} /> Nasıl kullanılır
             </button>
           )}

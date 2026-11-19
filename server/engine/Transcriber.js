@@ -340,7 +340,7 @@ class Transcriber {
 
     /**
      * Stilize ASS altyazı dosyası üret
-     * @param {Array<{start,end,text,score}>} segments
+     * @param {Array<{start,end,text,score,marginV?}>} segments - marginV verilen satır kendi alt boşluğuyla basılır (ör. yayın çerçevesi penceresi)
      * @param {string} assPath - çıktı yolu
      * @param {object} layout - { playResX, playResY, marginV, fontScale } altyazı konumu.
      *   Stil ölçüleri 1080x1920 dikey düzlem için yazılmıştır; başka bir düzlemde
@@ -397,7 +397,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             const styleName = isHighlight ? 'Vurgu' : 'Normal';
             const effect = isHighlight ? theme.highlightEffect : theme.effect;
             const text = escapeAss(seg.text);
-            ass += `Dialogue: 0,${toAssTime(seg.start)},${toAssTime(seg.end)},${styleName},,0,0,0,,${effect}${text}\n`;
+            const lineMargin = Number(seg.marginV) > 0 ? Math.round(Number(seg.marginV)) : 0;
+            ass += `Dialogue: 0,${toAssTime(seg.start)},${toAssTime(seg.end)},${styleName},,0,0,${lineMargin},,${effect}${text}\n`;
         }
 
         fs.writeFileSync(assPath, ass, 'utf8');

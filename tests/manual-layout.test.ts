@@ -8,17 +8,44 @@ const VerticalComposer = require('../server/engine/VerticalComposer.js');
 
 test('normalizeClipOptions.manualLayout: geçerli kutular yuvarlanır, bozuk/küçük olanlar elenir', () => {
   const ok = ClipEditorManager.normalizeClipOptions({ manualLayout: { cam: { x: 0.7, y: 0.6, w: 0.5, h: 0.5 }, content: { x: '0', y: 0, w: 1, h: 1 } } }).manualLayout;
-  assert.deepEqual(ok, { cam: { x: 0.7, y: 0.6, w: 0.3, h: 0.4 }, content: { x: 0, y: 0, w: 1, h: 1 } }, 'kutu kare içine kıstırılır');
-  assert.equal(ClipEditorManager.normalizeClipOptions({ manualLayout: { cam: { x: 0, y: 0, w: 0.02, h: 0.5 }, content: { x: 0, y: 0, w: 1, h: 1 } } }).manualLayout, null, 'çok dar kamera');
+  assert.deepEqual(ok, { cams: [{ x: 0.7, y: 0.6, w: 0.3, h: 0.4 }], cam: { x: 0.7, y: 0.6, w: 0.3, h: 0.4 }, content: { x: 0, y: 0, w: 1, h: 1 } }, 'eski biçim tek kamera olur, kutu kare içine kıstırılır');
+  const dar = ClipEditorManager.normalizeClipOptions({ manualLayout: { cam: { x: 0, y: 0, w: 0.02, h: 0.5 }, content: { x: 0, y: 0, w: 1, h: 1 } } }).manualLayout;
+  assert.deepEqual(dar.cams, [], 'çok dar kamera elenir → kamerasız (tek kare)');
   assert.equal(ClipEditorManager.normalizeClipOptions({ manualLayout: { cam: { x: 0, y: 0, w: 0.3, h: 0.3 } } }).manualLayout, null, 'içerik kutusu yok');
   assert.equal(ClipEditorManager.normalizeClipOptions({}).manualLayout, null);
+  assert.equal(ClipEditorManager.normalizeClipOptions({}).ctaAuto, true, 'abone çağrısı otomatik yerleşim varsayılan açık');
+  assert.equal(ClipEditorManager.normalizeClipOptions({ ctaAuto: false }).ctaAuto, false);
+  const cok = ClipEditorManager.normalizeClipOptions({ manualLayout: { cams: [{ x: 0, y: 0, w: 0.2, h: 0.2 }, { x: 0.8, y: 0, w: 0.2, h: 0.2 }, { x: 0, y: 0.8, w: 0.2, h: 0.2 }, { x: 0.8, y: 0.8, w: 0.2, h: 0.2 }, { x: 0.4, y: 0.4, w: 0.2, h: 0.2 }], content: { x: 0, y: 0, w: 1, h: 1 } } }).manualLayout;
+  assert.equal(cok.cams.length, 4, 'en fazla 4 kamera');
 });
 
 test('manualRects: oranlar kaynak piksellerine çift sayı olarak çevrilir', () => {
-  const r = ClipEditorManager.manualRects({ cam: { x: 0.75, y: 0.6, w: 0.25, h: 0.4 }, content: { x: 0.1, y: 0.1, w: 0.5, h: 0.5 } }, { width: 1920, height: 1080 });
+  const r = ClipEditorManager.manualRects({ cams: [{ x: 0.75, y: 0.6, w: 0.25, h: 0.4 }], content: { x: 0.1, y: 0.1, w: 0.5, h: 0.5 } }, { width: 1920, height: 1080 });
   assert.deepEqual(r.cam, { x: 1440, y: 648, w: 480, h: 432 });
+  assert.deepEqual(r.cams[0], r.cam);
   assert.deepEqual(r.content, { x: 192, y: 108, w: 960, h: 540 });
   for (const v of [...Object.values(r.cam), ...Object.values(r.content)] as number[]) assert.equal(v % 2, 0);
+});
+
+test('camBand: kameralar eşit sütunlara bölünür, bant yüksekliği 608–760 arasında kalır', () => {
+  const band = VerticalComposer.camBand([{ x: 0, y: 0, w: 400, h: 300 }, { x: 1500, y: 0, w: 400, h: 300 }, { x: 0, y: 700, w: 400, h: 300 }]);
+  assert.equal(band.tiles.length, 3);
+  assert.equal(band.tiles.reduce((s: number, t: { w: number }) => s + t.w, 0), 1080, 'sütunlar 1080 eder');
+  assert.ok(band.camH >= 608 && band.camH <= 760 && band.camH % 2 === 0);
+  const t = VerticalComposer.tileCrop({ x: 0, y: 0, w: 400, h: 300 }, band.tiles[0].w, band.camH);
+  assert.ok(t.scaledW >= band.tiles[0].w && t.scaledH >= band.camH, 'kutuyu doldurur (cover)');
+  assert.equal(t.cropX % 2, 0);
+});
+
+test('yerleşim kararı: tek kare + daraltılmış yayın alanı → o alan kırpılır; tam kare → tespit', () => {
+  const dar = ClipEditorManager.normalizeClipOptions({ composition: 'single', manualLayout: { cams: [{ x: 0.7, y: 0.6, w: 0.3, h: 0.4 }], content: { x: 0.2, y: 0, w: 0.6, h: 1 } } });
+  const karar = ClipEditorManager.layoutBeforeDetect(dar);
+  assert.deepEqual(karar.cams, [], 'tek karede kameralar kullanılmaz');
+  assert.equal(karar.content.w, 0.6);
+  const tam = ClipEditorManager.normalizeClipOptions({ composition: 'single', manualLayout: { cams: [{ x: 0.7, y: 0.6, w: 0.3, h: 0.4 }], content: { x: 0, y: 0, w: 1, h: 1 } } });
+  assert.equal(ClipEditorManager.layoutBeforeDetect(tam), null, 'tam kare: yüz odaklı tek kare korunur');
+  const kamerasiz = ClipEditorManager.normalizeClipOptions({ composition: 'split', manualLayout: { cams: [], content: { x: 0, y: 0, w: 1, h: 1 } } });
+  assert.equal(ClipEditorManager.layoutBeforeDetect(kamerasiz), null, 'kamerasız kadraj bölünmüş düzen için yeterli değil, tespit denenir');
 });
 
 test('VerticalComposer.contentCrop: bölge verilince hedef orana ortalı sığdırır', () => {

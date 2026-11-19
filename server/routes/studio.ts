@@ -5,8 +5,10 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { config } from '../config.ts';
 import type { AppContext } from '../context.ts';
-import { ClipEditorManager, IntroStore, RecordingFinalizer, SubtitleStyles } from '../engine.ts';
+import { ClipEditorManager, IntroStore, RecordingFinalizer, SubscribeCta, SubtitleStyles } from '../engine.ts';
 import { HttpError, badRequest, engine, receiveFile, slugOrThrow } from '../http.ts';
+import { FRAME_FILE, FRAME_MAX_BYTES, installFrame, readRegions, removeFrameFiles, writeRegions } from '../services/StreamFrame.ts';
+import { normalizeCrop } from '../../shared/project.ts';
 
 const run = promisify(execFile);
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -27,17 +29,20 @@ type BrandKind = (typeof BRAND_KINDS)[number];
 const userDir = (userId: number) => path.join(config.clipDir, String(userId));
 const fileUrl = (userId: number, name: string) => `/clips/${userId}/${name}?t=${Date.now()}`;
 
-/** Kanal sekmesine özel marka profili: genel ayarları ezen renk/stil ve üretim varsayılanları. */
+/**
+ * Kanal sekmesine özel marka profili: logo dosyası (brand/<kanal>/logo.png) ve
+ * renk/altyazı stili. Üretim kuralları (yerleşim, kadraj, altyazı açık/kapalı,
+ * logo yerleşimi) sekmeye özel DEĞİLDİR; tek yerden, genel ayardan gelir.
+ */
 interface ChannelProfile {
-  brand: { subtitle_style?: string; brand_color?: string; accent_color?: string };
-  clip_defaults: Record<string, unknown>;
+  brand: { subtitle_style?: string; brand_color?: string; accent_color?: string; cta?: unknown };
 }
 
 function readProfiles(settings: Record<string, any>): Record<string, ChannelProfile> {
   const all = parseJson(settings.channel_brands);
   const out: Record<string, ChannelProfile> = {};
   for (const [slug, p] of Object.entries(all)) {
-    if (p && typeof p === 'object') out[slug] = { brand: (p as ChannelProfile).brand || {}, clip_defaults: (p as ChannelProfile).clip_defaults || {} };
+    if (p && typeof p === 'object') out[slug] = { brand: (p as ChannelProfile).brand || {} };
   }
   return out;
 }
@@ -45,6 +50,12 @@ function readProfiles(settings: Record<string, any>): Record<string, ChannelProf
 const channelParam = (value: unknown) => (value ? slugOrThrow(value) : null);
 /** Sekmeye özel logo klasörü; klasörün varlığı profilin varlığıdır (motor da buna bakar). */
 const brandDir = (userId: number, channel: string) => path.join(userDir(userId), 'brand', channel);
+/** Sekme profili klasörü varsa dosyalar (logo, abone kesiti) oraya; yoksa kullanıcı köküne. */
+function mediaDir(userId: number, channel: string | null) {
+  const custom = !!channel && fs.existsSync(brandDir(userId, channel));
+  return { dir: custom ? brandDir(userId, channel!) : userDir(userId), prefix: custom ? `brand/${channel}/` : '', custom };
+}
+const CTA_FILE: string = SubscribeCta.FILE_NAME;
 
 function parseJson(value: unknown): Record<string, any> {
   try {
@@ -88,15 +99,21 @@ export function studioRoutes({ store, workspaces }: AppContext) {
     const s = await store.getSettings(userId);
     const channel = channelParam(req.query.channel);
     const profile = channel ? readProfiles(s)[channel] ?? null : null;
-    const saved = profile ? profile.clip_defaults : parseJson(s.clip_defaults);
+    // Üretim varsayılanları her kapsamda aynıdır (genel).
+    const saved = parseJson(s.clip_defaults);
     const read = (group: string) => ClipEditorManager.groupDefaults(saved, group);
     const defaults = { vertical: read('gezgin'), horizontal: read('horizontal') };
     const ws = await workspaces.get(userId);
     const logo = ws.clipEditor.getLogoPath(profile ? channel : null);
     const brandSrc = profile ? { ...s, ...profile.brand } : s;
+    const ctaClipPath: string | null = SubscribeCta.clipPath(userId, profile ? channel : null);
+    const ctaClip = await SubscribeCta.clipInfo(ctaClipPath);
+    const frameScope = mediaDir(userId, profile ? channel : null);
+    const frameRegions = fs.existsSync(path.join(frameScope.dir, FRAME_FILE)) ? readRegions(frameScope.dir) : null;
     res.json({
       styles: SubtitleStyles.listStyles(),
       scope: { channel, custom: !!profile },
+      customTabs: Object.keys(readProfiles(s)),
       brand: {
         subtitleStyle: brandSrc.subtitle_style || 'classic',
         brandColor: brandSrc.brand_color,
@@ -107,7 +124,28 @@ export function studioRoutes({ store, workspaces }: AppContext) {
       logo: { exists: !!logo, url: logo ? fileUrl(userId, profile ? `brand/${channel}/logo.png` : 'logo.png') : null },
       intro: await mediaInfo(userId, 'intro'),
       outro: await mediaInfo(userId, 'outro'),
-      limits: { mediaMaxSeconds: IntroStore.MAX_SURE_SN, mediaMaxBytes: IntroStore.MAX_BOYUT_BYTE, logoMaxBytes: LOGO_MAX_BYTES },
+      cta: {
+        config: SubscribeCta.resolve(s, profile),
+        clip: {
+          exists: !!ctaClip.exists,
+          url: ctaClipPath ? fileUrl(userId, `${profile ? `brand/${channel}/` : ''}${CTA_FILE}`) : null,
+          durationSec: ctaClip.durationSec ?? null,
+          sizeBytes: ctaClip.sizeBytes ?? null,
+          width: ctaClip.width ?? null,
+          height: ctaClip.height ?? null,
+          hasAudio: ctaClip.hasAudio ?? null,
+        },
+      },
+      frame: {
+        exists: !!frameRegions,
+        url: frameRegions ? fileUrl(userId, `${frameScope.prefix}${FRAME_FILE}`) : null,
+        window: frameRegions?.window ?? null,
+        chat: frameRegions?.chat ?? null,
+      },
+      limits: {
+        mediaMaxSeconds: IntroStore.MAX_SURE_SN, mediaMaxBytes: IntroStore.MAX_BOYUT_BYTE, logoMaxBytes: LOGO_MAX_BYTES,
+        ctaMaxSeconds: SubscribeCta.CLIP_MAX_SECONDS, ctaMaxBytes: SubscribeCta.CLIP_MAX_BYTES, frameMaxBytes: FRAME_MAX_BYTES,
+      },
       recordingOutput: await ws.finalizer.getOptions(),
       hevcAvailable: await RecordingFinalizer.hevcVarMi(),
     });
@@ -133,30 +171,103 @@ export function studioRoutes({ store, workspaces }: AppContext) {
     res.json({ ok: true });
   });
 
-  /** Dikey/yatay varsayılanları; `channel` verilip o sekmenin profili varsa ona yazılır. */
+  /* ── Abone çağrısı: animasyon + dikilecek kesit ──────────────────────── */
+
+  /** Ayar: sekme profili varsa onun markasına, yoksa genel ayara yazılır. */
+  r.put('/studio/cta', async (req, res) => {
+    const userId = req.user!.id;
+    const channel = channelParam(req.body?.channel ?? req.query.channel);
+    const config = SubscribeCta.normalize(req.body?.config);
+    const s = await store.getSettings(userId);
+    const profiles = readProfiles(s);
+    if (channel && profiles[channel]) {
+      profiles[channel].brand = { ...profiles[channel].brand, cta: config };
+      await store.updateSettings(userId, { channel_brands: JSON.stringify(profiles) });
+    } else await store.updateSettings(userId, { cta: JSON.stringify(config) });
+    res.json({ config });
+  });
+
+  r.post('/studio/cta/clip', async (req, res) => {
+    const type = String(req.headers['content-type'] || '');
+    if (!/^(video\/|application\/octet-stream)/.test(type)) throw badRequest('Video dosyası (MP4/MOV) yükleyin');
+    const userId = req.user!.id;
+    const { dir, prefix } = mediaDir(userId, channelParam(req.query.channel));
+    fs.mkdirSync(dir, { recursive: true });
+    const tmp = path.join(dir, `cta_upload_${Date.now()}.tmp`);
+    await receiveFile(req, tmp, SubscribeCta.CLIP_MAX_BYTES);
+    const info = await engine(() => SubscribeCta.saveClip(tmp, path.join(dir, CTA_FILE)));
+    res.json({ ...info, exists: true, url: fileUrl(userId, `${prefix}${CTA_FILE}`) });
+  });
+
+  r.delete('/studio/cta/clip', (req, res) => {
+    const { dir } = mediaDir(req.user!.id, channelParam(req.query.channel));
+    fs.rmSync(path.join(dir, CTA_FILE), { force: true });
+    res.json({ ok: true });
+  });
+
+  /**
+   * Animasyon önizlemesi: kaydedilmemiş ayarla kısa bir MP4 üretir. Arka plan
+   * örnek kare (varsa), yoksa düz koyu renk. Dikey ya da yatay ölçüde.
+   */
+  r.post('/studio/cta/preview', async (req, res) => {
+    const userId = req.user!.id;
+    const channel = channelParam(req.body?.channel);
+    const config = SubscribeCta.normalize(req.body?.config);
+    const horizontal = req.body?.format === 'horizontal';
+    const s = await store.getSettings(userId);
+    const profile = channel ? readProfiles(s)[channel] ?? null : null;
+    const colors = profile ? { ...s, ...profile.brand } : s;
+    const brandColor = HEX.test(req.body?.brandColor) ? req.body.brandColor : colors.brand_color;
+    const accentColor = HEX.test(req.body?.accentColor) ? req.body.accentColor : colors.accent_color;
+    const dir = userDir(userId);
+    fs.mkdirSync(dir, { recursive: true });
+    const framePath = await sampleFrame(userId).catch(() => null);
+    // `all: true` → her tasarım ayrı dosyaya; seçim galerisi hepsini yan yana oynatır.
+    // Boyut/yer önizlemede de ayardan okunur; biçim ölçüden (PlayRes) çıkar.
+    const styles: string[] = req.body?.all === true ? SubscribeCta.STYLES : [config.overlay.style];
+    const urls: Record<string, string> = {};
+    for (const style of styles) {
+      const name = `cta-preview-${style}-${horizontal ? 'h' : 'v'}.mp4`;
+      await engine(
+        () =>
+          SubscribeCta.renderPreview({
+            cfg: { ...config, overlay: { ...config.overlay, style } },
+            outputPath: path.join(dir, name),
+            playResX: horizontal ? 1920 : 1080,
+            playResY: horizontal ? 1080 : 1920,
+            outW: horizontal ? 960 : 540,
+            outH: horizontal ? 540 : 960,
+            brandColor,
+            accentColor,
+            channel: channel ?? req.user!.channelSlug ?? null,
+            framePath,
+            workDir: dir,
+          }),
+        500,
+      );
+      urls[style] = fileUrl(userId, name);
+    }
+    res.json({ url: urls[config.overlay.style] ?? Object.values(urls)[0], urls });
+  });
+
+  /** Dikey/yatay üretim varsayılanları — her zaman genel; sekme profili bunları ezmez. */
   r.put('/studio/defaults', async (req, res) => {
     const format = req.body?.format as Format;
     if (!(format in FORMAT_GROUPS)) throw badRequest('Biçim dikey ya da yatay olmalı');
-    const channel = channelParam(req.body?.channel);
     const raw = req.body?.options || {};
     // Dikey çıktılara intro/outro eklenmez.
     const defaults = ClipEditorManager.normalizeClipOptions(
       format === 'vertical' ? { ...raw, outputFormat: 'vertical', intro: false, outro: false } : { ...raw, outputFormat: 'horizontal' },
     );
     const s = await store.getSettings(req.user!.id);
-    const profiles = readProfiles(s);
-    const profile = channel ? profiles[channel] ?? null : null;
-    const parsed = profile ? profile.clip_defaults : parseJson(s.clip_defaults);
+    const parsed = parseJson(s.clip_defaults);
     const groups: string[] = ClipEditorManager.SETTINGS_GROUPS;
     const grouped: Record<string, unknown> = groups.every((g) => parsed[g] && typeof parsed[g] === 'object')
       ? { ...parsed }
       : Object.fromEntries(groups.map((g) => [g, parsed]));
     for (const g of FORMAT_GROUPS[format]) grouped[g] = defaults;
-    if (profile) {
-      profile.clip_defaults = grouped;
-      await store.updateSettings(req.user!.id, { channel_brands: JSON.stringify(profiles) });
-    } else await store.updateSettings(req.user!.id, { clip_defaults: JSON.stringify(grouped) });
-    res.json({ format, defaults, channel: profile ? channel : null });
+    await store.updateSettings(req.user!.id, { clip_defaults: JSON.stringify(grouped) });
+    res.json({ format, defaults });
   });
 
   /* ── Sekmeye özel profil: oluştur (genelden kopya) / kaldır ─────────────── */
@@ -168,16 +279,17 @@ export function studioRoutes({ store, workspaces }: AppContext) {
     const profiles = readProfiles(s);
     if (!profiles[channel]) {
       profiles[channel] = {
-        brand: { subtitle_style: s.subtitle_style || 'classic', brand_color: s.brand_color, accent_color: s.accent_color },
-        clip_defaults: parseJson(s.clip_defaults),
+        brand: { subtitle_style: s.subtitle_style || 'classic', brand_color: s.brand_color, accent_color: s.accent_color, cta: SubscribeCta.normalize(s.cta) },
       };
       await store.updateSettings(userId, { channel_brands: JSON.stringify(profiles) });
     }
     // Klasör profilin varlığıdır; genel logo başlangıç olarak kopyalanır.
     const dir = brandDir(userId, channel);
     fs.mkdirSync(dir, { recursive: true });
-    const general = path.join(userDir(userId), 'logo.png');
-    if (fs.existsSync(general) && !fs.existsSync(path.join(dir, 'logo.png'))) fs.copyFileSync(general, path.join(dir, 'logo.png'));
+    for (const f of ['logo.png', CTA_FILE, FRAME_FILE, 'frame.json']) {
+      const general = path.join(userDir(userId), f);
+      if (fs.existsSync(general) && !fs.existsSync(path.join(dir, f))) fs.copyFileSync(general, path.join(dir, f));
+    }
     res.json({ ok: true, channel });
   });
 
@@ -226,6 +338,41 @@ export function studioRoutes({ store, workspaces }: AppContext) {
     res.json({ ok: true });
   });
 
+  /* ── Yayın çerçevesi: saydam pencereli tam kare PNG ───────────────────── */
+
+  /**
+   * Çerçeve logo gibi saklanır (genel ya da sekme profiline). Pencere
+   * yüklemede kendiliğinden bulunur (alfası düşük en büyük bölge); sohbet
+   * alanı varsayılanla başlar, kullanıcı küçük resim üstünde çizerek düzeltir.
+   */
+  r.post('/studio/frame', async (req, res) => {
+    const type = String(req.headers['content-type'] || '');
+    if (!/^image\/png$/.test(type)) throw badRequest('Saydam pencereli PNG yükleyin');
+    const userId = req.user!.id;
+    const { dir, prefix } = mediaDir(userId, channelParam(req.query.channel));
+    fs.mkdirSync(dir, { recursive: true });
+    const upload = path.join(dir, `frame_upload_${Date.now()}.png`);
+    await receiveFile(req, upload, FRAME_MAX_BYTES);
+    const info = await installFrame(upload, dir);
+    res.json({ exists: true, url: fileUrl(userId, `${prefix}${FRAME_FILE}`), window: info.window, chat: info.chat });
+  });
+
+  /** Sohbet alanı (karenin oranı) ya da null: çerçevede sohbet paneli yok. */
+  r.put('/studio/frame', (req, res) => {
+    const { dir } = mediaDir(req.user!.id, channelParam(req.query.channel ?? req.body?.channel));
+    const regions = fs.existsSync(path.join(dir, FRAME_FILE)) ? readRegions(dir) : null;
+    if (!regions) throw badRequest('Önce bir çerçeve yükle');
+    const chat = req.body?.chat == null ? null : normalizeCrop(req.body.chat);
+    writeRegions(dir, { window: regions.window, chat });
+    res.json({ window: regions.window, chat });
+  });
+
+  r.delete('/studio/frame', (req, res) => {
+    const { dir } = mediaDir(req.user!.id, channelParam(req.query.channel));
+    removeFrameFiles(dir);
+    res.json({ ok: true });
+  });
+
   /* ── Intro / outro: ham video gövdesi diske akıtılır ─────────────────── */
 
   r.post('/studio/media/:kind', async (req, res) => {
@@ -248,8 +395,7 @@ export function studioRoutes({ store, workspaces }: AppContext) {
    * kayıttan — alınır. Üretilmiş klipler kullanılmaz; onlarda logo ve altyazı
    * zaten basılıdır ve önizlemeyi yanıltır. Dikey önizleme şematiktir.
    */
-  r.get('/studio/sample-frame', async (req, res) => {
-    const userId = req.user!.id;
+  async function sampleFrame(userId: number): Promise<string> {
     const sources = [
       ...(await store.getVodScanJobs(userId, 10)).map((j) => j.vod_path),
       ...(await store.getStreamRecordings(userId, 10)).map((rec) => rec.file_path),
@@ -259,7 +405,11 @@ export function studioRoutes({ store, workspaces }: AppContext) {
     await run('ffmpeg', ['-y', '-loglevel', 'error', '-ss', '60', '-i', sources[0], '-frames:v', '1', '-vf', 'scale=960:-2', frame], { timeout: 30_000 }).catch(() => {
       throw new HttpError(500, 'Kare alınamadı');
     });
-    res.sendFile(frame);
+    return frame;
+  }
+
+  r.get('/studio/sample-frame', async (req, res) => {
+    res.sendFile(await sampleFrame(req.user!.id));
   });
 
   return r;

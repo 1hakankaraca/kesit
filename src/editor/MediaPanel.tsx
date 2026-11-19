@@ -9,7 +9,8 @@ import type { Job, Recording, VodJob } from '../lib/types.ts';
 import { isHorizontal, jobTitle } from '../screens/Gallery.tsx';
 import { LAYOUTS, type LayoutPreset, type TextPreset } from './model.ts';
 
-type Origin = { type: 'job' | 'recording' | 'vod' | 'harvest'; id: number } | { type: 'logo' | 'intro' | 'outro' };
+type Origin = { type: 'job' | 'recording' | 'vod' | 'harvest'; id: number } | { type: 'logo' | 'intro' | 'outro' | 'cta' | 'frame' };
+const BRAND_ORIGINS = ['logo', 'intro', 'outro', 'cta', 'frame'];
 export type PanelTab = 'medya' | 'ses' | 'yazi' | 'duzen' | 'marka';
 
 const TABS: { key: PanelTab; icon: IconName; label: string }[] = [
@@ -43,6 +44,10 @@ export function MediaPanel({
   onPlace,
   onRemoveAsset,
   onAddText,
+  onAddCta,
+  onAddChat,
+  onAddCam,
+  onAddFrame,
   onLayout,
 }: {
   project: Project;
@@ -54,6 +59,12 @@ export function MediaPanel({
   onPlace: (asset: Asset) => void;
   onRemoveAsset: (asset: Asset) => void;
   onAddText: (preset: TextPreset) => void;
+  onAddCta: () => void;
+  /** Seçili (yoksa oynatma çizgisindeki) videonun Kick sohbetini ekler */
+  onAddChat: () => void;
+  onAddCam: () => void;
+  /** Stüdyo'daki yayın çerçevesini projeye ekler (yalnız yatay) */
+  onAddFrame: () => void;
   onLayout: (layout: LayoutPreset) => void;
 }) {
   const [picker, setPicker] = useState(false);
@@ -71,9 +82,11 @@ export function MediaPanel({
     }
   };
   const renders = new Set(project.assets.filter((a) => a.origin.type === 'render').map((a) => a.id));
-  const media = project.assets.filter((a) => !renders.has(a.id) && a.kind !== 'audio' && !['logo', 'intro', 'outro'].includes(a.origin.type));
+  const media = project.assets.filter((a) => !renders.has(a.id) && a.kind !== 'audio' && !BRAND_ORIGINS.includes(a.origin.type));
   const audio = project.assets.filter((a) => a.kind === 'audio');
-  const brand = project.assets.filter((a) => ['logo', 'intro', 'outro'].includes(a.origin.type));
+  // Çerçeve görseli yalnız "Yayın çerçevesi" düğmesiyle (bölgeleriyle) eklenir; sıradan görsel gibi listelenmez.
+  const brand = project.assets.filter((a) => BRAND_ORIGINS.includes(a.origin.type) && a.origin.type !== 'frame');
+  const vertical = project.format === 'vertical';
 
   return (
     <aside className="epanel epanel-media" aria-label="Araçlar">
@@ -126,12 +139,55 @@ export function MediaPanel({
                 </button>
               </li>
             ))}
+            <li>
+              <button type="button" className="preset-card" onClick={onAddCta} title="Marka renginde 'Abone ol / Beğen / Yorum yap' animasyonu; yazı gibi zaman çizelgesine konur">
+                <span className="preset-sample preset-sample-cta">
+                  <i>🔔 Abone ol</i>
+                </span>
+                <span>
+                  <b>Abone çağrısı</b>
+                  <small>Animasyonlu abone/beğen/yorum çağrısı</small>
+                </span>
+                <Icon name="plus" size={14} />
+              </button>
+            </li>
+            <li>
+              <button type="button" className="preset-card" onClick={onAddChat} title="Videonun yayındaki Kick sohbeti: emote, rozet ve renkleriyle. Videoya bağlıdır; kesince sohbet de kesilir, eşleme bozulmaz">
+                <span className="preset-sample preset-sample-chat" aria-hidden="true">
+                  <i>
+                    <b>ali:</b> selam
+                  </i>
+                  <i>
+                    <b>ece:</b> KEKW
+                  </i>
+                </span>
+                <span>
+                  <b>Kick sohbeti</b>
+                  <small>Videoya bağlı; yayınla birebir eşli</small>
+                </span>
+                <Icon name="plus" size={14} />
+              </button>
+            </li>
           </ul>
         )}
 
         {tab === 'duzen' && (
           <>
-            <p className="field-help">{hasSelection ? 'Seçili parçaya uygulanır.' : 'Önce zaman çizelgesinde bir video parçası seç; yoksa ilk video parçasına uygulanır.'}</p>
+            <ul className="preset-list">
+              <li>
+                <button type="button" className="preset-card preset-card-accent" onClick={onAddCam} title="Oynatma çizgisinden başlayan aralıkta webcam tüm kareyi doldurur; aralık dışı normal kalır">
+                  <span className={project.format === 'vertical' ? 'lsk lsk-v' : 'lsk lsk-h'} aria-hidden="true">
+                    <i className="lsk-cam" style={{ inset: 0 }} />
+                  </span>
+                  <span>
+                    <b>Kamera alanı</b>
+                    <small>Bu aralıkta webcam tam ekran; sonrası normal</small>
+                  </span>
+                  <Icon name="plus" size={14} />
+                </button>
+              </li>
+            </ul>
+            <p className="field-help">{hasSelection ? 'Düzenler seçili parçaya uygulanır.' : 'Düzenler için önce bir video parçası seç; yoksa ilk video parçasına uygulanır.'}</p>
             <ul className="preset-list">
               {LAYOUTS.filter((l) => !l.vertical || project.format === 'vertical').map((l) => (
                 <li key={l.key}>
@@ -153,10 +209,13 @@ export function MediaPanel({
         {tab === 'marka' && (
           <>
             <div className="eadd">
-              <AddButton icon="image" label="Logo" hint="Logo ve görünüm'den" onClick={() => void run(() => onLink([{ type: 'logo' }]))} />
+              <AddButton icon="image" label="Logo" hint="Ayarlar'daki logo" onClick={() => void run(() => onLink([{ type: 'logo' }]))} />
+              <AddButton icon="monitor" label="Yayın çerçevesi" hint={vertical ? 'Çerçeve yatay projeler içindir' : 'Seçili aralıkta; video pencereye, sohbet panele'} disabled={vertical} title={vertical ? 'Çerçeve yatay projeler içindir' : 'Stüdyo\'da yüklenen saydam pencereli çerçeve, seçili parçanın (yoksa oynatma çizgisindeki ana videonun) aralığına parça olarak konur: o aralıkta video pencereye, Kick sohbeti sohbet paneline oturur'} onClick={onAddFrame} />
               <AddButton icon="film" label="Açılış / kapanış" hint="Marka videoları" onClick={() => void run(() => onLink([{ type: 'intro' }, { type: 'outro' }]))} />
+              <AddButton icon="sparkle" label="Abone çağrısı" hint="Animasyon, yazı gibi" onClick={onAddCta} />
+              <AddButton icon="play" label="Abone kesiti" hint="Stüdyo'da yüklenen video" onClick={() => void run(() => onLink([{ type: 'cta' }]))} />
             </div>
-            <AssetGrid assets={brand} project={project} onPlace={onPlace} onRemove={onRemoveAsset} empty="Logo ile açılış/kapanış videolarını 'Logo ve görünüm' bölümünde yüklersin; burada projeye eklersin." />
+            <AssetGrid assets={brand} project={project} onPlace={onPlace} onRemove={onRemoveAsset} empty="Logo, açılış/kapanış ve abone kesiti videolarını Stüdyo'da yüklersin; burada projeye eklersin. Abone çağrısı animasyonu ise doğrudan zaman çizelgesine konur." />
           </>
         )}
       </div>
@@ -211,9 +270,9 @@ function AssetGrid({ assets, project, onPlace, onRemove, empty }: { assets: Asse
   );
 }
 
-function AddButton({ icon, label, hint, onClick }: { icon: IconName; label: string; hint: string; onClick: () => void }) {
+function AddButton({ icon, label, hint, onClick, disabled = false, title }: { icon: IconName; label: string; hint: string; onClick: () => void; disabled?: boolean; title?: string }) {
   return (
-    <button type="button" className="eadd-btn" onClick={onClick}>
+    <button type="button" className="eadd-btn" onClick={onClick} disabled={disabled} title={title}>
       <Icon name={icon} size={16} />
       <span>
         <b>{label}</b>

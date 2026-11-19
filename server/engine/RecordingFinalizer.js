@@ -22,6 +22,7 @@ const path = require('path');
 
 const HorizontalComposer = require('./HorizontalComposer');
 const IntroStore = require('./IntroStore');
+const VideoEncoder = require('./VideoEncoder');
 
 const CLIP_OUTPUT_DIR = process.env.CLIP_OUTPUT_DIR || 'data/clips';
 const COZUNURLUKLER = { source: null, '1080p': 1080, '720p': 720 };
@@ -30,13 +31,10 @@ const COZUNURLUKLER = { source: null, '1080p': 1080, '720p': 720 };
 const LOGO_KONUM = { x: 0.5, y: 1, bottomMargin: 0.03 };
 const SES_BIT_HIZI = '128k';
 
-// Kodlayıcı × hız → ffmpeg ön ayarı. H.265 aynı kalitede ~%30-40 daha küçük
-// dosya verir ama birkaç kat yavaş kodlanır; acelesi olmayan işler içindir.
-// "fast" bilerek x264'te veryfast: kayıt biter bitmez çıkan varsayılan yol.
-const KODLAYICILAR = {
-    h264: { encoder: 'libx264', presets: { fast: 'veryfast', balanced: 'medium', quality: 'slow' } },
-    hevc: { encoder: 'libx265', presets: { fast: 'fast', balanced: 'medium', quality: 'slow' } },
-};
+// Kodek seçenekleri. H.265 aynı kalitede ~%30-40 daha küçük dosya verir;
+// işlemcide (libx265) birkaç kat yavaştır, GPU'da (VideoToolbox/NVENC…) fark
+// küçüktür. Hız → ön ayar eşlemesi VideoEncoder'dadır ("fast" x264'te veryfast).
+const KODLAYICILAR = { h264: true, hevc: true };
 const HIZLAR = ['fast', 'balanced', 'quality'];
 
 const VARSAYILAN_CIKTI = {
@@ -76,18 +74,16 @@ function normalizeOutputOptions(raw = {}) {
 }
 
 /**
- * Video kodlayıcı argümanları (saf fonksiyon). İkisinde de VBV ile ortalama ve
- * tepe hedefte tutulur — dosya boyutu öngörülebilir olur. libx265 VBV'yi
- * ffmpeg'in -maxrate/-bufsize bayraklarından almaz; x265-params ile verilir.
+ * Video kodlayıcı argümanları (saf fonksiyon). VBV ile ortalama ve tepe
+ * hedefte tutulur — dosya boyutu öngörülebilir olur. Kodlayıcı verilmezse
+ * işlemci (libx264/libx265); verilirse onun (GPU) bayrakları kullanılır.
  * `hvc1` etiketi olmadan Safari/QuickTime H.265 MP4'ü oynatmaz.
  */
-function videoArgs(options) {
-    const { encoder, presets } = KODLAYICILAR[options.codec];
+function videoArgs(options, encoder = null) {
     const bitHizi = Math.round(options.bitrateMbps * 1000);
-    const ortak = ['-c:v', encoder, '-preset', presets[options.speed], '-b:v', `${bitHizi}k`, '-pix_fmt', 'yuv420p'];
-    return options.codec === 'hevc'
-        ? [...ortak, '-x265-params', `vbv-maxrate=${bitHizi}:vbv-bufsize=${bitHizi * 2}:log-level=error`, '-tag:v', 'hvc1']
-        : [...ortak, '-maxrate', `${bitHizi}k`, '-bufsize', `${bitHizi * 2}k`, '-profile:v', 'high'];
+    return VideoEncoder.videoArgs(encoder || VideoEncoder.cpu(options.codec), {
+        bitrateKbps: bitHizi, maxrateKbps: bitHizi, bufsizeKbps: bitHizi * 2, speed: options.speed,
+    });
 }
 
 /** Bu makinedeki ffmpeg H.265 kodlayabiliyor mu? (süreç ömrü boyunca bir kez sorulur) */
@@ -117,7 +113,7 @@ function ciktiOlcusu(main, resolution) {
  * @param {{hasAudio,duration}|null} [p.outro]
  * @param {object} p.options - normalizeOutputOptions çıktısı
  */
-function buildArgs({ inputPath, outputPath, logoPath = null, introPath = null, outroPath = null, main, intro = null, outro = null, options }) {
+function buildArgs({ inputPath, outputPath, logoPath = null, introPath = null, outroPath = null, main, intro = null, outro = null, options, encoder = null }) {
     const logo = logoPath ? {
         logoW: Math.max(2, Math.round(main.width * options.logoWidthPct / 100 / 2) * 2),
         opacity: options.logoOpacity,
@@ -127,15 +123,17 @@ function buildArgs({ inputPath, outputPath, logoPath = null, introPath = null, o
         main, intro: introPath ? intro : null, outro: outroPath ? outro : null, logo,
         output: ciktiOlcusu(main, options.resolution),
     });
-    const args = ['-hide_banner', '-loglevel', 'error', '-progress', 'pipe:1', '-nostats', '-i', inputPath];
+    // GPU kodlayıcıda video girdileri de GPU'da çözülür (logo ve sessizlik hariç)
+    const cozme = VideoEncoder.inputArgs(encoder);
+    const args = ['-hide_banner', '-loglevel', 'error', '-progress', 'pipe:1', '-nostats', ...cozme, '-i', inputPath];
     if (logoPath) args.push('-i', logoPath);
-    if (introPath) args.push('-i', introPath);
-    if (outroPath) args.push('-i', outroPath);
+    if (introPath) args.push(...cozme, '-i', introPath);
+    if (outroPath) args.push(...cozme, '-i', outroPath);
     if (plan.needsSilence) args.push('-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo');
     args.push(
         '-filter_complex', plan.filterGraph,
         '-map', '[outv]', '-map', introPath || outroPath ? '[outa]' : '0:a?',
-        ...videoArgs(options),
+        ...videoArgs(options, encoder),
         '-c:a', 'aac', '-b:a', SES_BIT_HIZI,
         '-movflags', '+faststart',
         '-y', outputPath,
@@ -277,8 +275,9 @@ class RecordingFinalizer {
         try {
             if (giris.iptal) throw new Error('Çıktı üretimi iptal edildi');
 
-            // H.265 seçili ama bu makinenin ffmpeg'inde yoksa çıktı hiç üretilmemesindense H.264'e düşülür
-            if (secenekler.codec === 'hevc' && !(await this.hevcAvailable())) {
+            // H.265 seçili ama bu makinede ne GPU'da ne libx265'te varsa çıktı hiç
+            // üretilmemesindense H.264'e düşülür
+            if (secenekler.codec === 'hevc' && !(await VideoEncoder.select('hevc')).hw && !(await this.hevcAvailable())) {
                 console.warn(`[RecordingFinalizer:${this.userId}] libx265 yok — kayıt #${kayit.id} H.264 ile kodlanıyor`);
                 secenekler = { ...secenekler, codec: 'h264' };
             }
@@ -290,11 +289,11 @@ class RecordingFinalizer {
             const intro = introPath ? await this.probe(introPath) : null;
             const outro = outroPath ? await this.probe(outroPath) : null;
 
-            const args = buildArgs({
-                inputPath: kayit.file_path, outputPath: gecici, logoPath, introPath, outroPath, main, intro, outro, options: secenekler,
-            });
             const toplamSure = (main.duration || 0) + (intro?.duration || 0) + (outro?.duration || 0);
-            await this._ffmpeg(args, toplamSure, giris, kayit.id);
+            // GPU ile kodlanır; GPU hata verirse (iptal edilmediyse) işlemciyle bir kez daha
+            await VideoEncoder.withFallback(secenekler.codec, encoder => this._ffmpeg(buildArgs({
+                inputPath: kayit.file_path, outputPath: gecici, logoPath, introPath, outroPath, main, intro, outro, options: secenekler, encoder,
+            }), toplamSure, giris, kayit.id), { label: `Kayıt #${kayit.id} çıktısı`, canRetry: () => !giris.iptal });
             fs.renameSync(gecici, sonYol);
 
             const guncel = await this.db.updateStreamRecording(kayit.id, this.userId, {
@@ -320,6 +319,7 @@ class RecordingFinalizer {
         return new Promise((resolve, reject) => {
             const proc = childProcess.spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
             giris.proc = proc;
+            giris.percent = 0;
 
             let hata = '';
             let tampon = '';
@@ -341,10 +341,10 @@ class RecordingFinalizer {
             });
             proc.stderr.on('data', v => { hata += v.toString(); });
             proc.on('error', err => reject(new Error(`ffmpeg çalıştırılamadı: ${err.message}`)));
-            proc.on('exit', code => {
+            proc.on('exit', (code, signal) => {
                 giris.proc = null;
                 if (code === 0) resolve();
-                else reject(new Error(`ffmpeg kodu ${code}: ${hata.trim().slice(0, 200)}`));
+                else reject(VideoEncoder.markAbort(new Error(`ffmpeg kodu ${code}: ${hata.trim().slice(0, 200)}`), { signal }));
             });
         });
     }

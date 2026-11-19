@@ -10,6 +10,10 @@ import { refreshJobs } from '../lib/jobs.ts';
 import { useResource } from '../lib/useResource.ts';
 import { navigate, sectionPath } from '../lib/router.ts';
 import { markOnboarded, useSession } from '../lib/session.ts';
+import { SettingsTabs } from '../components/SettingsTabs.tsx';
+import { ThemeSegmented } from '../components/ThemeToggle.tsx';
+import { ConnectionPanel } from './Publish.tsx';
+import type { ZernioSummary } from '../lib/types.ts';
 
 interface SystemInfo {
   lan: string[];
@@ -57,54 +61,87 @@ export function useRemoteUrl(): string | null {
 }
 
 /** Ayarlar: Kick uygulaması, altyazı motoru, çıktılar, disk, telefondan erişim. */
-export function Settings() {
+export function Settings({ sub = null }: { sub?: string | null }) {
   const { local } = useSession();
   const system = systemStore.use();
   usePhoneUrl();
+  const tab = sub === 'bilgisayar' ? 'bilgisayar' : 'baglantilar';
   return (
     <>
-      <WorkspaceHead title="Ayarlar" tape="sistem" lead="Sohbete klip atma, otomatik altyazı, videoların kaydedileceği klasör, kapladığı yer ve telefondan erişim." guide="ayarlar" />
+      <WorkspaceHead
+        title="Ayarlar"
+        tape=""
+        lead={tab === 'bilgisayar' ? 'Hazır videoların kopyalanacağı klasör, kapladığı yer ve telefondan erişim.' : 'Kick, Zernio, Claude ve altyazı motoru: Kesit\'in bağlandığı her şey tek yerde.'}
+        guide="ayarlar"
+      />
+      <SettingsTabs current={tab} />
       {!local && <p className="notice-box live-note">Telefondan açtın. Bilgisayar geneli ayarlar (altyazı, kayıt klasörü, disk, telefon erişimi) yalnız Kesit'in kurulu olduğu bilgisayardan değiştirilebilir.</p>}
-      <div className="ws-grid">
-        <div className="ws-stack">
-          <KickAppPanel />
-          {local && <CaptionsPanel />}
-          {local && <ExportPanel />}
-          {local && <StoragePanel />}
-        </div>
-        {local && (
+      {tab === 'baglantilar' ? (
+        <div className="ws-grid">
+          <div className="ws-stack">
+            <KickAppPanel />
+            {local && <CaptionsPanel />}
+          </div>
           <aside className="ws-stack">
-            <LanPanel />
-            <section className="panel">
-              <h2 className="panel-title">
-                <Icon name="sparkle" size={18} /> Kurulum sihirbazı
-              </h2>
-              <p className="panel-sub">Kanal, logo, açılış/kapanış videosu, Zernio ve genel ayarları adım adım yeniden gözden geçir.</p>
-              <button
-                type="button"
-                className="btn btn-secondary btn-small"
-                onClick={() =>
-                  markOnboarded(false)
-                    .then(() => navigate(sectionPath('kurulum')))
-                    .catch(toastError)
-                }
-              >
-                Sihirbazı aç
-              </button>
-            </section>
-            <section className="panel">
-              <h2 className="panel-title">
-                <Icon name="folder" size={18} /> Veriler bu bilgisayarda
-              </h2>
-              <p className="panel-sub">Klipler, kayıtlar, logo ve intro dosyaları, arşiv ve ayarlar yalnız bu klasörde durur; hiçbir yere yüklenmez (paylaşmadıkça).</p>
-              {system && <p className="path-box">{system.dataDir}</p>}
-              <p className="field-help">Yedeklemek için bu klasörü kopyalaman yeterli.</p>
-            </section>
+            <ZernioSettings />
+            {local && <ClaudePanel />}
           </aside>
-        )}
-      </div>
+        </div>
+      ) : (
+        <div className="ws-grid">
+          <div className="ws-stack">
+            {local && <ExportPanel />}
+            {local && <StoragePanel />}
+          </div>
+          {local && (
+            <aside className="ws-stack">
+              <section className="panel">
+                <h2 className="panel-title">
+                  <Icon name="sun" size={18} /> Görünüm
+                </h2>
+                <p className="panel-sub">Sistem, bilgisayarın açık/koyu ayarını izler. Üst çubuktaki düğmeyle de değiştirebilirsin.</p>
+                <div className="pad-top">
+                  <ThemeSegmented />
+                </div>
+              </section>
+              <LanPanel />
+              <section className="panel">
+                <h2 className="panel-title">
+                  <Icon name="sparkle" size={18} /> Kurulum sihirbazı
+                </h2>
+                <p className="panel-sub">Kanal, logo, açılış/kapanış videosu, Zernio ve genel ayarları adım adım yeniden gözden geçir.</p>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-small"
+                  onClick={() =>
+                    markOnboarded(false)
+                      .then(() => navigate(sectionPath('kurulum')))
+                      .catch(toastError)
+                  }
+                >
+                  Sihirbazı aç
+                </button>
+              </section>
+              <section className="panel">
+                <h2 className="panel-title">
+                  <Icon name="folder" size={18} /> Veriler bu bilgisayarda
+                </h2>
+                <p className="panel-sub">Klipler, kayıtlar, logo ve intro dosyaları, arşiv ve ayarlar yalnız bu klasörde durur; hiçbir yere yüklenmez (paylaşmadıkça).</p>
+                {system && <p className="path-box">{system.dataDir}</p>}
+                <p className="field-help">Yedeklemek için bu klasörü kopyalaman yeterli.</p>
+              </section>
+            </aside>
+          )}
+        </div>
+      )}
     </>
   );
+}
+
+/** Zernio bağlantısı: Paylaşım sayfasıyla aynı bileşen, ayarların arasında da. */
+function ZernioSettings() {
+  const zernio = useResource(() => api.get<ZernioSummary>('/api/zernio'));
+  return <ConnectionPanel zernio={zernio.data} loading={zernio.loading} onChange={() => void zernio.reload()} />;
 }
 
 interface LanStatus {
@@ -188,6 +225,89 @@ function LanPanel() {
             </>
           )}
         </div>
+      )}
+    </section>
+  );
+}
+
+interface AiStatus {
+  claude: { connected: boolean; keyHint: string | null };
+  model: string;
+}
+
+/** Yayın an taramasında anları değerlendiren Claude anahtarı. */
+function ClaudePanel() {
+  const status = useResource(() => api.get<AiStatus>('/api/ai'));
+  const [key, setKey] = useState('');
+  const [busy, setBusy] = useState(false);
+  const s = status.data;
+
+  const connect = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      status.setData(await api.put<AiStatus>('/api/ai/claude', { apiKey: key }));
+      setKey('');
+      toast('Claude bağlandı', 'ok');
+    } catch (err) {
+      toastError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="panel">
+      <header className="panel-head">
+        <div>
+          <h2 className="panel-title">Anlar için Claude</h2>
+          <p className="panel-sub">
+            Geçmiş yayınlar'daki "Anları tara" sohbet ve sesten aday anları bu bilgisayarda bulur; Claude bağlıysa yalnız adayların kısa metnini ve sohbet örneklerini değerlendirip komik, heyecanlı, aksiyon ya da duygusal diye etiketler. Bağlı değilse sinyallerden kaba etiket verilir.
+          </p>
+        </div>
+        <Pill tone={s?.claude.connected ? 'ok' : 'neutral'}>{s?.claude.connected ? 'Claude açık' : 'Kapalı'}</Pill>
+      </header>
+      {!s ? (
+        <Spinner />
+      ) : s.claude.connected ? (
+        <div className="stack-s">
+          <p>
+            <span className="status status-ready">Bağlı</span> <span className="muted">anahtar {s.claude.keyHint} · model {s.model}</span>
+          </p>
+          <button
+            type="button"
+            className="btn btn-quiet btn-small"
+            disabled={busy}
+            onClick={() =>
+              deleteWithUndo({
+                label: 'Claude bağlantısı kaldırıldı',
+                hide: () => status.setData((d) => d && { ...d, claude: { connected: false, keyHint: null } }),
+                restore: () => void status.reload(),
+                commit: () => api.del<AiStatus>('/api/ai/claude').then(status.setData),
+              })
+            }
+          >
+            Bağlantıyı kaldır
+          </button>
+        </div>
+      ) : (
+        <form className="stack-s" onSubmit={connect}>
+          <ol className="steps steps-tight">
+            <li>
+              <a className="link" href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">
+                console.anthropic.com
+              </a>{' '}
+              → API Keys → "Create Key".
+            </li>
+            <li>Anahtarı buraya yapıştır. Bir yayın taraması genelde birkaç kuruş tutar.</li>
+          </ol>
+          <Field label="API anahtarı" htmlFor="claude-key" help="Anahtar şifreli olarak yalnız bu bilgisayarda saklanır.">
+            <input id="claude-key" className="input" type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} placeholder="sk-ant-…" />
+          </Field>
+          <button type="submit" className="btn btn-primary btn-small" disabled={busy || key.trim().length < 20}>
+            {busy ? <Spinner size={12} /> : null} Bağla
+          </button>
+        </form>
       )}
     </section>
   );

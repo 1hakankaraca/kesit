@@ -21,6 +21,7 @@ const { execFile, spawn } = require('./ProcTracker');
 const fs = require('fs');
 const path = require('path');
 const CamFull = require('./CamFull');
+const VideoEncoder = require('./VideoEncoder');
 
 // Yatay altyazı oranları (bkz. subtitleLayout).
 const HORIZONTAL_FONT_BOOST = 1.55;
@@ -102,28 +103,33 @@ class HorizontalComposer {
             camFull,
         });
 
-        const args = ['-i', inputPath];
-        if (logoPath) args.push('-i', logoPath);
-        if (introPath) args.push('-i', introPath);
-        if (outroPath) args.push('-i', outroPath);
-        if (plan.needsSilence) args.push('-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo');
-        args.push('-filter_complex', plan.filterGraph, '-map', '[outv]');
-        if (intro || outro) {
-            args.push('-map', '[outa]', '-c:a', 'aac', '-b:a', '160k');
-        } else {
-            args.push('-map', '0:a?', '-c:a', 'copy');
-        }
-        args.push(
-            '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20',
-            '-pix_fmt', 'yuv420p',
-            '-movflags', '+faststart',
-            outputPath,
-        );
+        // Kodlama ve video girdilerinin çözülmesi GPU'da (logo görseli ve sessizlik hariç)
+        const argsFor = (enc) => {
+            const cozme = VideoEncoder.inputArgs(enc);
+            const args = [...cozme, '-i', inputPath];
+            if (logoPath) args.push('-i', logoPath);
+            if (introPath) args.push(...cozme, '-i', introPath);
+            if (outroPath) args.push(...cozme, '-i', outroPath);
+            if (plan.needsSilence) args.push('-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo');
+            args.push('-filter_complex', plan.filterGraph, '-map', '[outv]');
+            if (intro || outro) {
+                args.push('-map', '[outa]', '-c:a', 'aac', '-b:a', '160k');
+            } else {
+                args.push('-map', '0:a?', '-c:a', 'copy');
+            }
+            args.push(
+                ...VideoEncoder.videoArgs(enc, { width: ana.width, height: ana.height, fps: ana.fps }),
+                '-movflags', '+faststart',
+                outputPath,
+            );
+            return args;
+        };
         const toplamSure = (ana.duration || 0) + (intro?.duration || 0) + (outro?.duration || 0);
-        await this._ffmpeg(args, {
+        const hataOnek = intro || outro ? 'Intro/outro ekleme hatası' : 'Yatay kesit bindirme hatası';
+        await VideoEncoder.withFallback('h264', enc => this._ffmpeg(argsFor(enc), {
             timeout: Math.max(900000, Math.round(toplamSure * 15000)),
-            hataOnek: intro || outro ? 'Intro/outro ekleme hatası' : 'Yatay kesit bindirme hatası',
-        });
+            hataOnek,
+        }), { label: hataOnek.replace(/ hatası$/, '') });
     }
 
     /* ------------------------------------------------------------- saf yardımcılar (test edilebilir) */
@@ -282,11 +288,11 @@ class HorizontalComposer {
             const timer = setTimeout(() => { killed = true; proc.kill('SIGTERM'); }, timeout);
             proc.stderr.on('data', d => { stderr += d.toString(); });
             proc.on('error', (err) => { clearTimeout(timer); reject(err); });
-            proc.on('exit', code => {
+            proc.on('exit', (code, signal) => {
                 clearTimeout(timer);
-                if (killed) reject(new Error(`${hataOnek}: zaman aşımı`));
+                if (killed) reject(VideoEncoder.markAbort(new Error(`${hataOnek}: zaman aşımı`), { killed: true }));
                 else if (code === 0) resolve();
-                else reject(new Error(`${hataOnek} (code ${code}): ${stderr.slice(0, 300)}`));
+                else reject(VideoEncoder.markAbort(new Error(`${hataOnek} (code ${code}): ${stderr.slice(0, 300)}`), { signal }));
             });
         });
     }
@@ -369,7 +375,7 @@ class HorizontalComposer {
     _run(bin, args, timeout = 60000) {
         return new Promise((resolve, reject) => {
             execFile(bin, args, { timeout, maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
-                if (err) reject(new Error(`${bin} hatası: ${(stderr || err.message).slice(0, 400)}`));
+                if (err) reject(VideoEncoder.markAbort(new Error(`${bin} hatası: ${(stderr || err.message).slice(0, 400)}`), err));
                 else resolve(stdout);
             });
         });

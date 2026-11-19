@@ -80,8 +80,19 @@ export function taskRoutes({ store, workspaces, captions, exporter, harvester, p
         kind: 'kesit',
         title: s.title || 'Kesit',
         channel: s.channel,
-        step: s.status === 'downloading' ? 'Yayından alınıyor' : s.status === 'failed' ? 'Alınamadı' : 'Alındı',
-        progress: null,
+        step:
+          s.status === 'downloading'
+            ? s.source === 'live'
+              ? 'Yayından alınıyor'
+              : s.progress?.stage === 'hazirlaniyor'
+                ? 'Dosya hazırlanıyor'
+                : s.source === 'file'
+                  ? 'Yükleniyor'
+                  : 'İndiriliyor'
+            : s.status === 'failed'
+              ? 'Alınamadı'
+              : 'Alındı',
+        progress: s.progress?.percent ?? null,
         sizeBytes: s.sizeBytes,
         error: s.error,
         at: s.createdAt,

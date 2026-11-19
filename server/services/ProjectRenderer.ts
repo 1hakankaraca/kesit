@@ -1,4 +1,4 @@
-import { FORMAT_SIZE, NEUTRAL_COLOR, projectDuration, sourceSpan, type Clip, type Project } from '../../shared/project.ts';
+import { FORMAT_SIZE, NEUTRAL_COLOR, expandClips, projectDuration, sourceSpan, type Clip, type Project } from '../../shared/project.ts';
 
 /** Bir klibin dışa aktarmada kullanılacak kaynağı. */
 export interface ClipSource {
@@ -42,12 +42,39 @@ const esc = (p: string) => p.replace(/\\/g, '\\\\').replace(/'/g, "'\\''").repla
  * Görsel katmanlar alttan üste `overlay` ile dikilir; her klip kendi girdisi
  * olarak kaynak zamanından (-ss/-t) okunur ve setpts ile zaman çizelgesindeki
  * yerine kaydırılır. Sesler adelay + amix ile tek kanala karıştırılır.
- * Altyazı varsa en üste basılır.
+ * Altyazı varsa en üste basılır. Kamera alanı ve yayın çerçevesi parçaları ana
+ * yoldaki videodan türetilen katmanlara açılır (tam kare / çerçeve penceresi);
+ * abone çağrısı parçaları ASS'te çizildiğinden burada atlanır (bkz. ProjectCta).
  */
+/**
+ * Kodlayıcı bayrakları (VideoEncoder'dan). Verilmezse işlemci (libx264).
+ * `decode` video girdilerinin önüne konur (GPU'da çözme); `maxDecodeInputs`
+ * üstünde video girdisi varsa çözme işlemcide kalır.
+ */
+export interface VideoCodecArgs {
+  encode: string[];
+  decode: string[];
+  maxDecodeInputs: number;
+}
+
+/**
+ * Sohbet katmanı: saydam (RGBA) ham video olarak standart girdiden okunur ve
+ * karedeki yerine bindirilir (kareleri ChatOverlay üretir).
+ */
+export interface ChatInput {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  fps: number;
+}
+
+const CPU_VIDEO: VideoCodecArgs = { encode: ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p'], decode: [], maxDecodeInputs: 0 };
+
 export function buildRenderPlan(
   project: Project,
   resolve: (clip: Clip) => ClipSource | null,
-  { output, assPath = null }: { output: string; assPath?: string | null },
+  { output, assPath = null, video = CPU_VIDEO, chat = null }: { output: string; assPath?: string | null; video?: VideoCodecArgs; chat?: ChatInput | null },
 ): RenderPlan {
   const { w: W, h: H } = FORMAT_SIZE[project.format];
   const totalSec = Math.max(0.5, projectDuration(project));
@@ -61,14 +88,24 @@ export function buildRenderPlan(
   const filters: string[] = [];
   const audioLabels: string[] = [];
 
-  const ordered = [...project.clips].sort((a, b) => (trackIndex.get(a.trackId) ?? 0) - (trackIndex.get(b.trackId) ?? 0) || a.start - b.start);
+  // Yol sırası alttan üste; aynı yoldakiler liste sırasında kalır (kararlı sıralama) — türetilen
+  // pencere katmanları çerçeve görselinden önce gelir, parça çakışmadığından başlangıç sırası önemsizdir.
+  // Abone çağrısı ASS'te, sohbet parçası ham kare akışında çizilir; ikisinin de görsel girdisi yok.
+  const ordered = expandClips(project)
+    .filter((c) => c.kind !== 'cta' && c.kind !== 'chat')
+    .sort((a, b) => (trackIndex.get(a.trackId) ?? 0) - (trackIndex.get(b.trackId) ?? 0));
   const baseTrack = project.tracks.find((t) => t.kind === 'video')?.id;
   let last = '0:v';
   let k = 0;
 
-  for (const clip of ordered) {
-    if (hidden.has(clip.trackId)) continue;
-    const src = resolve(clip);
+  const sources = ordered
+    .filter((clip) => !hidden.has(clip.trackId))
+    .map((clip) => ({ clip, src: resolve(clip) }));
+  // Her video parçası ayrı girdi; çok parçalı projede donanım çözücü oturumu şişmesin.
+  const videoInputs = sources.filter((s) => s.src?.kind === 'video').length;
+  const decode = videoInputs <= video.maxDecodeInputs ? video.decode : [];
+
+  for (const { clip, src } of sources) {
     if (!src) {
       warnings.push(`${clip.kind === 'text' ? 'Yazı' : 'Klip'} ${clip.id} kaynağı bulunamadı, atlandı`);
       continue;
@@ -81,7 +118,7 @@ export function buildRenderPlan(
     const fadeOut = Math.min(clip.fadeOut, clip.duration / 2);
 
     if (src.kind === 'image') args.push('-loop', '1', '-framerate', String(project.fps), '-t', f(clip.duration), '-i', src.file);
-    else args.push('-ss', f(clip.in), '-t', f(sourceSpan({ duration: clip.duration, speed })), '-i', src.file);
+    else args.push(...(src.kind === 'video' ? decode : []), '-ss', f(clip.in), '-t', f(sourceSpan({ duration: clip.duration, speed })), '-i', src.file);
 
     if (visual) {
       k++;
@@ -127,6 +164,15 @@ export function buildRenderPlan(
     }
   }
 
+  // Sohbet: tüm görüntü katmanlarının (çerçeve dahil) üstünde, altyazı ve abone çağrısının altında.
+  if (chat) {
+    const n = inputIndex++;
+    args.push('-f', 'rawvideo', '-pixel_format', 'rgba', '-video_size', `${chat.width}x${chat.height}`, '-framerate', String(chat.fps), '-i', 'pipe:0');
+    filters.push(`[${n}:v]setpts=PTS-STARTPTS,format=rgba[chat]`);
+    filters.push(`[${last}][chat]overlay=${chat.x}:${chat.y}:eof_action=pass[ochat]`);
+    last = 'ochat';
+  }
+
   filters.push(`[1:a]atrim=0:${f(totalSec)}[abase]`);
   if (audioLabels.length) {
     filters.push(`[abase]${audioLabels.map((l) => `[${l}]`).join('')}amix=inputs=${audioLabels.length + 1}:normalize=0:duration=first:dropout_transition=0[outa]`);
@@ -144,7 +190,7 @@ export function buildRenderPlan(
   args.push(
     '-filter_complex', filterGraph,
     '-map', '[outv]', '-map', '[outa]',
-    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p', '-r', String(project.fps),
+    ...video.encode, '-r', String(project.fps),
     '-c:a', 'aac', '-b:a', '160k',
     '-t', f(totalSec),
     '-movflags', '+faststart',

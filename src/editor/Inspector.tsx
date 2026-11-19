@@ -1,12 +1,14 @@
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { COLOR_PRESETS, FULL_RECT, NEUTRAL_COLOR, type Clip, type ColorGrade, type Project, type Rect, type TextStyle } from '../../shared/project.ts';
+import { useState, type CSSProperties } from 'react';
+import { COLOR_PRESETS, CTA_SIZE_RANGE, FULL_RECT, NEUTRAL_COLOR, ctaPlaceOf, ctaPlacePoint, type Clip, type ColorGrade, type CtaClipStyle, type Project, type Rect, type TextStyle } from '../../shared/project.ts';
+import { CropEditor } from '../components/CropEditor.tsx';
 import { Icon } from '../components/Icon.tsx';
 import { Field, Segmented, Spinner, Switch } from '../components/basics.tsx';
 import { api } from '../lib/api.ts';
 import { duration } from '../lib/format.ts';
 import { toast, toastError } from '../lib/toast.ts';
 import type { Studio } from '../lib/types.ts';
-import { LAYOUTS, applyLayout, assetOf, centerFrame, clipEnd, fillFrame, fitToFrame, setSpeed, updateClip, type LayoutPreset } from './model.ts';
+import { CTA_POSITIONS, CTA_STYLES, CtaMini } from '../screens/Studio.tsx';
+import { LAYOUTS, applyLayout, assetOf, centerFrame, clipEnd, defaultCamRect, fillFrame, fitToFrame, mainClipAt, setSpeed, updateClip, type LayoutPreset } from './model.ts';
 
 type Update = (fn: (p: Project) => Project, record?: boolean) => void;
 
@@ -31,7 +33,7 @@ export function Inspector({
   onSeek: (t: number) => void;
 }) {
   if (!clip) return <ProjectPanel project={project} studio={studio} onProject={onProject} />;
-  return <ClipPanel key={clip.id} project={project} clip={clip} onChange={onChange} onBegin={onBegin} onEnd={onEnd} onSeek={onSeek} />;
+  return <ClipPanel key={clip.id} project={project} clip={clip} studio={studio} onChange={onChange} onBegin={onBegin} onEnd={onEnd} onSeek={onSeek} />;
 }
 
 function ProjectPanel({ project, studio, onProject }: { project: Project; studio: Studio | null; onProject: (changes: Partial<Project>) => void }) {
@@ -85,14 +87,16 @@ function ProjectPanel({ project, studio, onProject }: { project: Project; studio
   );
 }
 
-function ClipPanel({ project, clip, onChange, onBegin, onEnd, onSeek }: { project: Project; clip: Clip; onChange: Update; onBegin: () => void; onEnd: () => void; onSeek: (t: number) => void }) {
+function ClipPanel({ project, clip, studio, onChange, onBegin, onEnd, onSeek }: { project: Project; clip: Clip; studio: Studio | null; onChange: Update; onBegin: () => void; onEnd: () => void; onSeek: (t: number) => void }) {
   const asset = assetOf(project, clip);
   const set = (changes: Partial<Clip>, record = true) => onChange((p) => updateClip(p, clip.id, changes), record);
   const [busy, setBusy] = useState<string | null>(null);
   const pct = (v: number) => Math.round(v * 100);
   const fromPct = (v: string) => (Number(v) || 0) / 100;
-  const visual = clip.kind !== 'audio';
+  // Çağrı, kamera alanı ve yayın çerçevesi tüm kareyi kullanır; konum/boyut kutusu yoktur.
+  const visual = clip.kind !== 'audio' && clip.kind !== 'cta' && clip.kind !== 'cam' && clip.kind !== 'frame' && clip.kind !== 'chat';
   const hasSound = clip.kind === 'audio' || (asset?.hasAudio && clip.kind === 'video');
+  const title = clip.kind === 'text' ? 'Yazı' : clip.kind === 'cta' ? 'Abone çağrısı' : clip.kind === 'cam' ? 'Kamera alanı' : clip.kind === 'frame' ? 'Yayın çerçevesi' : asset?.name ?? 'Parça';
 
   const transcribe = async () => {
     if (!asset) return;
@@ -128,11 +132,28 @@ function ClipPanel({ project, clip, onChange, onBegin, onEnd, onSeek }: { projec
   return (
     <aside className="epanel epanel-inspector" aria-label="Parça ayarları">
       <div className="epanel-head">
-        <b className="epanel-title">{clip.kind === 'text' ? 'Yazı' : asset?.name ?? 'Parça'}</b>
+        <b className="epanel-title">{title}</b>
         <span className="muted">{duration(clip.duration)}</span>
       </div>
       <div className="estack">
         {clip.kind === 'text' && clip.text && <TextSection text={clip.text} onChange={(t) => set({ text: { ...clip.text!, ...t } })} />}
+        {clip.kind === 'cta' && clip.cta && <CtaSection cta={clip.cta} studio={studio} vertical={project.format === 'vertical'} onChange={(c) => set({ cta: { ...clip.cta!, ...c } })} onBegin={onBegin} onEnd={onEnd} />}
+        {clip.kind === 'cam' && <CamSection project={project} clip={clip} busy={busy} setBusy={setBusy} onCrop={(crop, record) => set({ crop }, record)} onBegin={onBegin} onEnd={onEnd} />}
+        {clip.kind === 'frame' && (
+          <>
+            <details open className="esec">
+              <summary>Çerçeve</summary>
+              <div className="eframe-row">
+                <span className="eframe-thumb">{asset?.thumb ? <img src={asset.thumb} alt="" /> : <Icon name="monitor" size={18} />}</span>
+                <p className="field-help">
+                  Bu aralıkta ana yoldaki videonun {clip.crop.w < 0.999 || clip.crop.h < 0.999 ? 'kamera bölgesi' : 'tamamı'} çerçevenin penceresine{clip.regions?.chat ? ', Kick sohbeti sohbet paneline' : ''} oturur; parça bitince düzen eskisine döner. Aralığı zaman çizelgesinde kenarlarından çekerek değiştir. Pencere ve sohbet alanı Stüdyo → Kimlik'te ayarlanır.
+                </p>
+              </div>
+              <RangeField label="Görünürlük" value={clip.opacity} min={0} max={1} step={0.01} display={`%${pct(clip.opacity)}`} onChange={(v) => set({ opacity: v }, false)} onBegin={onBegin} onEnd={onEnd} />
+            </details>
+            <CamSection project={project} clip={clip} busy={busy} setBusy={setBusy} onCrop={(crop, record) => set({ crop }, record)} onBegin={onBegin} onEnd={onEnd} windowed />
+          </>
+        )}
 
         {visual && (
           <details open className="esec">
@@ -174,7 +195,7 @@ function ClipPanel({ project, clip, onChange, onBegin, onEnd, onSeek }: { projec
           </div>
         )}
 
-        {clip.kind !== 'text' && clip.kind !== 'image' && (
+        {(clip.kind === 'video' || clip.kind === 'audio') && (
           <details open className="esec">
             <summary>Hız ve yumuşatma</summary>
             <div className="row-gap">
@@ -191,7 +212,7 @@ function ClipPanel({ project, clip, onChange, onBegin, onEnd, onSeek }: { projec
             </div>
           </details>
         )}
-        {(clip.kind === 'text' || clip.kind === 'image') && (
+        {(clip.kind === 'text' || clip.kind === 'image' || clip.kind === 'cam' || clip.kind === 'frame') && (
           <details className="esec">
             <summary>Yumuşatma</summary>
             <div className="egrid2">
@@ -280,6 +301,100 @@ function ClipPanel({ project, clip, onChange, onBegin, onEnd, onSeek }: { projec
 
 const sameColor = (a: ColorGrade, b: ColorGrade) => Math.abs(a.brightness - b.brightness) < 0.001 && Math.abs(a.contrast - b.contrast) < 0.001 && Math.abs(a.saturation - b.saturation) < 0.001 && Math.abs(a.hue - b.hue) < 0.5;
 
+/** Abone çağrısı parçası: tasarım, yer ve boyut. Yazılar/renkler Stüdyo'dan. */
+function CtaSection({ cta, studio, vertical, onChange, onBegin, onEnd }: { cta: CtaClipStyle; studio: Studio | null; vertical: boolean; onChange: (c: Partial<CtaClipStyle>) => void; onBegin: () => void; onEnd: () => void }) {
+  const cfg = studio?.cta.config ?? null;
+  const labels = cfg?.overlay.labels ?? { subscribe: 'Abone ol', like: 'Beğen', comment: 'Yorum yap' };
+  const colors = cfg?.overlay.colors;
+  const vars = {
+    '--brand': colors?.primary ?? studio?.brand.brandColor ?? '#53fc18',
+    '--accent': colors?.accent ?? studio?.brand.accentColor ?? '#53fc18',
+    '--cta-text': colors?.text ?? '#ffffff',
+    '--cta-dark': colors?.dark ?? '#2a2d33',
+  } as CSSProperties;
+  const fmtDefault = cfg?.overlay.formats[vertical ? 'vertical' : 'horizontal'];
+  const place = ctaPlaceOf(cta);
+  return (
+    <details open className="esec">
+      <summary>Çağrı tasarımı</summary>
+      <div className="style-grid style-grid-compact" style={vars}>
+        {CTA_STYLES.map((st) => (
+          <button key={st.value} type="button" className={cta.style === st.value ? 'style-tile style-tile-on' : 'style-tile'} onClick={() => onChange({ style: st.value })} title={st.hint}>
+            <span className="cta-sample cta-sample-small">
+              <CtaMini style={st.value} labels={labels} />
+            </span>
+            <span>{st.label}</span>
+          </button>
+        ))}
+      </div>
+      <Segmented size="small" label="Yer" value={place ?? ('custom' as const)} onChange={(v) => v !== 'custom' && onChange(ctaPlacePoint(v))} options={place ? CTA_POSITIONS : [...CTA_POSITIONS, { value: 'custom' as const, label: 'Serbest' }]} />
+      <p className="field-help">Sahnede sürükleyerek istediğin yere koy{cta.style === 'bar' ? ' (şerit tam genişlik, yalnız yukarı/aşağı)' : ''}. Konum: %{Math.round(cta.x * 100)} · %{Math.round(cta.y * 100)}</p>
+      <RangeField label="Boyut" value={cta.size} min={CTA_SIZE_RANGE.min} max={CTA_SIZE_RANGE.max} step={5} display={`%${cta.size}`} onChange={(v) => onChange({ size: v })} onBegin={onBegin} onEnd={onEnd} />
+      {fmtDefault && (place !== fmtDefault.place || cta.size !== fmtDefault.size || cta.style !== cfg!.overlay.style) && (
+        <button type="button" className="btn btn-quiet btn-small" onClick={() => onChange({ style: cfg!.overlay.style, ...ctaPlacePoint(fmtDefault.place), size: fmtDefault.size })}>
+          Stüdyo ayarına dön
+        </button>
+      )}
+      <p className="field-help">Parçanın süresi animasyonun süresi (2–10 sn). Yazılar ("{labels.subscribe || 'Abone ol'}" vb.) ve renkler Stüdyo › Abone çağrısı'ndan gelir; gerçek çizim dışa aktarmada basılır.</p>
+    </details>
+  );
+}
+
+/** Kamera alanı parçası: ana videodaki webcam bölgesi; bu aralıkta tüm kareyi (çerçevede: pencereyi) doldurur. */
+function CamSection({ project, clip, busy, setBusy, onCrop, onBegin, onEnd, windowed = false }: { project: Project; clip: Clip; busy: string | null; setBusy: (v: string | null) => void; onCrop: (r: Rect, record: boolean) => void; onBegin: () => void; onEnd: () => void; windowed?: boolean }) {
+  const main = mainClipAt(project, clip.start + clip.duration / 2);
+  const asset = main ? assetOf(project, main) : null;
+  const full = clip.crop.w >= 0.999 && clip.crop.h >= 0.999;
+  const detect = async () => {
+    if (!asset) return toast('Ana yolda bu aralığı kapsayan video yok', 'error');
+    setBusy('cam');
+    try {
+      const rect = (await api.post<{ rect: Rect | null }>(`/api/projects/${project.id}/assets/${asset.id}/facecam`)).rect;
+      if (rect) {
+        onCrop(rect, true);
+        toast('Kamera bulundu', 'ok');
+      } else toast('Kamera bulunamadı — bölgeyi elle çiz', 'info');
+    } catch (err) {
+      toastError(err);
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <details open className="esec">
+      <summary>{windowed ? 'Pencereye ne girsin' : 'Kamera bölgesi'}</summary>
+      {windowed ? (
+        <Segmented
+          size="small"
+          label="Pencereye ne girsin"
+          value={full ? 'full' : 'cam'}
+          onChange={(v) => onCrop(v === 'full' ? { ...FULL_RECT } : defaultCamRect(asset?.width || 16, asset?.height || 9), true)}
+          options={[
+            { value: 'cam', label: 'Kamera' },
+            { value: 'full', label: 'Tüm yayın' },
+          ]}
+        />
+      ) : (
+        <p className="field-help">Bu aralıkta ana videodaki kamera bölgesi tüm kareyi doldurur; parça bitince düzen eskisine döner. Kutuyu kameranın üstüne oturt.</p>
+      )}
+      {windowed && full && <p className="field-help">Yayının tamamı pencereye oran bozmadan sığdırılır (fazlalık kırpılır).</p>}
+      {windowed && !full && <p className="field-help">Ana videodaki kamera bölgesi çerçevenin penceresini doldurur. Kutuyu kameranın üstüne oturt.</p>}
+      {(!windowed || !full) && <CropEditor thumb={asset?.thumb ?? null} crop={clip.crop} onChange={onCrop} onBegin={onBegin} onEnd={onEnd} />}
+      {(!windowed || !full) && (
+      <div className="row-gap">
+        <button type="button" className="btn btn-secondary btn-small" disabled={!!busy || !asset} onClick={() => void detect()}>
+          {busy === 'cam' ? <Spinner size={12} /> : <Icon name="camera" size={14} />} Kamerayı bul
+        </button>
+        <button type="button" className="btn btn-quiet btn-small" onClick={() => onCrop(defaultCamRect(asset?.width || 16, asset?.height || 9), true)}>
+          Sağ üst köşe
+        </button>
+      </div>
+      )}
+      {!asset && <p className="field-help">Ana yolda (ilk görüntü yolu) bu aralığı kapsayan bir video yok; parçayı videonun üstüne taşı.</p>}
+    </details>
+  );
+}
+
 function TextSection({ text, onChange }: { text: TextStyle; onChange: (t: Partial<TextStyle>) => void }) {
   return (
     <details open className="esec">
@@ -359,68 +474,6 @@ function RangeField({ label, value, min, max, step, display, onChange, onBegin, 
       </span>
       <input type="range" className="range" min={min} max={max} step={step} value={value} onPointerDown={onBegin} onPointerUp={onEnd} onKeyDown={onBegin} onKeyUp={onEnd} onChange={(e) => onChange(Number(e.target.value))} />
     </label>
-  );
-}
-
-/** Kaynak bölge seçici: küçük resim üstünde sürüklenip boyutlanan dikdörtgen. */
-function CropEditor({ thumb, crop, onChange, onBegin, onEnd }: { thumb: string | null; crop: Rect; onChange: (r: Rect, record: boolean) => void; onBegin: () => void; onEnd: () => void }) {
-  const box = useRef<HTMLDivElement>(null);
-  const drag = useRef<{ mode: 'move' | 'se' | 'nw' | 'ne' | 'sw'; start: Rect; px: number; py: number } | null>(null);
-  const pointer = (e: ReactPointerEvent) => {
-    const r = box.current!.getBoundingClientRect();
-    return { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height };
-  };
-  const down = (e: ReactPointerEvent, mode: NonNullable<typeof drag.current>['mode']) => {
-    e.stopPropagation();
-    e.preventDefault();
-    box.current!.setPointerCapture(e.pointerId);
-    const p = pointer(e);
-    drag.current = { mode, start: crop, px: p.x, py: p.y };
-    onBegin();
-  };
-  const move = (e: ReactPointerEvent) => {
-    const d = drag.current;
-    if (!d) return;
-    const p = pointer(e);
-    const dx = p.x - d.px;
-    const dy = p.y - d.py;
-    const s = d.start;
-    let r: Rect;
-    if (d.mode === 'move') r = { ...s, x: s.x + dx, y: s.y + dy };
-    else {
-      let { x, y, w, h } = s;
-      if (d.mode.includes('e')) w = s.w + dx;
-      if (d.mode.includes('s')) h = s.h + dy;
-      if (d.mode.includes('w')) {
-        w = s.w - dx;
-        x = s.x + dx;
-      }
-      if (d.mode.includes('n')) {
-        h = s.h - dy;
-        y = s.y + dy;
-      }
-      r = { x, y, w, h };
-    }
-    const w = Math.min(1, Math.max(0.05, r.w));
-    const h = Math.min(1, Math.max(0.05, r.h));
-    onChange({ x: Math.min(1 - w, Math.max(0, r.x)), y: Math.min(1 - h, Math.max(0, r.y)), w, h }, false);
-  };
-  const up = () => {
-    if (!drag.current) return;
-    drag.current = null;
-    onEnd();
-  };
-  const pct = (v: number) => `${v * 100}%`;
-  return (
-    <div ref={box} className="cropbox" onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
-      {thumb ? <img src={thumb} alt="" draggable={false} /> : <span className="cropbox-empty" />}
-      <div className="cropbox-rect" style={{ left: pct(crop.x), top: pct(crop.y), width: pct(crop.w), height: pct(crop.h) }} onPointerDown={(e) => down(e, 'move')}>
-        <i className="crop-h crop-nw" onPointerDown={(e) => down(e, 'nw')} />
-        <i className="crop-h crop-ne" onPointerDown={(e) => down(e, 'ne')} />
-        <i className="crop-h crop-sw" onPointerDown={(e) => down(e, 'sw')} />
-        <i className="crop-h crop-se" onPointerDown={(e) => down(e, 'se')} />
-      </div>
-    </div>
   );
 }
 

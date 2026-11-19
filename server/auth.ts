@@ -41,10 +41,16 @@ export function toSessionUser(row: Row): SessionUser {
   };
 }
 
-const cookieBase = () => ({
+/**
+ * `Secure` yalnız istek gerçekten https ise konur. Kesit düz http ile de
+ * sunulur (telefondan 192.168.x.x, Tailscale 100.x.x.x); tarayıcılar Secure
+ * çerezi http'de saklamadığından giriş yapılmış görünüp oturum tutulmuyordu
+ * (localhost bu kuralın dışında kaldığı için bilgisayarda fark edilmiyordu).
+ */
+const cookieBase = (req: Request) => ({
   httpOnly: true,
   sameSite: 'lax' as const,
-  secure: config.production,
+  secure: req.secure,
   signed: true,
   path: '/',
 });
@@ -74,11 +80,11 @@ export function requireUser(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
-function startSession(store: Store, res: Response, userId: number) {
+function startSession(store: Store, req: Request, res: Response, userId: number) {
   const sid = base64url(randomBytes(32));
   const expires = new Date(Date.now() + config.sessionDays * 86_400_000);
   store.createSession(sid, userId, expires);
-  res.cookie(SESSION_COOKIE, sid, { ...cookieBase(), expires });
+  res.cookie(SESSION_COOKIE, sid, { ...cookieBase(req), expires });
 }
 
 function endSession(store: Store, req: Request, res: Response) {
@@ -107,7 +113,7 @@ export function authRouter(store: Store): Router {
     }
     const suffix = randomBytes(2).toString('hex').toUpperCase();
     const user = store.createGuestUser(`Misafir ${suffix}`);
-    startSession(store, res, user.id);
+    startSession(store, req, res, user.id);
     res.json({ user: toSessionUser(user) });
   });
 
@@ -131,7 +137,7 @@ export function authRouter(store: Store): Router {
     const existing = store.findKickUserByChannel(slug);
     const user = store.upsertKickUser({ kickUserId: existing?.kick_user_id ?? `kanal:${slug}`, username: info.username, avatarUrl: info.avatarUrl, channelSlug: slug });
     endSession(store, req, res);
-    startSession(store, res, user.id);
+    startSession(store, req, res, user.id);
     res.json({ user: toSessionUser(user) });
   });
 
@@ -156,7 +162,7 @@ export function authRouter(store: Store): Router {
     const verifier = base64url(randomBytes(32));
     const state = base64url(randomBytes(16));
     const redirectUri = `${origin}/auth/kick/callback`;
-    res.cookie(OAUTH_COOKIE, JSON.stringify({ verifier, state, origin, userId: req.user.id }), { ...cookieBase(), maxAge: 10 * 60_000 });
+    res.cookie(OAUTH_COOKIE, JSON.stringify({ verifier, state, origin, userId: req.user.id }), { ...cookieBase(req), maxAge: 10 * 60_000 });
     const params = new URLSearchParams({
       response_type: 'code',
       client_id: app.clientId,

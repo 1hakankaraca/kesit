@@ -11,14 +11,26 @@
  * Yedek: Google Gemini (GEMINI_API_KEY) — OpenAI anahtarı yoksa veya çağrı
  * kalıcı hata verirse otomatik düşülür; iki anahtar da yoksa modül kapalıdır.
  *
+ * Claude (ANTHROPIC_API_KEY, Ayarlar → "Anlar için Claude"): `prefer: 'claude'`
+ * diyen çağrılarda (yayın an taraması) önce o denenir; diğer işlerde yalnız
+ * OpenAI ve Gemini anahtarı yoksa son çare olarak kullanılır.
+ *
  * Modeller env ile değiştirilebilir:
  *   OPENAI_VISION_MODEL (görüntü işleri) / OPENAI_TEXT_MODEL (metin üretimi)
+ *   ANTHROPIC_MODEL (varsayılan claude-sonnet-5-5)
  */
 const axios = require('axios');
 
+const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
+const ANTHROPIC_VERSION = '2023-06-01';
+
 class VisionLLM {
     static isAvailable() {
-        return !!(process.env.OPENAI_API_KEY || process.env.GEMINI_API_KEY);
+        return !!(process.env.OPENAI_API_KEY || process.env.GEMINI_API_KEY || process.env.ANTHROPIC_API_KEY);
+    }
+
+    static hasClaude() {
+        return !!process.env.ANTHROPIC_API_KEY;
     }
 
     /**
@@ -32,7 +44,16 @@ class VisionLLM {
      *   - geminiModel: Gemini yedeğinde kullanılacak model (ops.)
      * @returns {object} parse edilmiş JSON — başarısızlıkta throw
      */
-    static async generateJson({ prompt, images = [], purpose = 'vision', maxOutput = 800, temperature = 0, timeout = 45000, geminiModel, schema } = {}) {
+    static async generateJson({ prompt, images = [], purpose = 'vision', maxOutput = 800, temperature = 0, timeout = 45000, geminiModel, schema, prefer } = {}) {
+        const others = !!(process.env.OPENAI_API_KEY || process.env.GEMINI_API_KEY);
+        if (process.env.ANTHROPIC_API_KEY && (prefer === 'claude' || !others)) {
+            try {
+                return await VisionLLM._anthropic({ prompt, images, maxOutput, timeout });
+            } catch (err) {
+                if (!others) throw err;
+                console.error(`[VisionLLM] Claude hatası (${err.response?.status || err.message}) — diğer modele düşülüyor`);
+            }
+        }
         if (process.env.OPENAI_API_KEY) {
             try {
                 return await VisionLLM._openai({ prompt, images, purpose, maxOutput, timeout, schema });
@@ -43,7 +64,7 @@ class VisionLLM {
             }
         }
         if (!process.env.GEMINI_API_KEY) {
-            throw new Error('LLM anahtarı yok (OPENAI_API_KEY veya GEMINI_API_KEY gerekli)');
+            throw new Error('LLM anahtarı yok (Claude, OPENAI_API_KEY veya GEMINI_API_KEY gerekli)');
         }
         return VisionLLM._gemini({ prompt, images, maxOutput, temperature, timeout, geminiModel });
     }
@@ -132,9 +153,65 @@ class VisionLLM {
         return VisionLLM._parse(text);
     }
 
+    static async _anthropic({ prompt, images, maxOutput, timeout }) {
+        const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5-5';
+        const content = [];
+        for (const img of images) {
+            if (img.label) content.push({ type: 'text', text: img.label });
+            content.push({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: img.data } });
+        }
+        content.push({ type: 'text', text: `${prompt}\n\nYanıtı yalnız geçerli JSON olarak ver; JSON dışında hiçbir şey yazma.` });
+
+        let res;
+        for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+                res = await axios.post(ANTHROPIC_URL, {
+                    model,
+                    max_tokens: Math.max(1000, maxOutput + 400),
+                    messages: [{ role: 'user', content }],
+                }, {
+                    headers: {
+                        'x-api-key': process.env.ANTHROPIC_API_KEY,
+                        'anthropic-version': ANTHROPIC_VERSION,
+                        'content-type': 'application/json',
+                    },
+                    timeout,
+                });
+                break;
+            } catch (e) {
+                const st = e.response?.status;
+                if (attempt === 0 && (st === 429 || st === 529 || st >= 500 || !st)) {
+                    await new Promise(r => setTimeout(r, 2500));
+                    continue;
+                }
+                throw e;
+            }
+        }
+        const text = (res.data?.content || []).filter(c => c.type === 'text').map(c => c.text).join('');
+        return VisionLLM._parse(text);
+    }
+
+    /** Claude anahtarını doğrular (ücretsiz uç nokta: model listesi). */
+    static async checkClaudeKey(key) {
+        await axios.get('https://api.anthropic.com/v1/models', {
+            headers: { 'x-api-key': key, 'anthropic-version': ANTHROPIC_VERSION },
+            params: { limit: 1 },
+            timeout: 15000,
+        });
+        return true;
+    }
+
     static _parse(text) {
         const cleaned = String(text).replace(/```json\s*|\s*```/g, '').trim();
-        return JSON.parse(cleaned);
+        try {
+            return JSON.parse(cleaned);
+        } catch (err) {
+            // Model JSON'un önüne/arkasına açıklama eklediyse ilk { … son } aralığını dene
+            const a = cleaned.indexOf('{');
+            const b = cleaned.lastIndexOf('}');
+            if (a >= 0 && b > a) return JSON.parse(cleaned.slice(a, b + 1));
+            throw err;
+        }
     }
 }
 

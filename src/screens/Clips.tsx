@@ -35,8 +35,8 @@ export function Clips() {
   const [searched, setSearched] = useState<string | null>(null);
   const [selected, setSelected] = useState<Map<string, KickClip>>(new Map());
   // Altyazı ve yerleşim tercihi kalıcıdır: Logo ve görünüm'deki dikey
-  // varsayılanlardan okunur, değiştirilince oraya yazılır (sekmeye özel
-  // profil varsa ona). Böylece kapatılan altyazı bir daha açılmaz.
+  // kurallardan okunur, değiştirilince oraya yazılır (bütün sekmeler için
+  // ortak). Böylece kapatılan altyazı bir daha açılmaz.
   const [prefs, setPrefs] = useState<ClipOptions | null>(null);
   const subtitles = prefs?.subtitles ?? true;
   const composition: Composition = prefs?.composition ?? 'auto';
@@ -48,20 +48,20 @@ export function Clips() {
   useEffect(() => {
     let alive = true;
     api
-      .get<Studio>(`/api/studio${query({ channel: user?.channelSlug })}`)
+      .get<Studio>('/api/studio')
       .then((s) => alive && setPrefs(s.defaults.vertical))
       .catch(() => alive && setPrefs(null));
     return () => {
       alive = false;
     };
-  }, [user?.channelSlug]);
+  }, []);
 
   const savePrefs = (patch: Partial<ClipOptions>) => {
     // Varsayılanlar henüz okunmadıysa eksik nesne gönderilip diğer ayarlar sıfırlanmasın.
     if (!prefs) return;
     const next = { ...prefs, ...patch };
     setPrefs(next);
-    api.put('/api/studio/defaults', { format: 'vertical', channel: user?.channelSlug ?? null, options: next }).catch(toastError);
+    api.put('/api/studio/defaults', { format: 'vertical', options: next }).catch(toastError);
   };
 
   const browse = async (append = false, override?: string) => {
@@ -163,7 +163,7 @@ export function Clips() {
 
   return (
     <>
-      <WorkspaceHead guide="klipler" title="Dikey" tape="klipler" lead="Kanalın Kick kliplerini getir, beğendiklerini seç ve işleme gönder; sen bu sayfada kalırsın, videolar arkada hazırlanıp Galeri'ye düşer." />
+      <WorkspaceHead guide="klipler" title="Kick klipleri" tape="dikey" lead="Kanalın Kick kliplerini getir, beğendiklerini seç ve işleme gönder; sen bu sayfada kalırsın, videolar arkada hazırlanıp Galeri'ye düşer." />
 
       <div className="toolbar panel">
         <form
@@ -282,7 +282,7 @@ export function Clips() {
           <section className="panel">
             <span className="panel-tape" aria-hidden="true" />
             <h2 className="panel-title">Üretim</h2>
-            <p className="panel-sub">Seçtiğin kliplere uygulanır ve hatırlanır; ayrıntılı ayarlar Logo ve görünüm'de.</p>
+            <p className="panel-sub">Bu seçim varsayılan dikey ayardır: buradan ya da Ayarlar › Video ve marka'dan değiştirdiğinde bütün dikey üretimler (bot, kesitler, yayınlar) ona uyar.</p>
             <div className="stack">
               <Switch checked={subtitles} onChange={(v) => savePrefs({ subtitles: v })} label="Altyazı" hint={subtitles ? 'Konuşma yazıya dökülür, önemli anlar vurgulanır' : 'Kapalı — sen açana kadar kapalı kalır'} />
               <Segmented
@@ -297,7 +297,7 @@ export function Clips() {
               />
               {composition === 'split' && (
                 <p className="field-help">
-                  {prefs?.manualLayout ? 'Kamera ve oyun alanı Logo ve görünüm\'de çizdiğin kadrajla alınır.' : 'Yüz kamerası aranır; bulunamazsa varsayılan köşe kadrajı kullanılır. Kendi kadrajını Logo ve görünüm\'de çizebilirsin.'}
+                  {prefs?.manualLayout ? 'Kamera ve oyun alanı Ayarlar › Video ve marka\'da çizdiğin kadrajla alınır.' : 'Yüz kamerası aranır; bulunamazsa varsayılan köşe kadrajı kullanılır. Kendi kadrajını Ayarlar › Video ve marka\'da çizebilirsin.'}
                 </p>
               )}
               <button type="button" className="btn btn-secondary" onClick={autoPopular} disabled={submitting || !channel.trim()}>

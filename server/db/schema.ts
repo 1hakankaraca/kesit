@@ -336,4 +336,53 @@ export const MIGRATIONS: { id: string; sql: string }[] = [
       CREATE INDEX idx_snippets_user ON snippets (user_id, id DESC);
     `,
   },
+  {
+    id: '011-abone-cagrisi',
+    sql: `
+      -- Abone çağrısı (genel): { overlay: {enabled, at[], seconds, text, style, place}, insert: {enabled, at[]} }
+      -- Sekmeye özel değeri channel_brands[slug].brand.cta taşır; kesit dosyası cta.mp4 / brand/<slug>/cta.mp4.
+      ALTER TABLE user_settings ADD COLUMN cta TEXT DEFAULT '{}';
+    `,
+  },
+  {
+    id: '012-kesit-kaynak',
+    sql: `
+      -- Kesit kaynağı: live (yayın kaydı) | file (yüklenen dosya) | drive (Google Drive) | url (doğrudan bağlantı)
+      ALTER TABLE snippets ADD COLUMN source TEXT NOT NULL DEFAULT 'live';
+    `,
+  },
+  {
+    id: '013-yayin-baslangic-saati',
+    sql: `
+      -- Yayının başlangıç saati (Kick'in verdiği UTC "YYYY-MM-DD HH:MM:SS"). Editördeki
+      -- sohbet katmanı mesajları videoyla bu saatten eşler; yayın Kick'in listesinden
+      -- düşse de eşleme kaybolmasın diye indirme sırasında yazılır.
+      ALTER TABLE vod_scan_jobs ADD COLUMN stream_started_at TEXT;
+    `,
+  },
+  {
+    id: '014-galeri-klasorleri',
+    sql: `
+      -- Galeri klasörleri (iç içe olabilir). Öğeler mevcut tablolara dokunmadan
+      -- anahtarla yerleştirilir: v<iş id> (video), k<kayıt id>, p<proje id>.
+      -- Klasörü olmayan öğe Galeri'nin kökündedir; klasör silinince içindekiler
+      -- bir üst klasöre taşınır (videolar silinmez).
+      CREATE TABLE gallery_folders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        parent_id INTEGER REFERENCES gallery_folders(id) ON DELETE SET NULL,
+        name TEXT NOT NULL,
+        color TEXT,
+        created_at TEXT NOT NULL DEFAULT ${NOW}
+      );
+      CREATE INDEX idx_gallery_folders_user ON gallery_folders (user_id, parent_id);
+
+      CREATE TABLE gallery_placements (
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        item_key TEXT NOT NULL,
+        folder_id INTEGER NOT NULL REFERENCES gallery_folders(id) ON DELETE CASCADE,
+        PRIMARY KEY (user_id, item_key)
+      );
+    `,
+  },
 ];

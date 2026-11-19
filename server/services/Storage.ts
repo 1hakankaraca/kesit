@@ -68,7 +68,7 @@ export class Storage {
         videos += await sizeOf(path.join(vodWork, job, 'vod.mp4'));
       }
       for (const p of await cachePaths(dir)) cache += await sizeOf(p);
-      for (const f of ['logo.png', 'intro.mp4', 'outro.mp4', 'brand']) brand += await sizeOf(path.join(dir, f));
+      for (const f of ['logo.png', 'intro.mp4', 'outro.mp4', 'cta.mp4', 'brand']) brand += await sizeOf(path.join(dir, f));
     }
     const models = await sizeOf(path.join(config.dataDir, 'models'));
     const archive = await sizeOf(config.archiveDir);
@@ -78,7 +78,7 @@ export class Storage {
       { id: 'videos', label: 'Üretilen videolar ve kayıtlar', hint: 'Klipler ve ham kaynakları, kesitler, yayın kayıtları, indirilen yayınlar, takipten inen klipler', bytes: videos, cleanable: true },
       { id: 'cache', label: 'Önbellek', hint: 'Ara dosyalar, küçültülmüş kopyalar, film şeritleri — gerektiğinde yeniden oluşur', bytes: cache, cleanable: true },
       { id: 'models', label: 'Altyazı modeli', hint: 'Ayarlar\'dan kaldırılabilir', bytes: models, cleanable: false },
-      { id: 'brand', label: 'Marka dosyaları', hint: 'Logo, intro, outro', bytes: brand, cleanable: false },
+      { id: 'brand', label: 'Marka dosyaları', hint: 'Logo, intro, outro, abone kesiti', bytes: brand, cleanable: false },
       { id: 'archive', label: 'Arşiv görselleri ve veritabanı', hint: 'Geçmiş kayıtları — silinmez', bytes: archive + db, cleanable: false },
     ];
     return {

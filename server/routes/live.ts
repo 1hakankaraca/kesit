@@ -2,8 +2,13 @@ import axios from 'axios';
 import express from 'express';
 import type { AppContext } from '../context.ts';
 import { BROWSER_HEADERS } from '../engine.ts';
-import { accountsFrom, badRequest, engine, intParam, slugOrThrow } from '../http.ts';
+import fs from 'node:fs';
+import path from 'node:path';
+import { config } from '../config.ts';
+import { accountsFrom, badRequest, engine, intParam, receiveFile, slugOrThrow } from '../http.ts';
 import { fetchChannel } from '../lib/kick.ts';
+import { normalizeSlug } from '../lib/kick.ts';
+import { IMPORT_MAX_BYTES } from '../services/SnippetImport.ts';
 
 const encode = (u: string) => Buffer.from(u, 'utf8').toString('base64url');
 const decode = (k: unknown) => {
@@ -70,6 +75,27 @@ export function liveRoutes({ workspaces, autopilot, publishing, kickChat, harves
   r.post('/snippets/capture', async (req, res) => {
     const channel = slugOrThrow(req.body?.channel || req.user!.channelSlug);
     res.json(await snippets.capture(req.user!.id, channel, Number(req.body?.seconds), { autoEdit: req.body?.autoEdit !== false }));
+  });
+
+  /** Kesit kanalı: seçili sekme; kanal yoksa boş (kanalsız kesit her kapsamda görünür). */
+  const snippetChannel = (value: unknown, user: { channelSlug?: string | null }) => normalizeSlug(value) || normalizeSlug(user.channelSlug) || '';
+
+  /** Dışarıdan dosya: ham gövde diske akıtılır, arkada MP4'e çevrilip kesit olur. */
+  r.post('/snippets/upload', async (req, res) => {
+    const type = String(req.headers['content-type'] || '');
+    if (!/^(video\/|application\/octet-stream)/.test(type)) throw badRequest('Video dosyası yükleyin (MP4, MOV, MKV, WebM)');
+    const userId = req.user!.id;
+    const dir = path.join(config.clipDir, String(userId), 'snippets');
+    fs.mkdirSync(dir, { recursive: true });
+    const tmp = path.join(dir, `yukleme_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.bin`);
+    await receiveFile(req, tmp, IMPORT_MAX_BYTES);
+    const name = decodeURIComponent(String(req.query.name || ''));
+    res.json({ snippet: snippets.importFile(userId, snippetChannel(req.query.channel, req.user!), tmp, { title: name, autoEdit: req.query.autoEdit !== '0' }) });
+  });
+
+  /** Bağlantıdan: Google Drive paylaşımı ya da doğrudan video adresi. */
+  r.post('/snippets/import', (req, res) => {
+    res.json({ snippet: snippets.importUrl(req.user!.id, snippetChannel(req.body?.channel, req.user!), String(req.body?.url || ''), { autoEdit: req.body?.autoEdit !== false }) });
   });
 
   r.post('/snippets/:id/edit', async (req, res) => {

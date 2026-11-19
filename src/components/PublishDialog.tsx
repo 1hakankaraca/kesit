@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, ApiError } from '../lib/api.ts';
 import { parseJson } from '../lib/format.ts';
 import { navigate, sectionPath } from '../lib/router.ts';
@@ -37,15 +37,30 @@ export function PublishDialog({ job, onClose, onDone }: { job: Job | null; onClo
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  // Pencere yalnız açılışta (ya da başka bir klibe geçince) sıfırlanır. Arka
+  // planda başka işler ilerlerken iş listesi tazelenir ve `job` her seferinde
+  // yeni bir nesne olur; etki ona bağlıyken pencere sürekli sıfırlanıp
+  // yükleniyor, yani yanıp sönüyordu.
+  const jobId = job?.id ?? null;
+  const jobRef = useRef(job);
+  jobRef.current = job;
   useEffect(() => {
-    if (!job) return;
-    const tags = parseJson<string[]>(job.gen_hashtags, []);
-    setContent([job.gen_description || job.gen_title || job.title || '', tags.map((t) => `#${t}`).join(' ')].filter(Boolean).join('\n\n'));
+    const j = jobRef.current;
+    if (jobId === null || !j) return;
+    const tags = parseJson<string[]>(j.gen_hashtags, []);
+    setContent([j.gen_description || j.gen_title || j.title || '', tags.map((t) => `#${t}`).join(' ')].filter(Boolean).join('\n\n'));
     setSelected(new Set());
     setConsent(false);
     setZernio(null);
-    api.get<ZernioSummary>('/api/zernio').then(setZernio).catch(toastError);
-  }, [job]);
+    let alive = true;
+    api
+      .get<ZernioSummary>('/api/zernio')
+      .then((z) => alive && setZernio(z))
+      .catch((err) => alive && toastError(err));
+    return () => {
+      alive = false;
+    };
+  }, [jobId]);
 
   const accounts = zernio?.accounts ?? [];
   const chosen = useMemo(() => accounts.filter((a) => selected.has(`${a.platform}:${a.id}`)), [accounts, selected]);

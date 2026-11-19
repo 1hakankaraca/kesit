@@ -9,10 +9,11 @@ import { Server as IOServer } from 'socket.io';
 import { attachUser, authRouter, requireUser, SESSION_COOKIE, userFromSessionId } from './auth.ts';
 import type { AppContext } from './context.ts';
 import { Store } from './db/Store.ts';
-import { VodScanManager } from './engine.ts';
+import { VideoEncoder, VodScanManager } from './engine.ts';
 import { errorHandler, requireLocal } from './http.ts';
 import { isAllowedHost, isLoopback, isPrivateIp, plainIp } from './lib/network.ts';
 import { accountRoutes } from './routes/account.ts';
+import { chatRoutes } from './routes/chat.ts';
 import { clipRoutes } from './routes/clips.ts';
 import { liveRoutes } from './routes/live.ts';
 import { recordingRoutes } from './routes/recordings.ts';
@@ -22,9 +23,13 @@ import { systemRoutes } from './routes/system.ts';
 import { studioRoutes } from './routes/studio.ts';
 import { taskRoutes } from './routes/tasks.ts';
 import { vodRoutes } from './routes/vods.ts';
+import { galleryRoutes } from './routes/gallery.ts';
 import { ArchiveLedger } from './services/ArchiveLedger.ts';
 import { Autopilot } from './services/Autopilot.ts';
 import { Captions } from './services/Captions.ts';
+import { ChatHistory } from './services/ChatHistory.ts';
+import { MomentScanner } from './services/MomentScanner.ts';
+import { GalleryFolders } from './services/GalleryFolders.ts';
 import { ClipHarvester } from './services/ClipHarvester.ts';
 import { Exporter } from './services/Exporter.ts';
 import { KickChat } from './services/KickChat.ts';
@@ -48,6 +53,7 @@ store.setArchiveHooks(archive);
 const vodScanner = new VodScanManager({ db: store, io });
 const workspaces = new Workspaces(store, io, vodScanner);
 const harvester = new ClipHarvester(store, io, workspaces);
+const chatHistory = new ChatHistory(store, io, vodScanner);
 const ctx: AppContext = {
   store,
   io,
@@ -61,11 +67,15 @@ const ctx: AppContext = {
   storage: new Storage(store, workspaces, vodScanner, exporter),
   snippets: new Snippets(store, io, workspaces, vodScanner),
   kickChat: new KickChat(store),
+  chatHistory,
+  moments: new MomentScanner(store, io, chatHistory),
+  gallery: new GalleryFolders(store),
   harvester,
   projects: new Projects(store, io),
   system: new SystemMonitor(),
 };
 ctx.captions.apply();
+ctx.moments.apply();
 ctx.system.start();
 const lan = new LanAccess(store);
 const retention = new Retention(store);
@@ -154,7 +164,7 @@ app.delete('/api/lan/devices', requireLocal, (_req, res) => res.json(lan.revokeA
 app.use('/api', publicKickRoutes());
 
 app.use('/api', requireUser);
-for (const routes of [accountRoutes, settingsRoutes, taskRoutes, clipRoutes, studioRoutes, vodRoutes, liveRoutes, recordingRoutes, projectRoutes, systemRoutes]) {
+for (const routes of [accountRoutes, settingsRoutes, taskRoutes, clipRoutes, studioRoutes, vodRoutes, liveRoutes, recordingRoutes, projectRoutes, chatRoutes, systemRoutes, galleryRoutes]) {
   app.use('/api', routes(ctx));
 }
 
@@ -215,6 +225,8 @@ function parseSignedCookie(header: string | undefined, name: string): string | f
 
 /* ── Açılış ve kapanış ─────────────────────────────────────────────────── */
 
+// GPU kodlayıcı tespiti (deneme kodlaması ~1 sn) arka planda; ilk iş beklemesin
+void VideoEncoder.select('h264');
 vodScanner.start();
 retention.start();
 await ctx.autopilot.restore();

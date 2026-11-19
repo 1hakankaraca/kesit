@@ -117,7 +117,7 @@ export function clipRoutes({ workspaces, store, publishing }: AppContext) {
     res.json({ cancelled: await engine(() => ws.clipEditor.cancel(intParam(req.params.id))) });
   });
 
-  /** Hazır dikey klibi ham kaynağından, istenirse elle çizilen kadrajla yeniden üretir. */
+  /** Hazır dikey klibi ham kaynağından güncel ayarlarla, istenirse elle çizilen kadrajla yeniden üretir. */
   r.post('/jobs/:id/reprocess', async (req, res) => {
     const ws = await workspaces.get(req.user!.id);
     const composition = oneOf(req.body?.composition, ['auto', 'split', 'single'] as const, null as unknown as 'auto');

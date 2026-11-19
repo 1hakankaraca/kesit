@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import os from 'node:os';
 import { promisify } from 'node:util';
 import { config } from '../config.ts';
-import { ClipEditorManager } from '../engine.ts';
+import { ClipEditorManager, VideoEncoder } from '../engine.ts';
 import { badRequest } from '../http.ts';
 
 const run = promisify(execFile);
@@ -21,11 +21,21 @@ export interface SystemProcess {
   self: boolean;
 }
 
+export interface VideoEncoderStatus {
+  hw: boolean;
+  label: string;
+  encoder: string;
+  /** GPU'da çözme yöntemi (videotoolbox, d3d11va, cuda) ya da null */
+  decode: string | null;
+}
+
 export interface SystemReport {
   cpu: { percent: number; cores: number; load: number };
   memory: { total: number; used: number; percent: number };
   disk: { total: number; free: number; used: number; percent: number } | null;
   kesit: { pid: number; uptimeSec: number; memBytes: number; queue: { running: number; waiting: number; capacity: number } };
+  /** Video kodlayıcı (GPU mu işlemci mi); tespit bitmediyse null */
+  video: VideoEncoderStatus | null;
   processes: SystemProcess[];
   sampledAt: number;
 }
@@ -106,6 +116,7 @@ export class SystemMonitor {
       memory: { total, used, percent: Math.round((used / total) * 100) },
       disk,
       kesit: { pid: process.pid, uptimeSec: Math.round(process.uptime()), memBytes: process.memoryUsage().rss, queue: ClipEditorManager.getQueueStatus() },
+      video: VideoEncoder.status().h264,
       processes,
       sampledAt: Date.now(),
     };

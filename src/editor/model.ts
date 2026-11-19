@@ -7,6 +7,8 @@
  * sıra değiştirir. Üst katmanlar serbesttir.
  */
 import {
+  CAM_FADE,
+  DEFAULT_CTA_STYLE,
   FORMAT_SIZE,
   FULL_RECT,
   MIN_CLIP_SEC,
@@ -17,6 +19,8 @@ import {
   sourceSpan,
   type Asset,
   type Clip,
+  type CtaClipStyle,
+  type FrameRegions,
   type Project,
   type Rect,
   type TextStyle,
@@ -90,7 +94,10 @@ export function blankClip(trackId: string, kind: Clip['kind'], assetId: string |
     fadeOut: 0,
     color: { ...NEUTRAL_COLOR },
     text: null,
+    cta: null,
     captions: null,
+    regions: null,
+    chatId: null,
     renderAssetId: null,
   };
 }
@@ -135,13 +142,11 @@ export function textPreset(preset: TextPreset, format: Project['format'], accent
   }
 }
 
-export function addTextClip(p: Project, at: number, preset: TextPreset = 'serbest', accent = '#f43f5e'): { project: Project; clip: Clip } {
-  const track = [...p.tracks].reverse().find((t) => t.kind === 'video') ?? p.tracks[0];
-  const pr = textPreset(preset, p.format, accent);
-  const base = blankClip(track.id, 'text', null, at, pr.duration);
-  base.frame = pr.frame;
-  base.text = { content: 'Yazı', font: 'display', size: 0.08, color: '#ffffff', background: null, align: 'center', bold: true, italic: false, outline: true, ...pr.text };
-  // Yazı, ana yoldan farklı ve o anda boş olan bir katmana gider; yoksa yeni katman açılır.
+/**
+ * Üst katman parçasını (yazı, çağrı, kamera alanı) ana yoldan farklı ve o
+ * anda boş olan ilk görüntü katmanına koyar; yoksa yeni katman açar.
+ */
+function placeOverlay(p: Project, base: Clip, at: number): { project: Project; clip: Clip } {
   let project = p;
   let target = p.tracks.filter((t) => t.kind === 'video' && t.id !== mainTrackId(p)).find((t) => freeSlot(p, base, t.id, at) === at) ?? null;
   if (!target) {
@@ -149,8 +154,94 @@ export function addTextClip(p: Project, at: number, preset: TextPreset = 'serbes
     target = [...project.tracks].reverse().find((t) => t.kind === 'video')!;
   }
   const clip = { ...base, trackId: target.id, start: at };
-  void track;
   return { project: { ...project, clips: [...project.clips, clip] }, clip };
+}
+
+export function addTextClip(p: Project, at: number, preset: TextPreset = 'serbest', accent = '#f43f5e'): { project: Project; clip: Clip } {
+  const pr = textPreset(preset, p.format, accent);
+  const base = blankClip('', 'text', null, at, pr.duration);
+  base.frame = pr.frame;
+  base.text = { content: 'Yazı', font: 'display', size: 0.08, color: '#ffffff', background: null, align: 'center', bold: true, italic: false, outline: true, ...pr.text };
+  return placeOverlay(p, base, at);
+}
+
+/** Abone çağrısı parçası: süresi animasyon süresi; tasarım Stüdyo ayarından ya da verilen değerden. */
+export function addCtaClip(p: Project, at: number, style: Partial<CtaClipStyle> = {}, seconds = 5): { project: Project; clip: Clip } {
+  const base = blankClip('', 'cta', null, at, Math.min(10, Math.max(2, seconds)));
+  const merged = { ...DEFAULT_CTA_STYLE, ...style };
+  base.cta = { ...merged, x: merged.style === 'bar' ? 0.5 : merged.x };
+  return placeOverlay(p, base, at);
+}
+
+/** Ana yolda verilen anı kapsayan video parçası (kamera alanı için kaynak). */
+export function mainClipAt(p: Project, t: number): Clip | null {
+  const main = mainTrackId(p);
+  return p.clips.find((c) => c.trackId === main && c.kind === 'video' && t >= c.start && t < clipEnd(c)) ?? p.clips.filter((c) => c.trackId === main && c.kind === 'video').sort((a, b) => a.start - b.start)[0] ?? null;
+}
+
+/** Kamera bulunamayınca kullanılan kutu: kaynağın sağ üst köşesi (kaynak oranında kare). */
+export function defaultCamRect(srcW: number, srcH: number): Rect {
+  return { x: 0.72, y: 0.02, w: 0.26, h: 0.26 * (srcW / srcH) * (9 / 16) };
+}
+
+/**
+ * Kamera alanı parçası: bu aralıkta ana yoldaki videonun `crop` bölgesi
+ * (webcam kutusu) tüm kareyi doldurur. Süre, oynatma çizgisinden ana
+ * parçanın sonuna kadar en fazla `seconds` saniyedir.
+ */
+export function addCamClip(p: Project, at: number, camRect: Rect | null, seconds = 4): { project: Project; clip: Clip } | null {
+  const main = mainClipAt(p, at);
+  if (!main) return null;
+  const a = assetOf(p, main);
+  const start = at >= main.start && at < clipEnd(main) ? at : main.start;
+  const duration = Math.max(MIN_CLIP_SEC, Math.min(seconds, clipEnd(main) - start));
+  const base = blankClip('', 'cam', null, start, duration);
+  base.crop = camRect ?? defaultCamRect(a?.width || 16, a?.height || 9);
+  base.fadeIn = CAM_FADE;
+  base.fadeOut = CAM_FADE;
+  return placeOverlay(p, base, start);
+}
+
+/**
+ * Yayın çerçevesi parçası: `range` aralığında (seçili parçanın aralığı ya da
+ * oynatma çizgisindeki ana parça) çerçeve görseli tam kare çizilir; ana
+ * yoldaki video pencereye, sohbet panele oturur (bkz. expandFrameClips).
+ * Çerçeve yalnız yatay projede; aralık ana yoldaki bir videoya denk gelmeli.
+ */
+export function addFrameClip(p: Project, asset: Asset, regions: FrameRegions, range: { start: number; end: number }, cam: Rect | null = null): { project: Project; clip: Clip } | null {
+  if (p.format !== 'horizontal') return null;
+  const duration = range.end - range.start;
+  if (!(duration >= MIN_CLIP_SEC)) return null;
+  const base = blankClip('', 'frame', asset.id, range.start, duration);
+  base.regions = { window: { ...regions.window }, chat: regions.chat ? { ...regions.chat } : null };
+  // Pencereye kaynağın hangi bölgesi girer: kamera kutusu (varsayılan) ya da tüm kare.
+  base.crop = cam ? { ...cam } : { ...FULL_RECT };
+  return placeOverlay(p, base, range.start);
+}
+
+/**
+ * Kick sohbeti parçası: `range` aralığında (seçili parçanın aralığı ya da
+ * oynatma çizgisindeki ana parça) `chatId` katmanının sohbeti görünür. Aynı
+ * katmana birden çok parça konabilir; içerik her zaman yayın saatiyle eşlidir.
+ */
+export function addChatClip(p: Project, chatId: string, range: { start: number; end: number }): { project: Project; clip: Clip } | null {
+  const duration = range.end - range.start;
+  if (!(duration >= MIN_CLIP_SEC)) return null;
+  const base = blankClip('', 'chat', null, range.start, duration);
+  base.chatId = chatId;
+  return placeOverlay(p, base, range.start);
+}
+
+/** Sohbet katmanını ve ona bağlı tüm sohbet parçalarını kaldırır. */
+export function removeChatEntirely(p: Project, chatId: string): Project {
+  return { ...p, clips: p.clips.filter((c) => !(c.kind === 'chat' && c.chatId === chatId)), chats: p.chats.filter((c) => c.id !== chatId) };
+}
+
+/** Çerçeve/sohbet parçasının ekleneceği aralık: seçili ana yol parçası, yoksa oynatma çizgisindeki ana parça. */
+export function frameRangeFor(p: Project, selected: Clip | null, at: number): { start: number; end: number } | null {
+  const main = mainTrackId(p);
+  const target = (selected && selected.kind === 'video' && selected.trackId === main ? selected : null) ?? mainClipAt(p, at);
+  return target ? { start: target.start, end: clipEnd(target) } : null;
 }
 
 export function updateClip(p: Project, id: string, changes: Partial<Clip>): Project {
@@ -261,7 +352,7 @@ export function trimEnd(p: Project, id: string, newEnd: number, magnetic = true)
 
 export function setSpeed(p: Project, id: string, speed: number): Project {
   const clip = p.clips.find((c) => c.id === id);
-  if (!clip || clip.kind === 'image' || clip.kind === 'text') return p;
+  if (!clip || (clip.kind !== 'video' && clip.kind !== 'audio')) return p;
   const s = Math.min(4, Math.max(0.25, speed));
   const span = sourceSpan(clip);
   let next = patch(p, id, (c) => ({ ...c, speed: s, duration: Math.max(MIN_CLIP_SEC, span / s) }));
@@ -380,7 +471,7 @@ export function applyLayout(p: Project, id: string, layout: LayoutPreset, camRec
   if (layout === 'sigdir') return fitToFrame(p, id);
   const srcW = a.width || 16;
   const srcH = a.height || 9;
-  const cam = camRect ?? { x: 0.72, y: 0.02, w: 0.26, h: 0.26 * (srcW / srcH) * (9 / 16) };
+  const cam = camRect ?? defaultCamRect(srcW, srcH);
   // Kamera katmanı: parçanın üstünde, o aralığı boş olan ilk görüntü yolu; yoksa yeni yol.
   const idx = p.tracks.findIndex((t) => t.id === clip.trackId);
   const free = (t: Track) => !p.clips.some((c) => c.trackId === t.id && c.start < clipEnd(clip) && clipEnd(c) > clip.start);

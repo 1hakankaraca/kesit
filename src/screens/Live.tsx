@@ -48,7 +48,7 @@ export function Live() {
       {channel && <ChannelBanner info={info.data} loading={info.loading} channel={channel} />}
       {live.autopilot.config.enabled && (
         <p className="notice-box live-note">
-          Çevrimdışı bot takip açık: {live.autopilot.config.channel} yayına geçince klipler yakalanır, yayın bitince yayın indirilir.{' '}
+          Bot takibi açık: {live.autopilot.config.channel} yayına geçince klipler yakalanır, yayın bitince yayın indirilir.{' '}
           <button type="button" className="link" onClick={() => navigate(sectionPath('nobet'))}>
             Bot takibine git
           </button>
@@ -129,7 +129,7 @@ function RecorderPanel({ live, channel, isLive }: { live: LiveState; channel: st
   const captureSoFar = async () => {
     try {
       await api.post('/api/vods/capture-live', { channel });
-      toast('Yayının şu ana kadarki kısmı indiriliyor — Yayın geçmişleri\'nde kesebilirsin', 'ok');
+      toast('Yayının şu ana kadarki kısmı indiriliyor — Geçmiş yayınlar\'da kesebilirsin', 'ok');
     } catch (err) {
       toastError(err);
     }
@@ -233,7 +233,7 @@ function LiveCapturePanel({ channel, isLive, startedAt }: { channel: string; isL
     setBusy(true);
     try {
       await api.post('/api/vods/capture-live', { channel });
-      toast("Yayının şu ana kadarki kısmı indiriliyor — Yayın geçmişleri'nde kesebilirsin", 'ok', toTasks, 5000);
+      toast("Yayının şu ana kadarki kısmı indiriliyor — Geçmiş yayınlar'da kesebilirsin", 'ok', toTasks, 5000);
     } catch (err) {
       toastError(err);
     } finally {
@@ -244,7 +244,7 @@ function LiveCapturePanel({ channel, isLive, startedAt }: { channel: string; isL
   const captureRange = async (ranges: TimeRange[]) => {
     for (const range of ranges) await api.post('/api/vods/capture-live', { channel, startSec: range.startSec, endSec: range.endSec });
     const future = ranges.some((r) => r.endSec > elapsed);
-    const label = ranges.length > 1 ? `${ranges.length} aralık indiriliyor` : future ? `Aralık kaydediliyor — yayın ${duration(ranges[0].endSec)} noktasına gelince dosya kapanır` : 'Aralık indiriliyor — Yayın geçmişleri\'nde görünecek';
+    const label = ranges.length > 1 ? `${ranges.length} aralık indiriliyor` : future ? `Aralık kaydediliyor — yayın ${duration(ranges[0].endSec)} noktasına gelince dosya kapanır` : 'Aralık indiriliyor — Geçmiş yayınlar\'da görünecek';
     toast(label, 'ok', toTasks, 6000);
   };
 
@@ -256,7 +256,7 @@ function LiveCapturePanel({ channel, isLive, startedAt }: { channel: string; isL
             <Icon name="download" size={18} /> Yayından indir
           </h2>
           <p className="panel-sub">
-            {isLive ? `Yayın ${duration(elapsed)} noktasında. Şu ana kadarını ya da yazdığın bir aralığı indir; Yayın geçmişleri'ne düşer.` : 'Kanal yayına girince süren yayının bir bölümünü indirebilirsin.'}
+            {isLive ? `Yayın ${duration(elapsed)} noktasında. Şu ana kadarını ya da yazdığın bir aralığı indir; Geçmiş yayınlar'a düşer.` : 'Kanal yayına girince süren yayının bir bölümünü indirebilirsin.'}
           </p>
         </div>
       </header>
@@ -295,7 +295,12 @@ function WatcherPanel({ live, channel }: { live: LiveState; channel: string }) {
     setBusy(true);
     try {
       if (w.watching) await api.post('/api/live/unwatch');
-      else await api.post('/api/live/watch', { channel, autoEdit, subtitles: true });
+      else {
+        // Altyazı, Ayarlar › Video ve marka'daki dikey varsayılandan gelir (eskiden burada
+        // her zaman açık gönderiliyordu; altyazıyı kapatan kullanıcının canlı kliplerinde yine çıkıyordu).
+        const studio = await api.get<{ defaults: { vertical: { subtitles?: boolean } } }>('/api/studio').catch(() => null);
+        await api.post('/api/live/watch', { channel, autoEdit, subtitles: studio?.defaults.vertical.subtitles !== false });
+      }
       await refreshLive();
       await refreshJobs();
     } catch (err) {
@@ -319,7 +324,7 @@ function WatcherPanel({ live, channel }: { live: LiveState; channel: string }) {
 
       {!managedByAutopilot && (
         <div className="row-gap">
-          {!w.watching && <Switch checked={autoEdit} onChange={setAutoEdit} label="Otomatik düzenle" />}
+          {!w.watching && <Switch checked={autoEdit} onChange={setAutoEdit} label="Yakalananları dikey videoya çevir" hint="Ayarlar › Video ve marka'daki logo, kadraj ve altyazıyla" />}
           <button type="button" className={w.watching ? 'btn btn-secondary' : 'btn btn-primary'} onClick={toggle} disabled={busy || (!w.watching && !channel)}>
             {busy ? <Spinner /> : null}
             {w.watching ? 'Dinlemeyi bırak' : 'Dinlemeye başla'}

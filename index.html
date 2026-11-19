@@ -3,8 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#EEF1F4" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#0E1217" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#F6F6F4" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0B0C0E" media="(prefers-color-scheme: dark)" />
+    <script>
+      // Tema ilk boyamadan önce: açılışta yanlış renk yanıp sönmesin.
+      try {
+        var t = localStorage.getItem('kesit.tema');
+        if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+      } catch (e) {}
+    </script>
     <meta name="description" content="Kesit — Kick yayıncıları için klip stüdyosu. Klipleri tara, geçmiş yayınları kes, canlıyı kaydet, Zernio ile paylaş." />
     <meta name="robots" content="noindex" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />

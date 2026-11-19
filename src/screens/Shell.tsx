@@ -2,14 +2,15 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ChannelSearch, type ChannelHit } from '../components/ChannelSearch.tsx';
 import { Icon, type IconName } from '../components/Icon.tsx';
-import { Pill, Toasts, Wordmark } from '../components/basics.tsx';
+import { Toasts, Wordmark } from '../components/basics.tsx';
+import { ContextMenuHost } from '../components/ContextMenu.tsx';
+import { ThemeToggle } from '../components/ThemeToggle.tsx';
 import { isActive, jobsStore, refreshJobs, wireJobEvents } from '../lib/jobs.ts';
 import { liveStore, refreshLive, wireLiveEvents } from '../lib/live.ts';
 import { isActiveTask, refreshTasks, tasksStore, wireTaskEvents } from '../lib/tasks.ts';
 import { navigate, sectionPath, useRoute, type Section } from '../lib/router.ts';
 import { logout, saveChannels, useSession } from '../lib/session.ts';
 import { connectSocket, disconnectSocket } from '../lib/socket.ts';
-import { useTheme } from '../lib/theme.ts';
 import { toast, toastError } from '../lib/toast.ts';
 import { useInterval, useResource } from '../lib/useResource.ts';
 import { api } from '../lib/api.ts';
@@ -28,38 +29,45 @@ import { Studio } from './Studio.tsx';
 import { Tasks } from './Tasks.tsx';
 import { Vods } from './Vods.tsx';
 
-const NAV: { group: string; items: { id: Section; label: string; icon: IconName }[] }[] = [
+/** Bölüm içi iç sekmeler: sol menüde bölüm seçiliyken altında listelenir. */
+type SubNav = { id: string | null; label: string };
+const NAV: { group: string; items: { id: Section; label: string; icon: IconName; also?: Section[]; subs?: SubNav[] }[] }[] = [
   {
-    group: 'Stüdyo',
+    group: '',
+    items: [{ id: 'anasayfa', label: 'Anasayfa', icon: 'home' }],
+  },
+  {
+    group: 'Kaynaklar',
     items: [
-      { id: 'anasayfa', label: 'Anasayfa', icon: 'home' },
       { id: 'canli', label: 'Canlı yayın', icon: 'live' },
       { id: 'kesitler', label: 'Kesitler', icon: 'bolt' },
-      { id: 'galeri', label: 'Galeri', icon: 'library' },
-      { id: 'klipler', label: 'Dikey klipler', icon: 'vertical' },
-      { id: 'yayinlar', label: 'Yayın geçmişleri', icon: 'film' },
-      { id: 'nobet', label: 'Çevrimdışı bot takip', icon: 'shield' },
-      { id: 'editor', label: 'Editör', icon: 'scissors' },
-      { id: 'gorevler', label: 'Görev yöneticisi', icon: 'clock' },
+      { id: 'yayinlar', label: 'Geçmiş yayınlar', icon: 'film' },
+      { id: 'klipler', label: 'Kick klipleri', icon: 'vertical' },
     ],
   },
   {
-    group: 'Paylaş',
+    group: 'Kütüphane',
     items: [
+      { id: 'galeri', label: 'Galeri', icon: 'library' },
+      { id: 'editor', label: 'Editör', icon: 'scissors' },
       { id: 'paylasim', label: 'Paylaşım', icon: 'share' },
       { id: 'arsiv', label: 'Arşiv', icon: 'archive' },
     ],
   },
   {
-    group: 'Ayarlar',
+    group: 'Otomasyon',
+    items: [{ id: 'nobet', label: 'Bot takibi', icon: 'shield' }],
+  },
+  {
+    group: 'Sistem',
     items: [
-      { id: 'marka', label: 'Logo ve görünüm', icon: 'palette' },
-      { id: 'ayarlar', label: 'Ayarlar', icon: 'key' },
+      { id: 'gorevler', label: 'Görevler', icon: 'clock' },
+      { id: 'ayarlar', label: 'Ayarlar', icon: 'key', also: ['marka'] },
     ],
   },
 ];
 
-const TITLES: Record<Section, string> = Object.fromEntries(NAV.flatMap((g) => g.items.map((i) => [i.id, i.label]))) as Record<Section, string>;
+const TITLES: Record<Section, string> = { ...(Object.fromEntries(NAV.flatMap((g) => g.items.map((i) => [i.id, i.label]))) as Record<Section, string>), marka: 'Ayarlar' };
 
 const RAIL_KEY = 'kesit.solMenu';
 const RAIL_MIN = 180;
@@ -89,7 +97,6 @@ function useRailSize() {
 /** Oturum açmış kullanıcının stüdyosu: üst şerit + sol ray + çalışma alanı. */
 export function Shell() {
   const route = useRoute();
-  useTheme(route.section);
   const live = liveStore.use();
   const { jobs } = jobsStore.use();
   const { tasks } = tasksStore.use();
@@ -155,9 +162,17 @@ export function Shell() {
   return (
     <div className={rail.collapsed ? 'shell shell-collapsed' : 'shell'} style={{ '--rail-w': `${rail.collapsed ? RAIL_COLLAPSED : rail.width}px` } as React.CSSProperties}>
       <header className="shell-top">
+        <ChannelTabs />
+        <div className="shell-top-side">
+          <ThemeToggle />
+          <UserMenu />
+        </div>
+      </header>
+
+      <nav className="shell-rail" aria-label="Bölümler">
         <a
           href="/"
-          className="shell-home"
+          className="shell-home rail-brand"
           onClick={(e) => {
             e.preventDefault();
             navigate('/');
@@ -165,23 +180,6 @@ export function Shell() {
         >
           <Wordmark />
         </a>
-        <ChannelTabs />
-        <div className="shell-top-side">
-          {live?.autopilot.config.enabled && (
-            <button type="button" className="pill-button" onClick={() => navigate(sectionPath('nobet'))} title="Çevrimdışı bot takip açık">
-              <Pill tone={live.autopilot.live ? 'live' : 'on'}>{live.autopilot.live ? 'Bot: yayında' : `Bot: ${live.autopilot.config.channel}`}</Pill>
-            </button>
-          )}
-          {live?.recorder.recording && (
-            <button type="button" className="pill-button" onClick={() => navigate(sectionPath('canli'))}>
-              <Pill tone="live">Kaydediliyor</Pill>
-            </button>
-          )}
-          <UserMenu />
-        </div>
-      </header>
-
-      <nav className="shell-rail" aria-label="Bölümler">
         <button
           type="button"
           className="rail-toggle"
@@ -193,9 +191,9 @@ export function Shell() {
         </button>
         {NAV.map((g) => (
           <div key={g.group} className="rail-block">
-            <p className="rail-group eyebrow">{g.group}</p>
+            {g.group && <p className="rail-group eyebrow">{g.group}</p>}
             {g.items.map((item) => {
-              const current = route.section === item.id;
+              const current = route.section === item.id || !!item.also?.includes(route.section);
               return (
                 <a
                   key={item.id}
@@ -219,6 +217,30 @@ export function Shell() {
                 </a>
               );
             })}
+            {g.items.map((item) => {
+              if (!item.subs || route.section !== item.id || rail.collapsed) return null;
+              return (
+                <div key={`${item.id}-subs`} className="rail-subs" role="list">
+                  {item.subs.map((sub) => {
+                    const on = (route.sub ?? null) === sub.id;
+                    return (
+                      <a
+                        key={sub.id ?? 'ana'}
+                        href={sectionPath(item.id, sub.id)}
+                        className="rail-sub"
+                        aria-current={on ? 'page' : undefined}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          navigate(sectionPath(item.id, sub.id));
+                        }}
+                      >
+                        {sub.label}
+                      </a>
+                    );
+                  })}
+                </div>
+              );
+            })}
           </div>
         ))}
         <RailFoot />
@@ -233,7 +255,10 @@ export function Shell() {
         </AnimatePresence>
       </main>
 
+      <StatusBar recording={!!live?.recorder.recording} watching={!!live?.watcher.watching} bot={live?.autopilot.config.enabled ? (live.autopilot.live ? 'yayında' : 'bekliyor') : null} />
+
       <Toasts />
+      <ContextMenuHost />
     </div>
   );
 }
@@ -255,7 +280,7 @@ function SectionView({ section, sub }: { section: Section; sub: string | null })
     case 'nobet':
       return <Nobet />;
     case 'ayarlar':
-      return <Settings />;
+      return <Settings sub={sub} />;
     case 'gorevler':
       return <Tasks />;
     case 'paylasim':
@@ -263,7 +288,7 @@ function SectionView({ section, sub }: { section: Section; sub: string | null })
     case 'arsiv':
       return <Archive />;
     case 'marka':
-      return <Studio />;
+      return <Studio sub={sub} />;
     case 'kurulum':
       return <Onboarding />;
     default:
@@ -350,6 +375,57 @@ function ChannelTabs() {
   );
 }
 
+/**
+ * Alt durum çubuğu: arka planda ne olduğunu her sayfada tek satırda söyler
+ * (hazırlanan videolar, inen yayınlar, kayıt ve bot). Tıklayınca Görevler açılır.
+ */
+function StatusBar({ recording, watching, bot }: { recording: boolean; watching: boolean; bot: string | null }) {
+  const { jobs, progress } = jobsStore.use();
+  const { tasks } = tasksStore.use();
+  const busyJobs = jobs.filter(isActive);
+  const busyTasks = tasks.filter(isActiveTask);
+  const first = busyJobs.find((j) => j.status === 'processing') ?? busyJobs[0];
+  const pct = first ? progress[first.id] : undefined;
+  const total = busyJobs.length + busyTasks.length;
+  return (
+    <footer className="shell-status" aria-live="polite">
+      <button type="button" className="status-item" onClick={() => navigate(sectionPath('gorevler'))} title="Görevler">
+        <span className={total ? 'status-dot status-dot-busy' : 'status-dot'} aria-hidden="true" />
+        {total ? `${total} iş sürüyor` : 'Hazır'}
+      </button>
+      {first && (
+        <span className="status-item status-job">
+          <span className="status-job-name">{first.gen_title || first.title || `Video #${first.id}`}</span>
+          {typeof pct === 'number' && (
+            <>
+              <span className="status-bar" aria-hidden="true">
+                <i style={{ width: `${pct}%` }} />
+              </span>
+              <span className="status-num">%{pct}</span>
+            </>
+          )}
+        </span>
+      )}
+      <span className="status-spacer" />
+      {recording && (
+        <button type="button" className="status-item status-live" onClick={() => navigate(sectionPath('canli'))}>
+          ● Kaydediliyor
+        </button>
+      )}
+      {watching && (
+        <button type="button" className="status-item" onClick={() => navigate(sectionPath('canli'))}>
+          Chat klipleri izleniyor
+        </button>
+      )}
+      {bot && (
+        <button type="button" className="status-item" onClick={() => navigate(sectionPath('nobet'))}>
+          Bot: {bot}
+        </button>
+      )}
+    </footer>
+  );
+}
+
 /** Ray altı: telefondan erişim durumu (yalnız bu bilgisayarda gösterilir). */
 function RailFoot() {
   const { local } = useSession();
@@ -397,12 +473,6 @@ function UserMenu() {
         {open && (
           <motion.div className="menu" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}>
             {user.kind === 'guest' && <p className="menu-note">Misafir oturumu bu tarayıcıya bağlı. Çıkış yaparsan bu çalışmalara geri dönemezsin; dosyalar bilgisayarda kalır.</p>}
-            <button type="button" className="menu-item" onClick={() => navigate(sectionPath('marka'))}>
-              <Icon name="palette" size={16} /> Logo ve görünüm
-            </button>
-            <button type="button" className="menu-item" onClick={() => navigate(sectionPath('paylasim'))}>
-              <Icon name="share" size={16} /> Zernio bağlantısı
-            </button>
             <button type="button" className="menu-item" onClick={() => navigate(sectionPath('ayarlar'))}>
               <Icon name="key" size={16} /> Ayarlar
             </button>

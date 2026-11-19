@@ -13,66 +13,124 @@
 }
 
 :root {
-  --g1: #f43f5e;
-  --g2: #f97316;
-  transition:
-    --g1 0.9s ease,
-    --g2 0.9s ease;
+  /* Kesit 0.3 — iki tema. Varsayılan: sistem (koyu ya da açık), Ayarlar'dan
+     ya da üst çubuktan elle seçilebilir (html[data-theme]). --g1/--g2 geriye
+     uyumluluk için vurgu rengine bağlı. */
+  --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+  --font-display: 'Instrument Sans Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-body: 'Instrument Sans Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
 
-  --paper: #eef1f4;
-  --surface: #ffffff;
-  --sunken: #e3e7ec;
-  --ink: #10151c;
-  --ink-2: #4b5664;
-  --ink-3: #7c8796;
-  --line: #d6dce3;
-  --line-strong: #b7c0cb;
+  --r-s: 8px;
+  --r-m: 12px;
+  --r-l: 14px;
 
-  --tape: linear-gradient(100deg, var(--g1), var(--g2));
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+
   --tape-edge: rgb(0 0 0 / 0.2);
+  /* Görüntü üstündeki rozetler her iki temada koyu zemin üstünde durur. */
+  --overlay: rgb(11 12 14 / 0.78);
+  --overlay-ink: #ffffff;
+}
+
+/* ── Koyu (varsayılan) ── */
+:root,
+:root[data-theme='dark'] {
+  --g1: #ff5a3c;
+  --g2: #ff5a3c;
+
+  --paper: #0b0c0e;
+  --surface: #121418;
+  --popover: #1a1c21;
+  --sunken: #17191e;
+  --raised: #1f2228;
+  --rail: #0f1013;
+  --ink: #e7e8ea;
+  --ink-2: #b4b8c0;
+  --ink-3: #848993;
+  --line: #1f2227;
+  --line-strong: #2c3037;
+
+  --tape: #ff5a3c;
+  --tape-ink: #0b0c0e;
+  --mark: #ff5a3c;
+  --on-mark: #0b0c0e;
+
+  --live: #ff4d6a;
+  --ok: #3dd68c;
+  --warn: #f5c542;
+
+  --shadow: 0 1px 0 rgb(255 255 255 / 0.02), 0 12px 32px -18px rgb(0 0 0 / 0.8);
+  --shadow-pop: 0 18px 50px -18px rgb(0 0 0 / 0.75), 0 2px 6px rgb(0 0 0 / 0.3);
+  --backdrop: rgb(0 0 0 / 0.6);
+
+  color-scheme: dark;
+}
+
+/* ── Açık ── */
+:root[data-theme='light'] {
+  --g1: #d9381e;
+  --g2: #d9381e;
+
+  --paper: #f6f6f4;
+  --surface: #ffffff;
+  --popover: #ffffff;
+  --sunken: #f1f1ee;
+  --raised: #e8e8e4;
+  --rail: #fbfbfa;
+  --ink: #191919;
+  --ink-2: #4a4a46;
+  --ink-3: #6e6e69;
+  --line: #e6e6e1;
+  --line-strong: #d4d4ce;
+
+  --tape: #d9381e;
   --tape-ink: #ffffff;
-  --mark: #dc3626;
+  --mark: #d9381e;
   --on-mark: #ffffff;
 
   --live: #e11d48;
   --ok: #15803d;
   --warn: #b45309;
 
-  --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
-  --font-display: 'Sofia Sans Extra Condensed Variable', 'Arial Narrow', 'Helvetica Neue', sans-serif;
-  --font-body: 'Instrument Sans Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
-
-  --r-s: 8px;
-  --r-m: 14px;
-  --r-l: 22px;
-
-  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
-  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
-
-  --shadow: 0 1px 2px rgb(16 21 28 / 0.05), 0 8px 24px -12px rgb(16 21 28 / 0.14);
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px -16px rgb(0 0 0 / 0.18);
+  --shadow-pop: 0 18px 50px -20px rgb(0 0 0 / 0.28), 0 2px 6px rgb(0 0 0 / 0.06);
+  --backdrop: rgb(20 20 18 / 0.35);
 
   color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --paper: #0e1217;
-    --surface: #171c23;
-    --sunken: #090c10;
-    --ink: #f1f3f6;
-    --ink-2: #aab4c1;
-    --ink-3: #7a8594;
-    --line: #262d37;
-    --line-strong: #3a434f;
+/* Elle seçilmemişse sistem açık temadaysa açık */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    --g1: #d9381e;
+    --g2: #d9381e;
 
-    --mark: #ff5a48;
-    --on-mark: #1a0502;
-    --live: #fb3b62;
-    --ok: #4ade80;
-    --warn: #fbbf24;
+    --paper: #f6f6f4;
+    --surface: #ffffff;
+    --popover: #ffffff;
+    --sunken: #f1f1ee;
+    --raised: #e8e8e4;
+    --rail: #fbfbfa;
+    --ink: #191919;
+    --ink-2: #4a4a46;
+    --ink-3: #6e6e69;
+    --line: #e6e6e1;
+    --line-strong: #d4d4ce;
 
-    --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 12px 28px -14px rgb(0 0 0 / 0.7);
+    --tape: #d9381e;
+    --tape-ink: #ffffff;
+    --mark: #d9381e;
+    --on-mark: #ffffff;
 
-    color-scheme: dark;
+    --live: #e11d48;
+    --ok: #15803d;
+    --warn: #b45309;
+
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px -16px rgb(0 0 0 / 0.18);
+    --shadow-pop: 0 18px 50px -20px rgb(0 0 0 / 0.28), 0 2px 6px rgb(0 0 0 / 0.06);
+    --backdrop: rgb(20 20 18 / 0.35);
+
+    color-scheme: light;
   }
 }

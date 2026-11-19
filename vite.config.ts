@@ -1,7 +1,8 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-const SERVER = 'http://localhost:3002';
+// KESIT_SERVER ile başka porttaki sunucuya yönlendirilebilir (kurulu uygulama 3002'yi tutarken).
+const SERVER = process.env.KESIT_SERVER || 'http://localhost:3002';
 // xfwd: sunucu isteğin gerçek kaynağını (bu bilgisayar mı, telefon mu) görsün;
 // yerel ağ erişim kapısı buna göre karar verir.
 const proxy = { target: SERVER, xfwd: true };

@@ -7,7 +7,7 @@ const require = createRequire(import.meta.url);
 const ClipEditorManager = require('../server/engine/ClipEditorManager.js');
 const ProcTracker = require('../server/engine/ProcTracker.js');
 
-const layout = { cam: { x: 0.7, y: 0.6, w: 0.3, h: 0.4 }, content: { x: 0, y: 0, w: 1, h: 1 } };
+const layout = { cams: [{ x: 0.7, y: 0.6, w: 0.3, h: 0.4 }], cam: { x: 0.7, y: 0.6, w: 0.3, h: 0.4 }, content: { x: 0, y: 0, w: 1, h: 1 } };
 const noCam = { found: true, fullCam: true, rect: null, meta: { width: 1920, height: 1080 } };
 const withCam = { found: true, fullCam: false, rect: { x: 10, y: 10, w: 400, h: 300 }, meta: { width: 1920, height: 1080 } };
 

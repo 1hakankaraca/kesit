@@ -1,5 +1,4 @@
 import '@fontsource-variable/instrument-sans/wght.css';
-import '@fontsource-variable/sofia-sans-extra-condensed/wght.css';
 import './styles/tokens.css';
 import './styles/base.css';
 import './styles/shell.css';
@@ -8,6 +7,7 @@ import './styles/screens.css';
 import './styles/gallery.css';
 import './styles/home.css';
 import './styles/editor.css';
+import './styles/theme.css';
 
 import { MotionConfig } from 'motion/react';
 import { StrictMode, useEffect } from 'react';

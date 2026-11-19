@@ -74,10 +74,8 @@ export function Onboarding() {
       <header className="onb-head">
         <Wordmark />
         <div className="onb-head-text">
-          <h1 className="onb-title">
-            Hoş geldin{user?.username ? `, ${user.username}` : ''}
-            <span className="onb-tape">kurulum</span>
-          </h1>
+          <span className="onb-eyebrow">Kurulum</span>
+          <h1 className="onb-title">Hoş geldin{user?.username ? `, ${user.username}` : ''}</h1>
           <p className="muted">Birkaç adımda stüdyonu hazırlayalım. Elinde olmayanı "Şimdilik atla" ile geçebilirsin; sonradan Ayarlar'dan tamamlarsın.</p>
         </div>
       </header>
@@ -243,7 +241,7 @@ function ChannelStep() {
       {active && !pending && <ChannelSearch onPick={setPending} placeholder="Başka bir kanal ara" />}
       {active && autopilot && (
         <div className="onb-watch">
-          <Switch checked={watching} onChange={(v) => void toggleWatch(v)} label="Sen yokken de izlesin (çevrimdışı bot takip)" hint="Yayın açılınca chat'e düşen klipleri yakalar, yayın bitince yayını indirir. Sonradan Çevrimdışı bot takip'ten değiştirilir." />
+          <Switch checked={watching} onChange={(v) => void toggleWatch(v)} label="Sen yokken de izlesin (bot takibi)" hint="Yayın açılınca chat'e düşen klipleri yakalar, yayın bitince yayını indirir. Sonradan Çevrimdışı bot takip'ten değiştirilir." />
         </div>
       )}
     </StepBody>
@@ -259,7 +257,7 @@ function DoneStep({ summary }: { summary: { channel: string | null; tabs: number
     { label: 'Zernio', ok: summary.zernio, text: summary.zernio ? 'Bağlı · tek tıkla paylaşım' : 'Bağlı değil · klipleri indirip elle paylaşırsın' },
   ];
   return (
-    <StepBody title="Stüdyon hazır" lead="Özet aşağıda. Eksikleri istediğin zaman Logo ve görünüm, Paylaşım ve Ayarlar bölümlerinden tamamlarsın; bu sihirbazı Ayarlar'dan yeniden açabilirsin.">
+    <StepBody title="Stüdyon hazır" lead="Özet aşağıda. Eksikleri istediğin zaman Ayarlar'dan tamamlarsın; bu sihirbazı Ayarlar'dan yeniden açabilirsin.">
       <ul className="onb-summary">
         {rows.map((r) => (
           <li key={r.label} className={r.ok ? 'ok' : ''}>

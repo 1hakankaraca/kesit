@@ -54,7 +54,8 @@ export function projectRoutes({ projects }: AppContext) {
     const asset = await projects.link(userId, project, origin);
     let next = project;
     if (req.body?.place === true) next = projects.save(userId, addClipFor(project, asset, typeof req.body?.at === 'number' ? Math.max(0, req.body.at) : undefined));
-    res.json({ asset, project: next });
+    // Çerçeve bağlanırken Stüdyo'daki bölgeler (pencere, sohbet alanı) de döner.
+    res.json({ asset, project: next, frame: origin.type === 'frame' ? projects.frameRegions(userId) : undefined });
   });
 
   /** Bilgisayardan dosya (ham gövde). Ad `x-kesit-name` başlığında (URL kodlu). */

@@ -1,6 +1,7 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import type { Writable } from 'node:stream';
 import { promisify } from 'node:util';
 
 const run = promisify(execFile);
@@ -50,10 +51,40 @@ export interface FfmpegRun {
 /**
  * ffmpeg'i ilerleme raporuyla çalıştırır. `-progress pipe:1` satırlarından
  * out_time okunur, toplam süreye oranı onProgress'e yüzde olarak verilir.
+ * `feed` verilirse ffmpeg'in standart girdisi açılır ve ona yazılır (ör.
+ * `-i pipe:0` ile okunan ham sohbet kareleri); besleme hata verirse işlem
+ * o hatayla sonlanır.
+ *
+ * `stallSec` verilirse ilerleme o kadar saniye hiç değişmezse işlem öldürülür
+ * ve "takıldı" hatasıyla biter. Bu hata iptal sayılmaz; kodlayıcı yedeği
+ * (VideoEncoder.withFallback) işi işlemciyle yeniden dener. Apple
+ * VideoToolbox ara sıra %0 işlemciyle sonsuza dek bekliyor; ilerleme hiç
+ * gelmeden de takılabildiği için sayaç baştan işler.
  */
-export function runFfmpeg(args: string[], { totalSec, onProgress }: { totalSec: number; onProgress?: (pct: number) => void }): FfmpegRun {
-  const proc = spawn('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-nostats', '-progress', 'pipe:1', ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
+export function runFfmpeg(args: string[], { totalSec, onProgress, feed, stallSec = 0 }: { totalSec: number; onProgress?: (pct: number) => void; feed?: (stdin: Writable) => Promise<void>; stallSec?: number }): FfmpegRun {
+  const proc = spawn('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-nostats', '-progress', 'pipe:1', ...args], { stdio: [feed ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
   let stderr = '';
+  let feedError: Error | null = null;
+  let stalled = false;
+  let lastProgress = Date.now();
+  let lastOut = -1;
+  const watchdog =
+    stallSec > 0
+      ? setInterval(() => {
+          if (Date.now() - lastProgress > stallSec * 1000) {
+            stalled = true;
+            proc.kill('SIGKILL');
+          }
+        }, Math.min(5000, Math.max(250, (stallSec * 1000) / 4))).unref()
+      : null;
+  if (feed && proc.stdin) {
+    // ffmpeg çıktıyı bitirince girdiyi kapatır; sonrasında yazma hatası (EPIPE) beklenen durumdur.
+    proc.stdin.on('error', () => {});
+    feed(proc.stdin).catch((err: Error) => {
+      feedError = err;
+      proc.kill('SIGKILL');
+    });
+  }
   let buf = '';
   proc.stdout!.on('data', (chunk: Buffer) => {
     buf += chunk.toString();
@@ -61,6 +92,10 @@ export function runFfmpeg(args: string[], { totalSec, onProgress }: { totalSec: 
     buf = lines.pop() ?? '';
     for (const line of lines) {
       const m = line.match(/^out_time_us=(\d+)/) || line.match(/^out_time_ms=(\d+)/);
+      if (m && Number(m[1]) !== lastOut) {
+        lastOut = Number(m[1]);
+        lastProgress = Date.now();
+      }
       if (m && totalSec > 0) onProgress?.(Math.min(99, Math.floor((Number(m[1]) / 1_000_000 / totalSec) * 100)));
     }
   });
@@ -70,8 +105,13 @@ export function runFfmpeg(args: string[], { totalSec, onProgress }: { totalSec: 
   const done = new Promise<void>((resolve, reject) => {
     proc.on('error', (err) => reject(new Error(`ffmpeg çalıştırılamadı: ${err.message}`)));
     proc.on('exit', (code, signal) => {
-      if (code === 0) resolve();
-      else if (signal || code === null) reject(new Error('İşlem durduruldu'));
+      if (watchdog) clearInterval(watchdog);
+      if (feedError) reject(feedError);
+      else if (code === 0) resolve();
+      // Takılma: iptal değil, kodlayıcı hatası sayılır (işlemciyle yeniden denenir).
+      else if (stalled) reject(new Error(`Kodlayıcı takıldı — ${stallSec} sn boyunca ilerleme olmadı`));
+      // signal: iptal — kodlayıcı yedeği (VideoEncoder.withFallback) yeniden denemesin
+      else if (signal || code === null) reject(Object.assign(new Error('İşlem durduruldu'), { signal: signal || 'SIGKILL' }));
       else reject(new Error(stderr.trim().split('\n').pop()?.slice(0, 300) || `ffmpeg kodu ${code}`));
     });
   });

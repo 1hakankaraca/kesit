@@ -39,7 +39,7 @@ const STREAM_RECORDING_COLUMNS = new Set([
 const SETTINGS_COLUMNS = new Set([
   'auto_edit_clips', 'clip_defaults', 'clip_next_publish_at', 'subtitle_style', 'brand_color', 'accent_color',
   'language', 'zernio_profile_id', 'zernio_profile_name', 'recording_output', 'autopilot', 'channel_tabs', 'clip_harvest',
-  'onboarding_done', 'channel_brands',
+  'onboarding_done', 'channel_brands', 'cta',
 ]);
 const MANUAL_CLIP_COLUMNS = new Set(['status', 'error', 'edited_clip_id']);
 const PROJECT_COLUMNS = new Set(['title', 'format', 'data', 'duration_sec', 'thumb_path', 'last_export_id']);
@@ -432,6 +432,11 @@ export class Store {
 
   async linkVodHighlightClip(id: number, editedClipId: number) {
     this.run('UPDATE vod_highlights SET edited_clip_id = ? WHERE id = ?', [editedClipId, id]);
+  }
+
+  /** Yeni an taraması öncekinin yerini alır; klibe dönüştürülmüş anlar korunur. */
+  async clearUnusedVodHighlights(vodScanJobId: number) {
+    this.run('DELETE FROM vod_highlights WHERE vod_scan_job_id = ? AND edited_clip_id IS NULL', [vodScanJobId]);
   }
 
   async getVodHighlights(vodScanJobId: number) {

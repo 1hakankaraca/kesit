@@ -378,10 +378,12 @@ export function Tracks({
 
 function ClipBlock({ clip, project, pps, selected, onDown, onMenu }: { clip: Clip; project: Project; pps: number; selected: boolean; onDown: (e: ReactPointerEvent, clip: Clip, kind: 'move' | 'start' | 'end') => void; onMenu: (e: React.MouseEvent) => void }) {
   const asset = assetOf(project, clip);
-  const label = clip.kind === 'text' ? clip.text?.content || 'Yazı' : asset?.name || 'Parça';
+  const label = clip.kind === 'text' ? clip.text?.content || 'Yazı' : clip.kind === 'cta' ? 'Abone çağrısı' : clip.kind === 'cam' ? 'Kamera alanı' : clip.kind === 'frame' ? 'Yayın çerçevesi' : clip.kind === 'chat' ? 'Kick sohbeti' : asset?.name || 'Parça';
   const thumb = asset?.thumb && clip.kind !== 'audio' ? `url("${asset.thumb}")` : undefined;
-  const limitEnd = clip.kind !== 'text' && clip.kind !== 'image' && atSourceEnd(project, clip);
-  const limitStart = clip.kind !== 'text' && clip.kind !== 'image' && clip.in <= 0.02;
+  const sourced = clip.kind === 'video' || clip.kind === 'audio';
+  const limitEnd = sourced && atSourceEnd(project, clip);
+  const limitStart = sourced && clip.in <= 0.02;
+  const icon = clip.kind === 'text' ? 'text' : clip.kind === 'audio' ? 'music' : clip.kind === 'image' ? 'image' : clip.kind === 'cta' ? 'sparkle' : clip.kind === 'cam' ? 'camera' : clip.kind === 'frame' ? 'monitor' : clip.kind === 'chat' ? 'type' : 'film';
   const dur = clip.duration < 10 ? `${clip.duration.toLocaleString('tr-TR', { maximumFractionDigits: 1 })} sn` : fmtDuration(clip.duration);
   return (
     <div
@@ -393,7 +395,7 @@ function ClipBlock({ clip, project, pps, selected, onDown, onMenu }: { clip: Cli
     >
       <span className={`tclip-h tclip-h-l${limitStart ? ' tclip-h-limit' : ''}`} onPointerDown={(e) => onDown(e, clip, 'start')} title={limitStart ? 'Kaynağın başı' : 'Başlangıcı kısalt / uzat'} />
       <span className="tclip-label">
-        <Icon name={clip.kind === 'text' ? 'text' : clip.kind === 'audio' ? 'music' : clip.kind === 'image' ? 'image' : 'film'} size={12} />
+        <Icon name={icon} size={12} />
         {label}
         {clip.speed !== 1 && <i className="tclip-badge">{clip.speed}x</i>}
         {clip.captions && <i className="tclip-badge">CC</i>}

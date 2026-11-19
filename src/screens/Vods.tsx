@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Icon } from '../components/Icon.tsx';
 import { RangeDialog, type TimeRange } from '../components/RangeDialog.tsx';
 import { Timeline, CutList, newCut, type Cut } from '../components/Timeline.tsx';
-import { Empty, Segmented, Spinner, Switch, WorkspaceHead } from '../components/basics.tsx';
+import { Empty, Progress, Segmented, Spinner, Switch, WorkspaceHead } from '../components/basics.tsx';
 import { api, query } from '../lib/api.ts';
 import { clockText, kickTimeMs } from '../lib/clock.ts';
 import { bytes, count, dateTime, duration, relative } from '../lib/format.ts';
@@ -17,6 +17,7 @@ import { tasksStore } from '../lib/tasks.ts';
 import { takeSnapshot } from '../lib/snapshot.ts';
 import { speedLabel } from '../lib/words.ts';
 import { ChannelScopeToggle } from '../components/ChannelScopeToggle.tsx';
+import { openMenu } from '../components/ContextMenu.tsx';
 import type { Frame, Highlight, Job, VodJob, VodVideo } from '../lib/types.ts';
 import { JobStatusLine, jobTitle } from './Gallery.tsx';
 import { openInEditor } from '../lib/editorOpen.ts';
@@ -60,7 +61,7 @@ function VodList() {
     setBusy(String(v.id));
     try {
       await request(v);
-      toast('İndirme başladı — Görev yöneticisi\'nden izleyebilirsin', 'ok', { label: 'Görevlere git', run: () => navigate(sectionPath('gorevler')) }, 5000);
+      toast('İndirme başladı — Görevler\'den izleyebilirsin', 'ok', { label: 'Görevlere git', run: () => navigate(sectionPath('gorevler')) }, 5000);
       await jobs.reload();
     } catch (err) {
       toastError(err);
@@ -87,11 +88,11 @@ function VodList() {
 
   return (
     <>
-      <WorkspaceHead guide="yayinlar" title="Yayın" tape="geçmişleri" lead="Kick'in sakladığı yayınları bilgisayarına indir; sonra hızlıca kes ya da editörde aç." actions={<ChannelScopeToggle />} />
+      <WorkspaceHead guide="yayinlar" title="Geçmiş yayınlar" tape="Kick" lead="Kick'in sakladığı yayınları bilgisayarına indir; sonra hızlıca kes ya da editörde aç." actions={<ChannelScopeToggle />} />
 
       {downloading.length > 0 && (
         <button type="button" className="notice-box notice-link live-note" onClick={() => navigate(sectionPath('gorevler'))}>
-          <Spinner size={14} /> {downloading.length} yayın iniyor — ilerlemesini Görev yöneticisi'nde görebilirsin
+          <Spinner size={14} /> {downloading.length} yayın iniyor — ilerlemesini Görevler'de görebilirsin
           <Icon name="chevron" size={14} />
         </button>
       )}
@@ -105,7 +106,30 @@ function VodList() {
         ) : (
           <ul className="vod-grid">
             {ready.map((j) => (
-              <li key={j.id} className="vod-card">
+              <li
+                key={j.id}
+                className="vod-card"
+                onContextMenu={(e) =>
+                  openMenu(
+                    e,
+                    [
+                      { label: 'Kes', icon: 'scissors', onSelect: () => navigate(sectionPath('yayinlar', j.id)) },
+                      {
+                        label: 'Anları tara',
+                        icon: 'sparkle',
+                        onSelect: () => {
+                          navigate(sectionPath('yayinlar', j.id));
+                          void api.post(`/api/vod-jobs/${j.id}/moments`, { max: 12 }).then(() => toast('An taraması başladı', 'ok'), toastError);
+                        },
+                      },
+                      { label: 'Editörde aç', icon: 'layers', onSelect: () => void openInEditor({ type: 'vod', id: j.id }, { title: j.title || undefined }) },
+                      { separator: true },
+                      { label: 'Sil', icon: 'trash', danger: true, onSelect: () => remove(j) },
+                    ],
+                    j.title || 'Yayın',
+                  )
+                }
+              >
                 <button type="button" className="clip-thumb clip-thumb-play" onClick={() => navigate(sectionPath('yayinlar', j.id))} aria-label={`${j.title || 'Yayın'} — düzenle`}>
                   {j.thumbnail_url ? <img src={j.thumbnail_url} alt="" loading="lazy" /> : <Icon name="film" size={26} />}
                   <span className="clip-play" aria-hidden="true">
@@ -251,7 +275,27 @@ interface VodDetail {
   highlights: Highlight[];
   clips: Job[];
   vodUrl: string | null;
+  momentsRunning?: boolean;
 }
+
+/** An taraması kategorileri (eski "En iyi anları çıkar" etiketleri de karşılanır). */
+const MOMENT_KINDS: Record<string, { label: string; color: string }> = {
+  komik: { label: 'Komik', color: '#f59e0b' },
+  komedi: { label: 'Komik', color: '#f59e0b' },
+  heyecanli: { label: 'Heyecanlı', color: '#ec4899' },
+  heyecan: { label: 'Heyecanlı', color: '#ec4899' },
+  aksiyon: { label: 'Aksiyon', color: '#ef4444' },
+  duygusal: { label: 'Duygusal', color: '#3b82f6' },
+};
+const kindOf = (k: string | null) => MOMENT_KINDS[k ?? ''] ?? { label: 'Öne çıkan', color: '#a3a3a3' };
+const FILTERS = [
+  { value: 'hepsi', label: 'Hepsi' },
+  { value: 'komik', label: 'Komik' },
+  { value: 'heyecanli', label: 'Heyecanlı' },
+  { value: 'aksiyon', label: 'Aksiyon' },
+  { value: 'duygusal', label: 'Duygusal' },
+] as const;
+const normKind = (k: string | null) => (k === 'komedi' ? 'komik' : k === 'heyecan' ? 'heyecanli' : k);
 
 /** İndirilmiş bir yayının zaman çizelgesi editörü. */
 function VodEditor({ id }: { id: number }) {
@@ -263,6 +307,10 @@ function VodEditor({ id }: { id: number }) {
   const [intro, setIntro] = useState(true);
   const [autoCount, setAutoCount] = useState(3);
   const [busy, setBusy] = useState(false);
+  const [momentMax, setMomentMax] = useState(12);
+  const [scan, setScan] = useState<{ step: string; progress: number | null } | null>(null);
+  const [filter, setFilter] = useState<(typeof FILTERS)[number]['value']>('hepsi');
+  const [seekReq, setSeekReq] = useState<{ t: number } | null>(null);
   const { jobs } = jobsStore.use();
 
   useEffect(() => {
@@ -272,12 +320,28 @@ function VodEditor({ id }: { id: number }) {
       .catch(() => setFrames([]));
   }, [id]);
 
-  useSocketEvent<{ vodJobId: number; status: string }>('vodscan:update', (e) => {
-    if (e.vodJobId === id && /done|failed/.test(e.status)) {
+  useSocketEvent<{ vodJobId: number; status: string; step?: string; progress?: number | null; count?: number; chatNote?: string | null }>('vodscan:update', (e) => {
+    if (e.vodJobId !== id) return;
+    if (e.status === 'moments-progress') {
+      setScan({ step: e.step || 'taranıyor', progress: typeof e.progress === 'number' ? e.progress : null });
+      return;
+    }
+    if (e.status.startsWith('moments-')) {
+      setScan(null);
+      if (e.status === 'moments-done') toast(e.count ? `${e.count} an bulundu${e.chatNote ? ' (sohbet alınamadı, yalnız ses ve konuşma)' : ''}` : e.step || 'An bulunamadı', e.count ? 'ok' : 'info');
+      if (e.status === 'moments-failed') toast(e.step || 'Tarama başarısız', 'error');
+      void detail.reload();
+      return;
+    }
+    if (/done|failed/.test(e.status)) {
       void detail.reload();
       void refreshJobs();
     }
   });
+
+  useEffect(() => {
+    if (detail.data?.momentsRunning) setScan((cur) => cur ?? { step: 'taranıyor', progress: null });
+  }, [detail.data?.momentsRunning]);
 
   if (detail.loading && !detail.data) {
     return (
@@ -317,6 +381,52 @@ function VodEditor({ id }: { id: number }) {
     }
   };
 
+  const scanMoments = async () => {
+    try {
+      const r = await api.post<{ started: boolean }>(`/api/vod-jobs/${id}/moments`, { max: momentMax });
+      setScan({ step: r.started ? 'başlıyor' : 'zaten taranıyor', progress: 0 });
+    } catch (err) {
+      toastError(err);
+    }
+  };
+
+  const cancelScan = async () => {
+    try {
+      await api.post(`/api/vod-jobs/${id}/moments/cancel`, {});
+    } catch (err) {
+      toastError(err);
+    }
+  };
+
+  const momentList = [...highlights].sort((a, b) => a.start_sec - b.start_sec).filter((h) => filter === 'hepsi' || normKind(h.kind) === filter);
+
+  const addMomentCuts = (list: Highlight[]) => {
+    setCuts((cur) => [...cur, ...list.map((h, i) => newCut(h.start_sec, h.end_sec, cur.length + i, h.reason ?? undefined))]);
+    toast(`${list.length} an kesitlere eklendi`, 'ok');
+  };
+
+  const momentMenu = (e: React.MouseEvent, h: Highlight) =>
+    openMenu(
+      e,
+      [
+        { label: 'Bu ana git', icon: 'play', onSelect: () => setSeekReq({ t: h.start_sec }) },
+        { label: 'Kesit olarak ekle', icon: 'scissors', onSelect: () => addMomentCuts([h]) },
+        { label: 'Editörde aç', icon: 'layers', onSelect: () => void openInEditor({ type: 'vod', id }, { title: job.title || undefined, ranges: [{ start: h.start_sec, end: h.end_sec }] }) },
+        { separator: true },
+        {
+          label: 'Zamanı kopyala',
+          icon: 'text',
+          onSelect: () => void navigator.clipboard.writeText(`${duration(h.start_sec)}–${duration(h.end_sec)} ${h.reason ?? ''}`.trim()).then(() => toast('Kopyalandı', 'ok')),
+        },
+      ],
+      `${duration(h.start_sec)} · ${kindOf(h.kind).label}`,
+    );
+
+  const copyMoments = () => {
+    const text = momentList.map((h) => `${duration(h.start_sec)}–${duration(h.end_sec)}  [${kindOf(h.kind).label}]  ${h.reason ?? ''}`).join('\n');
+    navigator.clipboard.writeText(text).then(() => toast('Anlar kopyalandı', 'ok'), () => toast('Kopyalanamadı', 'error'));
+  };
+
   const auto = async () => {
     setBusy(true);
     try {
@@ -344,7 +454,8 @@ function VodEditor({ id }: { id: number }) {
                 src={vodUrl}
                 duration={job.duration_sec}
                 frames={frames}
-                markers={highlights.map((h) => ({ start: h.start_sec, end: h.end_sec, label: h.reason, score: h.score }))}
+                markers={highlights.map((h) => ({ start: h.start_sec, end: h.end_sec, label: h.reason ? `${kindOf(h.kind).label}: ${h.reason}` : kindOf(h.kind).label, score: h.score }))}
+                seekRequest={seekReq}
                 cuts={cuts}
                 onCutsChange={setCuts}
                 onSnapshot={(t) => void takeSnapshot('vod', id, t)}
@@ -404,17 +515,70 @@ function VodEditor({ id }: { id: number }) {
           </section>
 
           <section className="panel">
-            <h2 className="panel-title">Otomatik</h2>
-            <p className="panel-sub">Konuşma, tepki ve sahne değişimlerinden en güçlü anları bulur, dikey klibe çevirir.</p>
-            {highlights.length > 0 && (
-              <button type="button" className="btn btn-quiet btn-small" onClick={() => setCuts(highlights.slice(0, 12).map((h, i) => newCut(h.start_sec, h.end_sec, i, h.reason ?? undefined)))}>
-                <Icon name="sparkle" size={14} /> {highlights.length} öne çıkan anı kesite çevir
-              </button>
+            <span className="panel-tape" aria-hidden="true" />
+            <h2 className="panel-title">Anlar</h2>
+            <p className="panel-sub">Yayının tamamını sohbet patlamaları, ses yükselmeleri ve konuşmaya göre tarar; en komik, heyecanlı, aksiyonlu ve duygusal anları listeler. Hiçbir şey kesilmez.</p>
+            {scan ? (
+              <div className="stack-s pad-top">
+                <Progress value={scan.progress} label="An taraması" />
+                <p className="muted">{scan.step}{typeof scan.progress === 'number' ? ` · %${scan.progress}` : ''}</p>
+                <button type="button" className="btn btn-quiet btn-small" onClick={cancelScan}>
+                  Durdur
+                </button>
+              </div>
+            ) : (
+              <div className="inline-form pad-top">
+                <input type="number" min={1} max={40} className="input input-narrow" value={momentMax} onChange={(e) => setMomentMax(Math.max(1, Math.min(40, Number(e.target.value) || 1)))} aria-label="En fazla an" />
+                <button type="button" className="btn btn-accent" onClick={scanMoments}>
+                  <Icon name="sparkle" size={16} /> {highlights.length ? 'Yeniden tara' : 'Anları tara'}
+                </button>
+              </div>
             )}
+            {highlights.length > 0 && (
+              <>
+                <div className="chip-row pad-top" role="group" aria-label="Kategori">
+                  {FILTERS.map((f) => (
+                    <button key={f.value} type="button" className={filter === f.value ? 'chip chip-on' : 'chip'} onClick={() => setFilter(f.value)}>
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+                <ul className="moment-list">
+                  {momentList.map((h) => {
+                    const k = kindOf(h.kind);
+                    return (
+                      <li key={h.id}>
+                        <button type="button" className="moment-row" onClick={() => setSeekReq({ t: h.start_sec })} onContextMenu={(e) => momentMenu(e, h)} title="Bu ana git (sağ tık: diğer işlemler)">
+                          <span className="moment-time">{duration(h.start_sec)}</span>
+                          <span className="moment-kind" style={{ color: k.color, borderColor: k.color }}>
+                            {k.label}
+                          </span>
+                          <span className="moment-reason">{h.reason}</span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                  {!momentList.length && <li className="muted">Bu kategoride an yok.</li>}
+                </ul>
+                <div className="row-gap">
+                  <button type="button" className="btn btn-quiet btn-small" onClick={copyMoments}>
+                    <Icon name="text" size={14} /> Listeyi kopyala
+                  </button>
+                  <button type="button" className="btn btn-quiet btn-small" disabled={!momentList.length} onClick={() => addMomentCuts(momentList)} title="Listedeki anları Kesitler'e ekler; sonra dikey/yatay üretebilirsin">
+                    <Icon name="scissors" size={14} /> Kesite çevir
+                  </button>
+                </div>
+              </>
+            )}
+          </section>
+
+          <section className="panel">
+            <h2 className="panel-title">Otomatik dikey klip</h2>
+            <p className="panel-sub">Konuşma ve tepkilerden en güçlü anları seçip doğrudan dikey klip olarak üretir; sonuçlar Galeri'ye düşer.</p>
             <div className="inline-form pad-top">
               <input type="number" min={1} max={30} className="input input-narrow" value={autoCount} onChange={(e) => setAutoCount(Math.max(1, Math.min(30, Number(e.target.value) || 1)))} aria-label="Klip sayısı" />
               <button type="button" className="btn btn-secondary" disabled={busy} onClick={auto}>
-                <Icon name="sparkle" size={16} /> En iyi anları çıkar
+                <Icon name="sparkle" size={16} /> Klipleri üret
               </button>
             </div>
           </section>
@@ -434,7 +598,7 @@ function liveElapsed(v: VodVideo) {
 function BackLink() {
   return (
     <button type="button" className="link" onClick={() => navigate(sectionPath('yayinlar'))}>
-      ← Yayın geçmişleri
+      ← Geçmiş yayınlar
     </button>
   );
 }

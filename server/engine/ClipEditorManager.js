@@ -20,6 +20,7 @@ const Transcriber = require('./Transcriber');
 const VerticalComposer = require('./VerticalComposer');
 const HorizontalComposer = require('./HorizontalComposer');
 const IntroStore = require('./IntroStore');
+const SubscribeCta = require('./SubscribeCta');
 const CamFull = require('./CamFull');
 const ProfanityCensor = require('./ProfanityCensor');
 const AudioCensor = require('./AudioCensor');
@@ -163,29 +164,36 @@ class ClipEditorManager {
 
     /** Elle çizilmiş kadraj yoksa "kamera üstte, oyun altta" için kullanılan varsayılan kadraj. */
     static DEFAULT_MANUAL_LAYOUT = {
+        cams: [{ x: 0.72, y: 0.62, w: 0.26, h: 0.36 }],
         cam: { x: 0.72, y: 0.62, w: 0.26, h: 0.36 },
         content: { x: 0, y: 0, w: 1, h: 1 },
     };
 
     /**
-     * Tespitten ÖNCE yerleşim kararı (saf): "Kamera + oyun" seçilmiş ve kadraj
-     * elle çizilmişse tespit yapılmaz, o kadraj birebir kullanılır.
+     * Tespitten ÖNCE yerleşim kararı (saf):
+     *  - "Kamera + oyun" + kameralı kadraj → tespit yapılmaz, kadraj birebir;
+     *  - "Tek kare" + yayın alanı çizilmiş (tam kare değil) → o alan kırpılır;
+     *  - aksi hâlde tespit denenir.
      */
     static layoutBeforeDetect(opts) {
-        if (opts.composition === 'split' && opts.manualLayout) return opts.manualLayout;
+        const l = opts.manualLayout;
+        if (!l) return null;
+        const cams = l.cams || [];
+        if (opts.composition === 'split' && cams.length) return l;
+        if (opts.composition === 'single' && !ClipEditorManager.isFullFrame(l.content)) return { ...l, cams: [], cam: null };
         return null;
     }
 
     /**
      * Tespitten SONRA yerleşim kararı (saf). Bölünmüş düzen çıkmadıysa ve
-     * "Tek kare" seçilmemişse: kayıtlı kadraj varsa o; "Kamera + oyun"
+     * "Tek kare" seçilmemişse: kameralı kayıtlı kadraj varsa o; "Kamera + oyun"
      * istenmişse varsayılan kadraj. Böylece bölünmüş düzen istenen bir klip
      * asla yalnız kameradan ibaret tek kare çıkmaz.
      */
     static layoutAfterDetect(opts, facecam) {
         if (opts.composition === 'single') return null;
         if (VerticalComposer.isSplit(facecam, opts.composition)) return null;
-        if (opts.manualLayout) return opts.manualLayout;
+        if (opts.manualLayout && (opts.manualLayout.cams || []).length) return opts.manualLayout;
         return opts.composition === 'split' ? ClipEditorManager.DEFAULT_MANUAL_LAYOUT : null;
     }
 
@@ -216,9 +224,33 @@ class ClipEditorManager {
         intro: true,                // yatay kesitlerin başına kullanıcı introsu eklensin mi (intro yüklüyse)
         introAsk: true,             // true → panel her kesit alımında intro eklensin mi diye sorar (yalnız yatay)
         outro: true,                // yatay kesitlerin sonuna kullanıcı outrosu eklensin mi (outro yüklüyse)
+        ctaAuto: true,              // abone çağrısı otomatik yerleşim: animasyon başta+sonda, kesit tam ortada (Stüdyo'daki Ne zaman/Hangi videolara yerine)
         camFullRanges: [],          // [{start,end}] klip saniyesi — bu anlarda webcam kadrajı doldurur ("tam ekran bölgesi")
-        manualLayout: null,         // { cam:{x,y,w,h}, content:{x,y,w,h} } 0-1 oranlı — kullanıcı kadrajı elle çizdi, tespit atlanır
+        manualLayout: null,         // { cams:[{x,y,w,h}…], content:{x,y,w,h} } 0-1 oranlı — elle çizilen kadraj; kamera yoksa tek kare
+        logoSingle: null,           // tek kare düzeninde logo ayarı { logoPosition, logoScale, logoOpacity, logoX, logoY }; null → ortak ayar
     };
+
+    static MAX_CAMS = 4;
+
+    /** Tek kare düzeninin logo ayarı (ortak ayarı ezer); alanlar eksikse ortak değer. */
+    static normalizeLogoSingle(raw, base) {
+        if (!raw || typeof raw !== 'object') return null;
+        const pick = (val, allowed, dflt) => (allowed.includes(val) ? val : dflt);
+        const num = (v, lo, hi, dflt) => (v === undefined || v === null || Number.isNaN(Number(v)) ? dflt : Math.min(hi, Math.max(lo, Number(v))));
+        return {
+            logoPosition: pick(raw.logoPosition, ['seam', 'top-center', 'custom'], base.logoPosition),
+            logoScale: num(raw.logoScale, 0.1, 2, base.logoScale),
+            logoOpacity: num(raw.logoOpacity, 0.05, 1, base.logoOpacity),
+            logoX: raw.logoX === undefined || raw.logoX === null || Number.isNaN(Number(raw.logoX)) ? base.logoX : Math.min(1, Math.max(0, Number(raw.logoX))),
+            logoY: raw.logoY === undefined || raw.logoY === null || Number.isNaN(Number(raw.logoY)) ? base.logoY : Math.min(1, Math.max(0, Number(raw.logoY))),
+        };
+    }
+
+    /** Düzene göre geçerli logo ayarı: bölünmüşte ortak alanlar, tek karede varsa logoSingle. */
+    static logoFor(opts, isSplit) {
+        const base = { logoPosition: opts.logoPosition, logoScale: opts.logoScale, logoOpacity: opts.logoOpacity, logoX: opts.logoX, logoY: opts.logoY };
+        return !isSplit && opts.logoSingle ? { ...base, ...opts.logoSingle } : base;
+    }
 
     /** 0-1 oranlı dikdörtgen; en az %5 genişlik/yükseklik, kare içine kıstırılır. */
     static normalizeRect(raw) {
@@ -235,12 +267,18 @@ class ClipEditorManager {
         return { x: r(x), y: r(y), w: r(w), h: r(h) };
     }
 
-    /** Elle çizilmiş yerleşim: iki dikdörtgen de geçerli olmalı. */
+    /**
+     * Elle çizilmiş yerleşim: yayın alanı zorunlu, kamera 0…MAX_CAMS adet.
+     * Eski biçim ({cam, content}) tek kameralı olarak okunur. Geçersiz kamera
+     * kutuları elenir; kamera kalmazsa tek kare düzenidir.
+     */
     static normalizeManualLayout(raw) {
         if (!raw || typeof raw !== 'object') return null;
-        const cam = ClipEditorManager.normalizeRect(raw.cam);
         const content = ClipEditorManager.normalizeRect(raw.content);
-        return cam && content ? { cam, content } : null;
+        if (!content) return null;
+        const list = Array.isArray(raw.cams) ? raw.cams : raw.cam ? [raw.cam] : [];
+        const cams = list.map((c) => ClipEditorManager.normalizeRect(c)).filter(Boolean).slice(0, ClipEditorManager.MAX_CAMS);
+        return { cams, cam: cams[0] || null, content };
     }
 
     /** 0-1 oranlı yerleşimi kaynak piksellerine (çift sayı) çevirir. */
@@ -251,7 +289,13 @@ class ClipEditorManager {
             const y = even(r.y * meta.height);
             return { x, y, w: even(Math.min(meta.width - x, r.w * meta.width)), h: even(Math.min(meta.height - y, r.h * meta.height)) };
         };
-        return { cam: toPx(layout.cam), content: toPx(layout.content) };
+        const cams = (layout.cams || (layout.cam ? [layout.cam] : [])).map(toPx);
+        return { cams, cam: cams[0] || null, content: toPx(layout.content) };
+    }
+
+    /** Yayın alanı tüm kareyse (ya da ona çok yakınsa) tek karede odak/yüz takibi korunur. */
+    static isFullFrame(rect) {
+        return !rect || (rect.w >= 0.97 && rect.h >= 0.97);
     }
 
     /** Dış kaynaklı options nesnesini doğrula ve varsayılanlarla doldur */
@@ -277,8 +321,16 @@ class ClipEditorManager {
             intro: raw.intro === undefined ? d.intro : raw.intro !== false,
             introAsk: raw.introAsk === undefined ? d.introAsk : raw.introAsk !== false,
             outro: raw.outro === undefined ? d.outro : raw.outro !== false,
+            ctaAuto: raw.ctaAuto === undefined ? d.ctaAuto : raw.ctaAuto !== false,
             camFullRanges: CamFull.normalizeCamFullRanges(raw.camFullRanges),
             manualLayout: ClipEditorManager.normalizeManualLayout(raw.manualLayout),
+            logoSingle: ClipEditorManager.normalizeLogoSingle(raw.logoSingle, {
+                logoPosition: pick(raw.logoPosition, ['seam', 'top-center', 'custom'], d.logoPosition),
+                logoScale: Math.min(2, Math.max(0.1, Number(raw.logoScale) || 1)),
+                logoOpacity: Math.min(1, Math.max(0.05, raw.logoOpacity === undefined || raw.logoOpacity === null ? d.logoOpacity : Number(raw.logoOpacity))),
+                logoX: raw.logoX !== undefined && raw.logoX !== null && !Number.isNaN(Number(raw.logoX)) ? Math.min(1, Math.max(0, Number(raw.logoX))) : null,
+                logoY: raw.logoY !== undefined && raw.logoY !== null && !Number.isNaN(Number(raw.logoY)) ? Math.min(1, Math.max(0, Number(raw.logoY))) : null,
+            }),
         };
     }
 
@@ -311,17 +363,16 @@ class ClipEditorManager {
 
     /**
      * Kullanıcı varsayılanları + iş bazlı override → normalize edilmiş seçenekler.
-     * Kanal sekmesinin kendi profili varsa (Logo ve görünüm → "Bu sekme için
-     * özel") onun varsayılanları kullanılır.
+     * Üretim kuralları (yerleşim, kadraj, altyazı, logo yerleşimi) TEK yerden
+     * gelir: genel clip_defaults. Sekme profili yalnız logo dosyasını ve
+     * renk/altyazı stilini değiştirir; böylece Logo ve görünüm'de bir kural
+     * değişince dikey üretilen her şey ona uyar.
      */
-    async resolveOptions(override = {}, group = 'live', channelSlug = null) {
+    async resolveOptions(override = {}, group = 'live', _channelSlug = null) {
         let parsed = {};
         try {
             const settings = await this.db.getSettings(this.userId);
-            const profile = ClipEditorManager.channelProfile(settings, channelSlug || this.channelSlug);
-            parsed = (profile?.clip_defaults && typeof profile.clip_defaults === 'object')
-                ? profile.clip_defaults
-                : (JSON.parse(settings?.clip_defaults || '{}') || {});
+            parsed = JSON.parse(settings?.clip_defaults || '{}') || {};
         } catch { /* bozuk ayar → şema varsayılanları */ }
         return ClipEditorManager.normalizeClipOptions({ ...ClipEditorManager.groupDefaults(parsed, group), ...override });
     }
@@ -573,9 +624,12 @@ class ClipEditorManager {
     }
 
     /**
-     * Hazır (ya da başarısız) bir dikey klibi ham kaynağından yeniden üretir —
-     * kullanıcı kamera ve oyun alanını elle çizdiyse o kadrajla (tespit
-     * atlanır). Ham kaynak saklanmamışsa kaynak adresinden yeniden indirilir.
+     * Hazır (ya da başarısız) bir dikey klibi ham kaynağından yeniden üretir.
+     * Seçenekler işin eski kaydından değil Logo ve görünüm'deki GÜNCEL
+     * ayarlardan alınır (yerleşim, kadraj, altyazı, logo); işe özgü kalan tek
+     * şey tam ekran bölgeleridir. Kullanıcı kamera ve oyun alanını elle
+     * çizdiyse o kadrajla bölünmüş düzen kullanılır (tespit atlanır). Ham
+     * kaynak saklanmamışsa kaynak adresinden yeniden indirilir.
      */
     async reprocess(jobId, { manualLayout = null, composition = null } = {}) {
         const job = await this.db.getEditedClipById(jobId, this.userId);
@@ -586,11 +640,16 @@ class ClipEditorManager {
         if (rawOpts.outputFormat === 'horizontal') throw new Error('Yatay kesitlerde kadraj seçilmez');
         const raw = this.hasRaw(jobId);
         if (!raw && !job.source_url) throw new Error('Bu klibin ham kaynağı saklanmamış — yeniden üretilemez');
+        const group = /^vod/.test(String(job.source || '')) ? 'vodscan' : (job.source === 'popular' || job.source === 'link') ? 'gezgin' : 'live';
+        const current = await this.resolveOptions({}, group, job.channel_slug);
         const layout = ClipEditorManager.normalizeManualLayout(manualLayout);
         const next = ClipEditorManager.normalizeClipOptions({
-            ...rawOpts,
+            ...current,
+            camFullRanges: rawOpts.camFullRanges || [],
+            subtitleLang: rawOpts.subtitleLang || current.subtitleLang,
             outputFormat: 'vertical',
-            ...(layout ? { manualLayout: layout, composition: 'split' } : {}),
+            // Kadraj verildiyse düzen ona uyar: kamera varsa bölünmüş, yoksa tek kare.
+            ...(layout ? { manualLayout: layout, composition: layout.cams.length ? 'split' : 'single' } : {}),
             ...(composition ? { composition } : {}),
         });
         await this.db.updateEditedClip(jobId, this.userId, { status: 'queued', step: '', error: null, options: next, qc_verdict: null, qc_issues: null });
@@ -964,6 +1023,16 @@ class ClipEditorManager {
             // Sekmeye özel marka (renk/altyazı stili/logo) varsa genel ayarı ezer.
             const profile = ClipEditorManager.channelProfile(userSettings, jobRow?.channel_slug);
             const brand = { ...(userSettings || {}), ...((profile && profile.brand) || {}) };
+            // Abone çağrısı: animasyon (ASS) ve/veya dikilecek kesit — sekme profili ya da genel ayar.
+            // Otomatik yerleşim (opts.ctaAuto): animasyon başta ve sonda, kesit tam ortada,
+            // biçim fark etmez; tasarım/yer/boyut/yazı/renk Stüdyo'dan.
+            const ctaFile = SubscribeCta.clipPath(this.userId, jobRow?.channel_slug);
+            const cta = opts.ctaAuto
+                ? SubscribeCta.autoPlan(SubscribeCta.resolve(userSettings, profile), { hasClip: !!ctaFile })
+                : SubscribeCta.resolve(userSettings, profile);
+            // Dikilecek kesit biçime göre: dikey akış 'vertical', yatay kesit 'horizontal' anahtarına bakar.
+            const ctaClipFor = (format) => (SubscribeCta.insertActive(cta, format) ? ctaFile : null);
+            const ctaClip = ctaClipFor('vertical');
 
             // 1. Kaynak video — ham kopya saklanır (yeniden üretim ve ham indirme için)
             const inputPath = await this._materializeSource(jobId, inputs, jobWorkDir);
@@ -971,7 +1040,7 @@ class ClipEditorManager {
             // 1b. Yatay kesit (VOD sahne taraması) — facecam/dikey kompozisyon
             // tamamen atlanır; kaynak zaten doğru segmente kesilmiş olarak gelir.
             if (opts.outputFormat === 'horizontal') {
-                await this._processHorizontal(jobId, inputPath, jobWorkDir, jobRow, opts, language, brand);
+                await this._processHorizontal(jobId, inputPath, jobWorkDir, jobRow, opts, language, brand, { cta, ctaClip: ctaClipFor('horizontal') });
                 return;
             }
 
@@ -985,9 +1054,16 @@ class ClipEditorManager {
                 await this._setStep(jobId, 'processing', step);
                 const meta = facecam?.meta || await this.detector.probe(inputPath);
                 const manual = ClipEditorManager.manualRects(layout, meta);
-                facecam = { found: true, fullCam: false, rect: manual.cam, meta, method: 'manual', face: null };
                 contentRect = manual.content;
-                opts.composition = 'split';
+                if (manual.cams.length) {
+                    // Bir ya da birden çok kamera üst bantta; yayın alanı altta.
+                    facecam = { found: true, fullCam: false, rect: manual.cam, cams: manual.cams, meta, method: 'manual', face: null };
+                    opts.composition = 'split';
+                } else {
+                    // Kamerasız: yayın alanı 9:16'ya kırpılır (tek kare).
+                    facecam = { found: false, fullCam: true, rect: null, cams: [], meta, method: 'manual', face: null };
+                    opts.composition = 'single';
+                }
             };
             const preset = ClipEditorManager.layoutBeforeDetect(opts);
             if (preset) {
@@ -1002,6 +1078,7 @@ class ClipEditorManager {
                 }
             }
             const isSplit = VerticalComposer.isSplit(facecam, opts.composition);
+            const logo = ClipEditorManager.logoFor(opts, isSplit);
 
             // 3. Odak belirleme: bölünmüş düzende hareket analizi; tek parça
             // düzende konuşan kişiye (tespit edilen yüze) odaklan
@@ -1022,7 +1099,7 @@ class ClipEditorManager {
             // 3b. IRL / tek-parça (webcam yok) → kişinin yüzünü takip et.
             // Yumuşatılmış anahtar karelerle kamera akıcı kayar (takılma yok).
             let faceTrack = null;
-            if (!isSplit) {
+            if (!isSplit && !contentRect) {
                 await this._setStep(jobId, 'processing', 'yüz takibi');
                 faceTrack = await this.detector.trackFace(inputPath, facecam.meta, { count: 30 })
                     .catch(err => {
@@ -1056,8 +1133,8 @@ class ClipEditorManager {
                 if (wantSubtitles && transcript && transcript.segments.length > 0) {
                     const layout = await this.composer.computeLayout(facecam, logoPath, {
                         composition: opts.composition,
-                        logoPosition: opts.logoPosition,
-                        logoScale: opts.logoScale,
+                        logoPosition: logo.logoPosition,
+                        logoScale: logo.logoScale,
                     });
                     assPath = path.join(jobWorkDir, 'subtitles.ass');
                     // Altyazı stili + vurgu rengi: iş seçeneği > kullanıcı marka kiti;
@@ -1073,17 +1150,28 @@ class ClipEditorManager {
                 console.log(`[ClipEditor:${this.userId}] İş ${jobId} — altyazı kullanıcı tercihiyle kapalı, transkript atlandı`);
             }
 
+            // 4b. "Abone ol" animasyonu — altyazıyla aynı ASS'e katılır (altyazı yoksa kendi dosyası).
+            const clipDuration = facecam.meta.duration || 0;
+            const ctaPoints = ctaClip ? SubscribeCta.insertPoints(cta.insert.at, clipDuration) : [];
+            assPath = SubscribeCta.attach(
+                SubscribeCta.overlayEvents(cta, {
+                    duration: clipDuration, format: 'vertical', brandColor: brand.brand_color, accentColor: brand.accent_color,
+                    channel: jobRow?.channel_slug, middleInsert: ctaPoints.some(p => p > 0 && p < clipDuration),
+                }),
+                assPath, path.join(jobWorkDir, 'cta.ass'), { playResX: 1080, playResY: 1920 },
+            );
+
             // 5. Kompozisyon
             await this._setStep(jobId, 'processing', 'video oluşturuluyor');
             const outputPath = path.join(this.outputDir, `${jobId}.mp4`);
             await this.composer.compose({
                 inputPath, outputPath, facecam, focus, faceTrack, assPath, logoPath, contentRect,
                 composition: opts.composition,
-                logoPosition: opts.logoPosition,
-                logoScale: opts.logoScale,
-                logoOpacity: opts.logoOpacity,
-                logoX: opts.logoX,
-                logoY: opts.logoY,
+                logoPosition: logo.logoPosition,
+                logoScale: logo.logoScale,
+                logoOpacity: logo.logoOpacity,
+                logoX: logo.logoX,
+                logoY: logo.logoY,
                 camFullRanges: opts.camFullRanges,
             });
             if (opts.camFullRanges.length && !facecam.rect) {
@@ -1120,6 +1208,9 @@ class ClipEditorManager {
                 return { verdict: 'suspicious', issues: ['Kalite denetimi yapılamadı'] };
             });
             console.log(`[ClipEditor:${this.userId}] QC: ${qcResult.verdict}${qcResult.issues.length ? ' — ' + qcResult.issues.join('; ') : ''}`);
+
+            // 6c. Abone kesiti — küçük görsel ve kalite denetiminden sonra nihai dosyaya dikilir.
+            const ctaDone = await this._insertCta(jobId, ctaClip, ctaPoints, outputPath, jobWorkDir);
 
             // Önem sıralı vurgu listesi (en yüksek puanlı 10 segment)
             const highlights = transcript
@@ -1163,7 +1254,7 @@ class ClipEditorManager {
                 step: 'tamamlandı',
                 video_url: `/clips/${this.userId}/vertical/${jobId}.mp4?v=${stamp}`,
                 thumbnail_url: fs.existsSync(thumbPath) ? `/clips/${this.userId}/vertical/${jobId}_thumb.jpg?v=${stamp}` : null,
-                duration: Math.round(facecam.meta.duration || 0),
+                duration: Math.round((facecam.meta.duration || 0) + ctaDone.addedSeconds),
                 layout: isSplit ? 'split' : 'single',
                 transcript: transcript ? JSON.stringify(transcript.segments) : null,
                 highlights: JSON.stringify(highlights),
@@ -1210,6 +1301,29 @@ class ClipEditorManager {
     }
 
     /**
+     * Abone kesitini nihai çıktıya diker (başa/ortaya/sona). Dikiş hatası
+     * klibi bozmaz: uyarı yazılır, video çağrısız kalır. İptalde hata yayılır.
+     * @returns {{clipCount:number, addedSeconds:number}}
+     */
+    async _insertCta(jobId, clipPath, points, outputPath, jobWorkDir) {
+        const none = { clipCount: 0, addedSeconds: 0 };
+        if (!clipPath || !points.length) return none;
+        await this._setStep(jobId, 'processing', 'abone kesiti ekleniyor');
+        const tmp = path.join(jobWorkDir, 'cta-insert.mp4');
+        try {
+            const done = await SubscribeCta.insertClip({ inputPath: outputPath, outputPath: tmp, clipPath, points });
+            fs.renameSync(tmp, outputPath);
+            console.log(`[ClipEditor:${this.userId}] 🔔 İş ${jobId} — abone kesiti ${done.clipCount} yerde eklendi (+${done.addedSeconds.toFixed(1)} sn)`);
+            return done;
+        } catch (err) {
+            if (this._cancelled.has(jobId)) throw err;
+            console.error(`[ClipEditor:${this.userId}] Abone kesiti eklenemedi (${jobId}):`, err.message);
+            try { fs.unlinkSync(tmp); } catch { /* yok */ }
+            return none;
+        }
+    }
+
+    /**
      * Küfür geçen anları biplenmiş sesle değiştirir (opsiyonel — opts.censor).
      * Hem dikey hem yatay akış tarafından, kompozisyondan SONRA çağrılır
      * (nihai çıktı dosyası üzerinde çalışır, üstüne yazar).
@@ -1241,7 +1355,7 @@ class ClipEditorManager {
      * (ör. 2 saatlik oyun bölümü) salt açıklama üretmek için transkribe
      * etmek gereksiz maliyetli olurdu.
      */
-    async _processHorizontal(jobId, inputPath, jobWorkDir, jobRow, opts, language, brand = null) {
+    async _processHorizontal(jobId, inputPath, jobWorkDir, jobRow, opts, language, brand = null, { cta = null, ctaClip = null } = {}) {
         await this._setStep(jobId, 'processing', 'kontrol ediliyor');
         const meta = await this.detector.probe(inputPath);
         const duration = meta.duration || 0;
@@ -1274,6 +1388,19 @@ class ClipEditorManager {
                 key: opts.subtitleStyle || userSettings?.subtitle_style || 'classic',
                 accent: (opts.subtitleFollowsTheme ? userSettings?.accent_color : userSettings?.brand_color) || '#53fc18',
             });
+        }
+
+        // "Abone ol" animasyonu — kesitin kendi ölçüsünde, altyazıyla aynı dosyaya.
+        const ctaPoints = cta && ctaClip ? SubscribeCta.insertPoints(cta.insert.at, duration) : [];
+        if (cta && meta.width && meta.height) {
+            assPath = SubscribeCta.attach(
+                SubscribeCta.overlayEvents(cta, {
+                    duration, format: 'horizontal', playResX: meta.width, playResY: meta.height,
+                    brandColor: brand?.brand_color, accentColor: brand?.accent_color,
+                    channel: jobRow?.channel_slug, middleInsert: ctaPoints.some(p => p > 0 && p < duration),
+                }),
+                assPath, path.join(jobWorkDir, 'cta.ass'), { playResX: meta.width, playResY: meta.height },
+            );
         }
 
         // Tam ekran bölgeleri: webcam kutusu gerekir — yatay akış normalde
@@ -1311,7 +1438,13 @@ class ClipEditorManager {
         // damgaları kesite göre olduğundan intro eklendiyse o kadar kaydırılır.
         await this._applyCensorIfNeeded(jobId, opts, transcript, outputPath, jobWorkDir, duration + introDuration + outroDuration, introDuration);
 
-        const check = await this.horizontalComposer.verifyOutput(outputPath, duration + introDuration + outroDuration);
+        // Abone kesiti: noktalar intro kadar kayar (kesitin kendi zamanına göre verilir).
+        const ctaDone = await this._insertCta(jobId, ctaClip, ctaPoints.map(p => p + introDuration), outputPath, jobWorkDir);
+        const expectedDuration = duration + introDuration + outroDuration + ctaDone.addedSeconds;
+        // Küçük görsel için atlanacak baş kısım: intro + başa dikilen abone kesiti
+        const headSkip = introDuration + (ctaDone.clipCount && ctaPoints[0] === 0 ? ctaDone.addedSeconds / ctaDone.clipCount : 0);
+
+        const check = await this.horizontalComposer.verifyOutput(outputPath, expectedDuration);
         if (!check.ok) {
             try { fs.unlinkSync(outputPath); } catch { /* ignore */ }
             throw new Error(`Kalite kontrolü başarısız: ${check.issues.join('; ')}`);
@@ -1320,7 +1453,7 @@ class ClipEditorManager {
 
         // Küçük görsel introdan değil kesitin kendisinden alınır
         const thumbPath = path.join(this.outputDir, `${jobId}_thumb.jpg`);
-        await this.horizontalComposer.thumbnail(outputPath, thumbPath, { offsetSec: introDuration + 1 }).catch(() => null);
+        await this.horizontalComposer.thumbnail(outputPath, thumbPath, { offsetSec: headSkip + 1 }).catch(() => null);
 
         let meta2 = null;
         if (AUTO_METADATA && MetadataGenerator.isAvailable()) {
@@ -1339,7 +1472,7 @@ class ClipEditorManager {
             step: 'tamamlandı',
             video_url: `/clips/${this.userId}/vertical/${jobId}.mp4?v=${stamp}`,
             thumbnail_url: fs.existsSync(thumbPath) ? `/clips/${this.userId}/vertical/${jobId}_thumb.jpg?v=${stamp}` : null,
-            duration: Math.round(check.info.duration || (duration + introDuration)),
+            duration: Math.round(check.info.duration || expectedDuration),
             layout: 'horizontal',
             transcript: transcript ? JSON.stringify(transcript.segments) : null,
             highlights: JSON.stringify([]),
@@ -1393,6 +1526,7 @@ class ClipEditorManager {
         'video oluşturuluyor': 75,
         'kontrol ediliyor': 85,
         'kalite denetimi': 90,
+        'abone kesiti ekleniyor': 92,
         'açıklama üretiliyor': 94,
         'viral skor': 97,
         'tamamlandı': 100,

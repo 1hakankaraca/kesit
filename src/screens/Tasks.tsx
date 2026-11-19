@@ -46,7 +46,7 @@ export function Tasks() {
 
   return (
     <>
-      <WorkspaceHead guide="gorevler" title="Görev" tape="yöneticisi" lead="Bilgisayarın işlemci, bellek ve disk durumu; Kesit'in çalıştırdığı işlemler ve süren işler." />
+      <WorkspaceHead guide="gorevler" title="Görevler" tape="sistem" lead="Bilgisayarın işlemci, bellek ve disk durumu; Kesit'in çalıştırdığı işlemler ve süren işler." />
 
       <SystemPanel />
 
@@ -119,6 +119,11 @@ function SystemPanel() {
           <span className="muted">
             {d ? `${Math.floor(d.kesit.uptimeSec / 3600)} sa ${Math.floor((d.kesit.uptimeSec % 3600) / 60)} dk açık · ${d.kesit.queue.running} işleniyor, ${d.kesit.queue.waiting} sırada` : 'okunuyor'}
           </span>
+          {d?.video && (
+            <span className="muted" title={d.video.encoder}>
+              Video kodlama: {d.video.hw ? `GPU · ${d.video.label}` : 'işlemci'}
+            </span>
+          )}
         </div>
       </div>
       <table className="sys-table">
@@ -269,7 +274,7 @@ function TaskRow({ task: t, live }: { task: Task; live?: { progress: number | nu
           </button>
         )}
         {t.link && (
-          <button type="button" className={t.group === 'bitti' ? 'btn btn-accent btn-small' : 'btn btn-secondary btn-small'} onClick={() => navigate(sectionPath(t.link!.section as Section, t.link!.sub))}>
+          <button type="button" className={'btn btn-secondary btn-small'} onClick={() => navigate(sectionPath(t.link!.section as Section, t.link!.sub))}>
             {t.link.label}
             <Icon name="chevron" size={14} />
           </button>

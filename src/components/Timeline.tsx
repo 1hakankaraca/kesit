@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as
 import { duration as fmtDuration, stamp } from '../lib/format.ts';
 import type { Frame } from '../lib/types.ts';
 import { Icon } from './Icon.tsx';
+import { openMenu } from './ContextMenu.tsx';
 
 export interface Cut {
   id: string;
@@ -57,6 +58,7 @@ export function Timeline({
   onCutsChange,
   aspect = 'h',
   onSnapshot,
+  seekRequest,
 }: {
   src: string;
   duration: number;
@@ -67,6 +69,8 @@ export function Timeline({
   aspect?: 'h' | 'v';
   /** Verilirse "Ekran görüntüsü" düğmesi görünür; o anki saniyeyle çağrılır. */
   onSnapshot?: (t: number) => void;
+  /** Dışarıdan atlama (ör. "Anlar" listesi): her yeni nesne oynatıcıyı o saniyeye götürür. */
+  seekRequest?: { t: number } | null;
 }) {
   const video = useRef<HTMLVideoElement>(null);
   const track = useRef<HTMLDivElement>(null);
@@ -104,6 +108,13 @@ export function Timeline({
     if (video.current) video.current.currentTime = t;
     setNow(t);
   };
+
+  useEffect(() => {
+    if (!seekRequest) return;
+    seek(Math.max(0, Math.min(total, seekRequest.t)));
+    const el = scroller.current;
+    if (el) el.scrollLeft = Math.max(0, seekRequest.t * pxPerSec - el.clientWidth / 2);
+  }, [seekRequest]);
 
   const update = (id: string, patch: Partial<Cut>) => onCutsChange(cuts.map((c) => (c.id === id ? { ...c, ...patch } : c)));
 
@@ -308,6 +319,19 @@ export function Timeline({
               style={{ left: c.start * pxPerSec, width: Math.max(4, (c.end - c.start) * pxPerSec), '--cut': c.color } as React.CSSProperties}
               onPointerDown={(e) => onCutDown(e, c, 'move')}
               onDoubleClick={() => seek(c.start)}
+              onContextMenu={(e) => {
+                setActive(c.id);
+                openMenu(
+                  e,
+                  [
+                    { label: 'Başına git', icon: 'play', onSelect: () => seek(c.start) },
+                    { label: 'Çoğalt', icon: 'plus', onSelect: () => onCutsChange([...cuts, newCut(c.end, Math.min(total, c.end + (c.end - c.start)), cuts.length)]) },
+                    { separator: true },
+                    { label: 'Kesiti kaldır', icon: 'trash', danger: true, onSelect: () => onCutsChange(cuts.filter((x) => x.id !== c.id)) },
+                  ],
+                  `${fmtDuration(c.start)} – ${fmtDuration(c.end)}`,
+                );
+              }}
             >
               <span className="track-cut-handle track-cut-handle-l" onPointerDown={(e) => onCutDown(e, c, 'start')} />
               <span className="track-cut-label">{fmtDuration(c.end - c.start)}</span>
@@ -342,7 +366,21 @@ export function CutList({ cuts, onChange, onPlay }: { cuts: Cut[]; onChange: (cu
       {[...cuts]
         .sort((a, b) => a.start - b.start)
         .map((c, i) => (
-          <li key={c.id} style={{ '--cut': c.color } as React.CSSProperties}>
+          <li
+            key={c.id}
+            style={{ '--cut': c.color } as React.CSSProperties}
+            onContextMenu={(e) =>
+              openMenu(
+                e,
+                [
+                  onPlay && { label: 'Kesite git', icon: 'play', onSelect: () => onPlay(c) },
+                  { label: 'Kesiti kaldır', icon: 'trash', danger: true, onSelect: () => onChange(cuts.filter((x) => x.id !== c.id)) },
+                  cuts.length > 1 && { label: 'Tüm kesitleri kaldır', icon: 'x', danger: true, onSelect: () => onChange([]) },
+                ],
+                `Kesit ${i + 1}`,
+              )
+            }
+          >
             <span className="cut-swatch" aria-hidden="true" />
             <span className="cut-name">Kesit {i + 1}</span>
             <span className="muted">

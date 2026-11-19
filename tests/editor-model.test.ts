@@ -115,3 +115,23 @@ test('splitCameraAndScreen: kamera üst boş yola, ekran altta kalan alana', () 
 });
 
 export type { Clip };
+
+test('addCamClip: oynatma çizgisinden ana parçanın sonuna kadar, ayrı katmanda; addCtaClip süreyi sınırlar', async () => {
+  const { addCamClip, addCtaClip, mainClipAt } = await import('../src/editor/model.ts');
+  let { project } = addAssetClip(base(), video, 0);
+  assert.equal(addCamClip(base(), 0, null), null, 'ana yolda video yoksa eklenmez');
+  const r = addCamClip(project, 18, { x: 0.7, y: 0, w: 0.3, h: 0.5 })!;
+  assert.equal(r.clip.kind, 'cam');
+  assert.equal(r.clip.start, 18);
+  assert.equal(r.clip.duration, 2, 'ana parça 20’de bitiyor');
+  assert.notEqual(r.clip.trackId, 'v1', 'üst katmana gider');
+  assert.deepEqual(r.clip.crop, { x: 0.7, y: 0, w: 0.3, h: 0.5 });
+  assert.equal(mainClipAt(r.project, 19)!.id, project.clips[0].id);
+  project = r.project;
+  const c = addCtaClip(project, 2, { style: 'card', x: 0.3, y: 0.8, size: 125 }, 30);
+  assert.equal(c.clip.kind, 'cta');
+  assert.equal(c.clip.duration, 10, 'en fazla 10 sn');
+  assert.deepEqual(c.clip.cta, { style: 'card', x: 0.3, y: 0.8, size: 125 });
+  assert.notEqual(c.clip.trackId, 'v1');
+  assert.equal(setSpeed(c.project, c.clip.id, 2).clips.find((x) => x.id === c.clip.id)!.speed, 1, 'çağrının hızı değişmez');
+});

@@ -4,7 +4,6 @@ import { ChannelSearch } from '../components/ChannelSearch.tsx';
 import { Icon, type IconName } from '../components/Icon.tsx';
 import { Ticks, Wordmark } from '../components/basics.tsx';
 import { enterAsGuest, linkKick, pairDevice } from '../lib/session.ts';
-import { useTheme } from '../lib/theme.ts';
 import { toastError } from '../lib/toast.ts';
 
 const FEATURES: { icon: IconName; title: string; text: string }[] = [
@@ -16,7 +15,6 @@ const FEATURES: { icon: IconName; title: string; text: string }[] = [
 
 /** Giriş kapısı: Kick hesabıyla ya da kayıtsız misafir olarak. */
 export function Gate() {
-  useTheme('gate');
   const [busy, setBusy] = useState(false);
   const [kickOpen, setKickOpen] = useState(false);
 
@@ -125,7 +123,6 @@ function KickGlyph() {
 
 /** Yerel ağdaki (telefon) eşlenmemiş cihaz: bilgisayar ekranındaki kodu girer. */
 export function PairGate() {
-  useTheme('gate');
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const submit = async () => {

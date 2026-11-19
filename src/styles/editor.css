@@ -1468,3 +1468,253 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ── Abone çağrısı ve kamera alanı parçaları ────────────────────────────── */
+
+.tclip-cta {
+  background: color-mix(in srgb, #f43f5e 55%, var(--surface));
+}
+
+.tclip-cam {
+  background-color: color-mix(in srgb, #8b5cf6 55%, var(--surface));
+}
+
+/* Yayın çerçevesi ve Kick sohbeti parçaları (kaynak dosyası olmayan katman parçaları) */
+.tclip-frame {
+  background-color: color-mix(in srgb, #0ea5e9 55%, var(--surface));
+}
+
+.tclip-chat {
+  background-color: color-mix(in srgb, #53fc18 40%, var(--surface));
+}
+
+.preset-sample-cta {
+  font-family: var(--font-body);
+  font-size: 9px;
+}
+
+.preset-sample-cta i {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--g1);
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.preset-card-accent {
+  border-color: color-mix(in srgb, var(--g1) 45%, var(--line));
+}
+
+/* Türetilmiş kamera katmanı: sürüklenmez, tıklanınca parça seçilir */
+.elayer-cam {
+  cursor: pointer;
+}
+
+.ecam-badge {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  z-index: 55;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.6);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+/* Çağrı katmanı: tüm kare, yer (üst/orta/alt) gerçek çizimdeki merkezlere yakın */
+.elayer-cta {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 72%;
+  display: flex;
+  justify-content: center;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  border-radius: 6px;
+  outline: 2px dashed transparent;
+  outline-offset: 4px;
+  transition: outline-color 0.15s;
+}
+
+.elayer-cta:hover {
+  outline-color: color-mix(in srgb, var(--g1) 40%, transparent);
+}
+
+.elayer-cta:active {
+  cursor: grabbing;
+}
+
+/* Şerit tam genişlik: yalnız dikey taşınır */
+.elayer-cta-bar {
+  width: 100%;
+  border-radius: 0;
+}
+
+.elayer-cta-on {
+  outline-color: color-mix(in srgb, var(--g1) 80%, transparent);
+}
+
+.ecta {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  font: 700 8px/1.2 Arial, Helvetica, sans-serif;
+  color: #fff;
+  --ink-c: var(--cta-dark, #2a2d33);
+}
+
+.ecta .cta-mini {
+  width: 100%;
+  height: auto;
+}
+
+/* Sağ paneldeki küçük tasarım kartları */
+.cta-sample-small {
+  height: 44px;
+  font-size: 6px;
+}
+
+/* ── Yayın çerçevesi ─────────────────────────────────────────────────────── */
+
+/* Çerçeve parçası: tam kare görsel; tıklama altındaki videoya geçer (zaman çizelgesinden seçilir) */
+.elayer-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  pointer-events: none;
+}
+
+.elayer-frame-on {
+  outline: 2px solid var(--g1);
+  outline-offset: -2px;
+}
+
+.eframe-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.eframe-row b {
+  font-size: 13px;
+}
+
+.eframe-thumb {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 72px;
+  aspect-ratio: 16 / 9;
+  border-radius: 6px;
+  background: var(--sunken);
+  color: var(--ink-3);
+  overflow: hidden;
+}
+
+.eframe-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Çerçevenin saydam penceresi (Stüdyo'daki sohbet alanı seçicide, yalnız gösterim) */
+.cropbox-window {
+  position: absolute;
+  outline: 1px dashed rgb(255 255 255 / 0.7);
+  outline-offset: -1px;
+  pointer-events: none;
+}
+
+/* ── Kick sohbet katmanı ─────────────────────────────────────────────────── */
+
+/* Sahnedeki sohbet kutusu: içerik tuvale çizilir (dışa aktarmayla aynı satırlar) */
+.elayer-chat {
+  position: absolute;
+  cursor: move;
+  touch-action: none;
+  outline: 1px dashed transparent;
+  outline-offset: 0;
+  transition: outline-color 0.15s;
+}
+
+.elayer-chat:hover {
+  outline-color: color-mix(in srgb, var(--g1) 55%, transparent);
+}
+
+.elayer-chat-on {
+  outline-color: transparent;
+}
+
+.echat-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.esel-chat {
+  outline-style: dashed;
+}
+
+.esel-note {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.6);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.preset-sample-chat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  padding: 0 6px;
+  font-family: var(--font-body);
+  font-size: 8px;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.preset-sample-chat i {
+  font-style: normal;
+}
+
+.preset-sample-chat i:first-child b {
+  color: #53fc18;
+}
+
+.preset-sample-chat i:last-child b {
+  color: #ff9d00;
+}
+
+/* Sağ panel: gizli bölümler listesi */
+.echat-hides {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.echat-hides li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}

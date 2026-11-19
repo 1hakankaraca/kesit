@@ -23,6 +23,8 @@ const childProcess = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
+const VideoEncoder = require('./VideoEncoder');
+
 const CLIP_OUTPUT_DIR = process.env.CLIP_OUTPUT_DIR || 'data/clips';
 
 // Kısa kenar hedefi + video bitrate. Kaynak ~9 Mbps olduğu için en yüksek
@@ -143,19 +145,15 @@ class ClipCompressor {
         // hangi kenarın kısa olduğu videodan videoya değişir.
         const scale = `scale='if(gt(iw,ih),-2,min(iw,${kisaKenar}))':'if(gt(iw,ih),min(ih,${kisaKenar}),-2)'`;
 
-        await new Promise((resolve, reject) => {
+        // GPU ile kodlanır (kaynak da GPU'da çözülür); GPU hata verirse işlemciyle bir kez daha
+        const kodla = enc => new Promise((resolve, reject) => {
+            giris.percent = 0;
             const proc = childProcess.spawn('ffmpeg', [
                 '-hide_banner', '-loglevel', 'error',
                 '-progress', 'pipe:1', '-nostats',
-                '-i', kaynakYolu,
+                ...VideoEncoder.inputArgs(enc), '-i', kaynakYolu,
                 '-vf', scale,
-                '-c:v', 'libx264',
-                '-preset', 'veryfast',
-                '-b:v', videoBitrate,
-                '-maxrate', videoBitrate,
-                '-bufsize', bufsize,
-                '-profile:v', 'high',
-                '-pix_fmt', 'yuv420p',
+                ...VideoEncoder.videoArgs(enc, { bitrateKbps: videoBitrate, maxrateKbps: videoBitrate, bufsizeKbps: bufsize }),
                 '-c:a', 'aac',
                 '-b:a', sesBitrate,
                 '-movflags', '+faststart',
@@ -193,10 +191,16 @@ class ClipCompressor {
                 const mesaj = signal
                     ? 'Sıkıştırma iptal edildi'
                     : `Sıkıştırma başarısız (ffmpeg ${code}): ${hata.trim().slice(0, 200)}`;
-                this._yayinla('clipcompress:failed', { clipId, profil, error: mesaj });
-                reject(new Error(mesaj));
+                reject(VideoEncoder.markAbort(new Error(mesaj), { signal }));
             });
         });
+
+        try {
+            await VideoEncoder.withFallback('h264', kodla, { label: 'Sıkıştırma' });
+        } catch (err) {
+            this._yayinla('clipcompress:failed', { clipId, profil, error: err.message });
+            throw err;
+        }
 
         const sizeBytes = fs.statSync(ciktiYolu).size;
         giris.percent = 100;

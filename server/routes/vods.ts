@@ -21,7 +21,7 @@ function rangeFrom(body: Record<string, unknown> | undefined) {
  * Geçmiş yayınlar: Kick VOD listesi → indirme → zaman çizelgesinde kesit
  * işaretleme (elle) ya da otomatik en iyi anları dikey klibe çevirme.
  */
-export function vodRoutes({ store, vodScanner }: AppContext) {
+export function vodRoutes({ store, vodScanner, moments }: AppContext) {
   const r = express.Router();
 
   const downloadedJob = async (id: number, userId: number) => {
@@ -67,7 +67,7 @@ export function vodRoutes({ store, vodScanner }: AppContext) {
     // Sunucu içi dosya yolu tarayıcıya verilmez; aynı deterministik yoldan adres türetilir.
     const vodUrl = detail.job.vod_path ? `/clips/${userId}/vod-work/${detail.job.id}/vod.mp4` : null;
     const { vod_path: _hidden, ...job } = detail.job;
-    res.json({ ...detail, job, vodUrl });
+    res.json({ ...detail, job, vodUrl, momentsRunning: moments.isRunning(detail.job.id) });
   });
 
   r.get('/vod-jobs/:id/filmstrip', async (req, res) => {
@@ -106,6 +106,24 @@ export function vodRoutes({ store, vodScanner }: AppContext) {
     const count = Math.min(30, Math.max(1, Number.parseInt(req.body?.count, 10) || 3));
     await engine(() => vodScanner.queueAutoVertical(id, userId, count, clipOptionsFrom(req.body)), 502);
     res.json({ ok: true, count });
+  });
+
+  /**
+   * Yayın sonrası an taraması: sohbet + ses + konuşmadan en komik, heyecanlı,
+   * aksiyonlu ve duygusal anları bulur, yalnız liste olarak kaydeder.
+   */
+  r.post('/vod-jobs/:id/moments', async (req, res) => {
+    const userId = req.user!.id;
+    const id = intParam(req.params.id);
+    await downloadedJob(id, userId);
+    const max = Math.min(40, Math.max(1, Number.parseInt(req.body?.max, 10) || 12));
+    res.json({ ...(await moments.start(userId, id, { max })), max });
+  });
+
+  r.post('/vod-jobs/:id/moments/cancel', async (req, res) => {
+    const id = intParam(req.params.id);
+    if (!(await store.getVodScanJobById(id, req.user!.id))) throw notFound('Yayın işi bulunamadı');
+    res.json({ cancelled: moments.cancel(id) });
   });
 
   for (const action of ['cancel', 'pause', 'resume'] as const) {

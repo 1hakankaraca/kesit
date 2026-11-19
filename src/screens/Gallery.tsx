@@ -1,9 +1,11 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlignDialog } from '../components/AlignDialog.tsx';
+import { AlignDialog, normalizeLayout } from '../components/AlignDialog.tsx';
 import { ChannelScopeToggle } from '../components/ChannelScopeToggle.tsx';
 import { Icon, type IconName } from '../components/Icon.tsx';
 import { PublishDialog, platformLabel } from '../components/PublishDialog.tsx';
+import { openMenu, openMenuAt } from '../components/ContextMenu.tsx';
+import { DropTarget, FolderGlyph, RenameInput, folderActions, loadCwd, moveTargets, pathTo, saveCwd, setDragPayload, subtree, type DragPayload } from './galleryFolders.tsx';
 import { Empty, Field, Progress, Segmented, Spinner, WorkspaceHead } from '../components/basics.tsx';
 import { api } from '../lib/api.ts';
 import { useChannelScope } from '../lib/channelScope.ts';
@@ -14,7 +16,7 @@ import { navigate, sectionPath } from '../lib/router.ts';
 import { takeSnapshot } from '../lib/snapshot.ts';
 import { useSocketEvent } from '../lib/socket.ts';
 import { deleteWithUndo, toast, toastError } from '../lib/toast.ts';
-import type { Job, ProjectSummary, RecorderStatus, Recording, ZernioSummary } from '../lib/types.ts';
+import type { GalleryFolder, GalleryLayout, Job, ProjectSummary, RecorderStatus, Recording, ZernioSummary } from '../lib/types.ts';
 import { useResource } from '../lib/useResource.ts';
 import { stepLabel } from '../lib/words.ts';
 
@@ -220,14 +222,46 @@ function Grid({ jobs, loaded, recordings, projects, progress, onDeleted }: { job
   const [q, setQ] = useState('');
   /** Geri alınabilir silme sürerken ekrandan kaldırılan öğeler. */
   const [hidden, setHidden] = useState<Set<string>>(() => new Set());
+  const [hiddenFolders, setHiddenFolders] = useState<Set<number>>(() => new Set());
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const lastPick = useRef<string | null>(null);
 
+  /* Klasörler (dosya yöneticisi) */
+  const layout = useResource(() => api.get<GalleryLayout>('/api/gallery/folders'));
+  const folderOps = folderActions(layout);
+  const allFolders = useMemo(() => (layout.data?.folders ?? []).filter((f) => !hiddenFolders.has(f.id)), [layout.data, hiddenFolders]);
+  const [cwd, setCwdState] = useState<number | null>(() => loadCwd());
+  const [renaming, setRenaming] = useState<number | null>(null);
+  const setCwd = (id: number | null) => {
+    setCwdState(id);
+    saveCwd(id);
+    setSelected(new Set());
+  };
+  // Açık klasör silinmişse köke dön.
+  useEffect(() => {
+    if (layout.data && cwd != null && !allFolders.some((f) => f.id === cwd)) setCwd(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layout.data, allFolders, cwd]);
+  const folderIds = useMemo(() => new Set(allFolders.map((f) => f.id)), [allFolders]);
+  const placementOf = (key: string) => {
+    const f = layout.data?.placements[key];
+    return f != null && folderIds.has(f) ? f : null;
+  };
+  const crumbs = pathTo(allFolders, cwd);
+  const folderName = (id: number | null) => (id == null ? 'Galeri' : (allFolders.find((f) => f.id === id)?.name ?? 'Klasör'));
+
   const items = useMemo(() => toItems(jobs, recordings, projects).filter((i) => inScope(i.channel) && !hidden.has(i.key)), [jobs, recordings, projects, inScope, hidden]);
+  const needle = q.trim().toLocaleLowerCase('tr');
   const visible = useMemo(() => {
-    const needle = q.trim().toLocaleLowerCase('tr');
+    const placements = layout.data?.placements ?? {};
     const list = items.filter((i) => {
+      // Arama tüm klasörlerde yapılır; aramıyorken yalnız açık klasörün içi görünür.
+      if (!needle) {
+        const f = placements[i.key];
+        const where = f != null && folderIds.has(f) ? f : null;
+        if (where !== cwd) return false;
+      }
       if (kind === 'recording' && i.kind !== 'recording') return false;
       if (kind === 'project' && i.kind !== 'project') return false;
       if ((kind === 'vertical' || kind === 'horizontal') && (i.kind !== 'video' || i.format !== kind)) return false;
@@ -236,7 +270,20 @@ function Grid({ jobs, loaded, recordings, projects, progress, onDeleted }: { job
       return true;
     });
     return list.sort((a, b) => (sort === 'new' ? b.at.localeCompare(a.at) : sort === 'old' ? a.at.localeCompare(b.at) : sort === 'long' ? b.duration - a.duration : a.duration - b.duration));
-  }, [items, kind, status, sort, q]);
+  }, [items, kind, status, sort, needle, cwd, layout.data, folderIds]);
+  const visibleFolders = useMemo(
+    () =>
+      allFolders
+        .filter((f) => (needle ? f.name.toLocaleLowerCase('tr').includes(needle) : f.parentId === cwd))
+        .sort((a, b) => a.name.localeCompare(b.name, 'tr', { numeric: true })),
+    [allFolders, needle, cwd],
+  );
+  /** Klasör kartındaki sayı: içindeki öğe + alt klasör. */
+  const folderCount = (id: number) => {
+    const placements = layout.data?.placements ?? {};
+    const inside = items.filter((i) => placements[i.key] === id).length;
+    return inside + allFolders.filter((f) => f.parentId === id).length;
+  };
 
   const counts = { video: items.filter((i) => i.kind === 'video').length, recording: items.filter((i) => i.kind === 'recording').length, project: items.filter((i) => i.kind === 'project').length };
   const selectable = useMemo(() => visible.filter(canDelete), [visible]);
@@ -292,11 +339,164 @@ function Grid({ jobs, loaded, recordings, projects, progress, onDeleted }: { job
     });
   };
 
+  /** Klasör silinir; içindekiler (videolar dahil) bir üst klasöre geçer — hiçbir video silinmez. */
+  const removeFolder = (f: GalleryFolder) => {
+    const unhide = () =>
+      setHiddenFolders((s) => {
+        const next = new Set(s);
+        next.delete(f.id);
+        return next;
+      });
+    deleteWithUndo({
+      label: `"${f.name}" klasörü silindi, içindekiler ${f.parentId == null ? "Galeri'ye" : 'üst klasöre'} taşındı`,
+      hide: () => setHiddenFolders((s) => new Set([...s, f.id])),
+      restore: unhide,
+      commit: () => api.del(`/api/gallery/folders/${f.id}`).finally(() => layout.reload()),
+      done: unhide,
+    });
+  };
+
+  const newFolder = async (parentId: number | null = cwd, thenMove?: string[]) => {
+    const folder = await folderOps.create(parentId);
+    if (!folder) return;
+    if (thenMove?.length) await folderOps.moveItems(thenMove, folder.id, folder.name);
+    setRenaming(folder.id);
+  };
+
+  const moveItems = (keys: string[], folderId: number | null) => {
+    const movable = keys.filter((k) => (placementOf(k) ?? null) !== folderId);
+    if (!movable.length) return;
+    void folderOps.moveItems(movable, folderId, folderName(folderId));
+    setSelected(new Set());
+  };
+
+  const onDropPayload = (target: number | null) => (p: DragPayload) => {
+    if (p.folderId != null) {
+      if (p.folderId === target) return;
+      if (target != null && subtree(allFolders, p.folderId).has(target)) {
+        toast('Klasör kendi içine taşınamaz', 'error');
+        return;
+      }
+      void folderOps.moveFolder(p.folderId, target);
+      return;
+    }
+    moveItems(p.keys, target);
+  };
+
+  /* Sağ tık menüleri */
+  const itemMenu = (e: React.MouseEvent, it: Item) => {
+    const multi = selected.has(it.key) && chosen.length > 1;
+    if (multi) {
+      const keys = chosen.map((i) => i.key);
+      openMenu(
+        e,
+        [
+          { label: `${chosen.length} öğeyi taşı`, icon: 'move', submenu: moveTargets(allFolders, { current: needle ? -1 : cwd, onPick: (id) => moveItems(keys, id), onNew: () => void newFolder(cwd, keys) }) },
+          { label: 'Seçimi temizle', icon: 'x', onSelect: () => setSelected(new Set()) },
+          { separator: true },
+          { label: `${chosen.length} öğeyi sil`, icon: 'trash', danger: true, hint: '⌫', onSelect: () => remove(chosen) },
+        ],
+        `${chosen.length} öğe seçili`,
+      );
+      return;
+    }
+    const job = it.job;
+    const ready = it.status === 'ready';
+    openMenu(
+      e,
+      [
+        { label: it.kind === 'project' ? 'Editörde aç' : 'Aç', icon: it.kind === 'project' ? 'scissors' : 'play', onSelect: () => navigate(it.href) },
+        it.kind === 'video' && ready && { label: 'Editörde aç', icon: 'layers', onSelect: () => void openInEditor({ type: 'job', id: job!.id }, { title: it.title }) },
+        it.kind === 'recording' && it.rec?.available && { label: 'Editörde aç', icon: 'layers', onSelect: () => void openInEditor({ type: 'recording', id: it.rec!.id }, { title: it.title }) },
+        it.kind === 'video' && ready && { label: 'İndir', icon: 'download', onSelect: () => location.assign(`/api/jobs/${job!.id}/download`) },
+        it.kind === 'recording' && it.rec?.available && { label: 'Ham kaydı indir', icon: 'download', onSelect: () => location.assign(`/api/recordings/${it.rec!.id}/download`) },
+        { separator: true },
+        { label: 'Klasöre taşı', icon: 'folder', submenu: moveTargets(allFolders, { current: placementOf(it.key), onPick: (id) => moveItems([it.key], id), onNew: () => void newFolder(cwd, [it.key]) }) },
+        canDelete(it) && {
+          label: 'Seç',
+          icon: 'check',
+          onSelect: () => {
+            setSelecting(true);
+            setSelected(new Set([it.key]));
+            lastPick.current = it.key;
+          },
+        },
+        { separator: true },
+        it.kind === 'video' && it.status === 'busy'
+          ? { label: 'Hazırlamayı iptal et', icon: 'x', danger: true, onSelect: () => void api.post(`/api/jobs/${job!.id}/cancel`).then(() => toast('İptal edildi', 'ok'), toastError) }
+          : { label: 'Sil', icon: 'trash', danger: true, disabled: !canDelete(it), onSelect: () => remove([it]) },
+      ],
+      it.title,
+    );
+  };
+
+  const folderMenu = (e: React.MouseEvent, f: GalleryFolder) =>
+    openMenu(
+      e,
+      [
+        { label: 'Aç', icon: 'folder', onSelect: () => setCwd(f.id) },
+        { label: 'Yeniden adlandır', icon: 'text', hint: 'F2', onSelect: () => setRenaming(f.id) },
+        { label: 'İçinde yeni klasör', icon: 'plus', onSelect: () => void newFolder(f.id).then(() => setCwd(f.id)) },
+        { label: 'Taşı', icon: 'move', submenu: moveTargets(allFolders, { exclude: subtree(allFolders, f.id), current: f.parentId, onPick: (id) => void folderOps.moveFolder(f.id, id) }) },
+        { separator: true },
+        { label: 'Klasörü sil', icon: 'trash', danger: true, onSelect: () => removeFolder(f) },
+      ],
+      f.name,
+    );
+
+  const backgroundMenu = (e: React.MouseEvent) => {
+    // Kartların ya da klasörlerin kendi menüsü varsa o açılır.
+    if ((e.target as HTMLElement).closest('.gcard, .gfolder, input, textarea')) return;
+    openMenu(e, [
+      { label: 'Yeni klasör', icon: 'plus', hint: '⇧N', onSelect: () => void newFolder() },
+      cwd != null && { label: 'Üst klasöre çık', icon: 'undo', onSelect: () => setCwd(crumbs.length > 1 ? crumbs[crumbs.length - 2].id : null) },
+      { separator: true },
+      selectable.length > 0 && {
+        label: selecting ? 'Tümünü seç' : 'Seç',
+        icon: 'check',
+        hint: selecting ? '⌘A' : undefined,
+        onSelect: () => {
+          setSelecting(true);
+          if (selecting) setSelected(new Set(selectable.map((i) => i.key)));
+        },
+      },
+      { label: 'Yenile', icon: 'refresh', onSelect: () => void Promise.all([onDeleted(), layout.reload()]) },
+    ]);
+  };
+
+  const viewMenu = (el: HTMLElement) =>
+    openMenuAt(el, [
+      { label: 'Durum', disabled: true },
+      ...([
+        ['all', 'Tümü'],
+        ['ready', 'Hazır'],
+        ['busy', 'Hazırlanan'],
+        ['failed', 'Hatalı'],
+      ] as [Status, string][]).map(([v, l]) => ({ label: l, icon: status === v ? ('check' as const) : undefined, onSelect: () => setStatus(v) })),
+      { separator: true },
+      { label: 'Sırala', disabled: true },
+      ...([
+        ['new', 'En yeni'],
+        ['old', 'En eski'],
+        ['long', 'En uzun'],
+        ['short', 'En kısa'],
+      ] as [Sort, string][]).map(([v, l]) => ({ label: l, icon: sort === v ? ('check' as const) : undefined, onSelect: () => setSort(v) })),
+    ]);
+
   useEffect(() => {
-    if (!selecting) return;
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement | null)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (e.shiftKey && e.key.toLowerCase() === 'n' && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        void newFolder();
+        return;
+      }
+      if (e.key === 'Backspace' && !selecting && cwd != null && (e.metaKey || e.altKey)) {
+        setCwd(crumbs.length > 1 ? crumbs[crumbs.length - 2].id : null);
+        return;
+      }
+      if (!selecting) return;
       if (e.key === 'Escape') stopSelecting();
       else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') {
         e.preventDefault();
@@ -309,7 +509,10 @@ function Grid({ jobs, loaded, recordings, projects, progress, onDeleted }: { job
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selecting, selectable, chosen]);
+  }, [selecting, selectable, chosen, cwd, crumbs.length]);
+
+  const dragKeys = (it: Item) => (selected.has(it.key) && chosen.length > 1 ? chosen.map((i) => i.key) : [it.key]);
+  const empty = loaded && items.length === 0 && allFolders.length === 0;
 
   return (
     <>
@@ -317,10 +520,13 @@ function Grid({ jobs, loaded, recordings, projects, progress, onDeleted }: { job
         guide="galeri"
         title="Galeri"
         tape={`${items.length}`}
-        lead="Hazırladığın videolar, yayın kayıtların ve editör projelerin. Karta tıkla, izle; istersen editörde aç."
+        lead="Videoların, yayın kayıtların ve projelerin. Sağ tıkla klasör oluştur, kartları klasörlere sürükle."
         actions={
           <>
             <ChannelScopeToggle />
+            <button type="button" className="btn btn-secondary" onClick={() => void newFolder()} title="Yeni klasör (Shift+N)">
+              <Icon name="folder" size={16} /> Yeni klasör
+            </button>
             <button type="button" className="btn btn-accent" onClick={() => navigate(sectionPath('klipler'))}>
               <Icon name="plus" size={16} /> Dikey klip üret
             </button>
@@ -331,7 +537,7 @@ function Grid({ jobs, loaded, recordings, projects, progress, onDeleted }: { job
       <div className="gallery-filters panel">
         <div className="search gallery-search">
           <Icon name="search" size={16} />
-          <input className="search-input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Başlık ya da kanal ara" aria-label="Galeride ara" />
+          <input className="search-input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tüm klasörlerde ara" aria-label="Galeride ara" />
         </div>
         <Segmented
           size="small"
@@ -342,40 +548,19 @@ function Grid({ jobs, loaded, recordings, projects, progress, onDeleted }: { job
             { value: 'all', label: 'Hepsi' },
             { value: 'vertical', label: 'Dikey' },
             { value: 'horizontal', label: 'Yatay' },
-            { value: 'recording', label: `Yayın kayıtları${counts.recording ? ` (${counts.recording})` : ''}` },
+            { value: 'recording', label: `Kayıtlar${counts.recording ? ` (${counts.recording})` : ''}` },
             { value: 'project', label: `Projeler${counts.project ? ` (${counts.project})` : ''}` },
           ]}
         />
-        <Segmented
-          size="small"
-          label="Durum"
-          value={status}
-          onChange={setStatus}
-          options={[
-            { value: 'all', label: 'Tümü' },
-            { value: 'ready', label: 'Hazır' },
-            { value: 'busy', label: 'Hazırlanan' },
-            { value: 'failed', label: 'Hatalı' },
-          ]}
-        />
-        <Segmented
-          size="small"
-          label="Sırala"
-          value={sort}
-          onChange={setSort}
-          options={[
-            { value: 'new', label: 'Yeni' },
-            { value: 'old', label: 'Eski' },
-            { value: 'long', label: 'Uzun' },
-            { value: 'short', label: 'Kısa' },
-          ]}
-        />
+        <button type="button" className={`btn btn-small ${status !== 'all' || sort !== 'new' ? 'btn-secondary' : 'btn-quiet'}`} onClick={(e) => viewMenu(e.currentTarget)} aria-haspopup="menu">
+          <Icon name="more" size={14} /> {status !== 'all' ? STATUS_WORD[status] : 'Süz'} · {SORT_WORD[sort]}
+        </button>
         {items.length > 0 && (
           <button
             type="button"
             className={`btn btn-small ${selecting ? 'btn-secondary' : 'btn-quiet'} gallery-select-toggle`}
             aria-pressed={selecting}
-            title={selecting ? 'Seçimi bitir (Esc)' : 'Birden çok öğeyi seçip toplu sil'}
+            title={selecting ? 'Seçimi bitir (Esc)' : 'Birden çok öğeyi seç: taşı ya da sil'}
             onClick={() => (selecting ? stopSelecting() : setSelecting(true))}
           >
             <Icon name={selecting ? 'x' : 'check'} size={14} /> {selecting ? 'Bitti' : 'Seç'}
@@ -383,56 +568,152 @@ function Grid({ jobs, loaded, recordings, projects, progress, onDeleted }: { job
         )}
       </div>
 
-      {!loaded ? (
-        <Loading />
-      ) : items.length === 0 ? (
-        <div className="panel">
-          <Empty
-            icon="library"
-            title="Galeri boş"
-            action={
-              <div className="row-gap">
-                <button type="button" className="btn btn-accent" onClick={() => navigate(sectionPath('klipler'))}>
-                  Kliplerden başla
-                </button>
-                <button type="button" className="btn btn-secondary" onClick={() => navigate(sectionPath('yayinlar'))}>
-                  Yayın indir
-                </button>
-                <button type="button" className="btn btn-secondary" onClick={() => navigate(sectionPath('editor'))}>
-                  Editörü aç
-                </button>
-              </div>
-            }
-          >
-            Kick kliplerinden dikey video üret, bir yayın indir ya da editörde sıfırdan başla; hazırlanan her şey burada toplanır.
-          </Empty>
-        </div>
-      ) : visible.length === 0 ? (
-        <p className="muted pad">Bu süzgeçte bir şey yok.</p>
-      ) : (
-        <ul className={`gallery-grid${selecting ? ' gallery-selecting' : ''}`}>
-          {visible.map((it, i) => (
-            <motion.li key={it.key} layout initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(i, 16) * 0.02 }}>
-              <GalleryCard item={it} progress={it.job ? progress[it.job.id] : undefined} selecting={selecting} selected={selected.has(it.key)} onToggle={(range) => toggle(it, range)} />
-              {!selecting && canDelete(it) && (
-                <button type="button" className="gcard-x" title={`${KIND_WORD[it.kind]} sil`} aria-label={`${it.title} — sil`} onClick={() => remove([it])}>
-                  <Icon name="trash" size={14} />
-                </button>
-              )}
-              {!selecting && it.kind === 'video' && it.status === 'busy' && (
-                <button type="button" className="gcard-x" title="Hazırlamayı iptal et" aria-label={`${it.title} — iptal`} onClick={() => void api.post(`/api/jobs/${it.job!.id}/cancel`).then(() => toast('İptal edildi', 'ok'), toastError)}>
-                  <Icon name="x" size={14} />
-                </button>
-              )}
-            </motion.li>
-          ))}
-        </ul>
-      )}
+      <nav className="gallery-crumbs" aria-label="Klasör yolu">
+        {needle ? (
+          <span className="muted">
+            "{q.trim()}" için tüm klasörlerde {visible.length + visibleFolders.length} sonuç
+          </span>
+        ) : (
+          <>
+            <DropTarget className="crumb-drop" onDrop={onDropPayload(null)} title="Galeri'nin en üstüne taşı">
+              <button type="button" className={cwd == null ? 'crumb-btn crumb-on' : 'crumb-btn'} onClick={() => setCwd(null)}>
+                <Icon name="library" size={14} /> Galeri
+              </button>
+            </DropTarget>
+            {crumbs.map((f) => (
+              <span key={f.id} className="crumb-part">
+                <span className="crumb-sep">›</span>
+                <DropTarget className="crumb-drop" onDrop={onDropPayload(f.id)}>
+                  <button type="button" className={f.id === cwd ? 'crumb-btn crumb-on' : 'crumb-btn'} onClick={() => setCwd(f.id)} onContextMenu={(e) => folderMenu(e, f)}>
+                    {f.name}
+                  </button>
+                </DropTarget>
+              </span>
+            ))}
+          </>
+        )}
+      </nav>
+
+      <div className="gallery-area" onContextMenu={backgroundMenu}>
+        {!loaded ? (
+          <Loading />
+        ) : empty ? (
+          <div className="panel">
+            <Empty
+              icon="library"
+              title="Galeri boş"
+              action={
+                <div className="row-gap">
+                  <button type="button" className="btn btn-accent" onClick={() => navigate(sectionPath('klipler'))}>
+                    Kliplerden başla
+                  </button>
+                  <button type="button" className="btn btn-secondary" onClick={() => navigate(sectionPath('yayinlar'))}>
+                    Yayın indir
+                  </button>
+                  <button type="button" className="btn btn-secondary" onClick={() => navigate(sectionPath('editor'))}>
+                    Editörü aç
+                  </button>
+                </div>
+              }
+            >
+              Kick kliplerinden dikey video üret, bir yayın indir ya da editörde sıfırdan başla; hazırlanan her şey burada toplanır.
+            </Empty>
+          </div>
+        ) : visible.length === 0 && visibleFolders.length === 0 ? (
+          <div className="gallery-empty-folder">
+            <Icon name="folder" size={28} />
+            <p>{needle ? 'Aramaya uyan bir şey yok.' : cwd != null ? 'Bu klasör boş. Kartları buraya sürükleyebilir ya da sağ tıklayıp "Klasöre taşı" diyebilirsin.' : 'Bu süzgeçte bir şey yok.'}</p>
+          </div>
+        ) : (
+          <>
+            {visibleFolders.length > 0 && (
+              <ul className="gallery-folders" aria-label="Klasörler">
+                {visibleFolders.map((f) => (
+                  <motion.li key={`f${f.id}`} layout initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+                    <DropTarget className="gfolder-drop" onDrop={onDropPayload(f.id)}>
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        className="gfolder"
+                        draggable={renaming !== f.id}
+                        onDragStart={(e) => setDragPayload(e, { keys: [], folderId: f.id }, f.name)}
+                        onClick={() => renaming !== f.id && setCwd(f.id)}
+                        onKeyDown={(e) => {
+                          if (renaming === f.id) return;
+                          if (e.key === 'Enter') setCwd(f.id);
+                          else if (e.key === 'F2') setRenaming(f.id);
+                        }}
+                        onContextMenu={(e) => folderMenu(e, f)}
+                      >
+                        <FolderGlyph color={f.color} />
+                        <span className="gfolder-body">
+                          {renaming === f.id ? (
+                            <RenameInput
+                              value={f.name}
+                              onDone={(name) => {
+                                setRenaming(null);
+                                if (name && name.trim() && name.trim() !== f.name) void folderOps.rename(f.id, name);
+                              }}
+                            />
+                          ) : (
+                            <span className="gfolder-name">{f.name}</span>
+                          )}
+                          <span className="gfolder-meta">
+                            {needle && f.parentId != null ? `${folderName(f.parentId)} içinde · ` : ''}
+                            {folderCount(f.id) || 'Boş'}
+                            {folderCount(f.id) ? ' öğe' : ''}
+                          </span>
+                        </span>
+                      </div>
+                    </DropTarget>
+                  </motion.li>
+                ))}
+              </ul>
+            )}
+            {visible.length > 0 && (
+              <ul className={`gallery-grid${selecting ? ' gallery-selecting' : ''}`}>
+                {visible.map((it, i) => (
+                  <motion.li key={it.key} layout initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(i, 16) * 0.02 }}>
+                    <GalleryCard
+                      item={it}
+                      progress={it.job ? progress[it.job.id] : undefined}
+                      selecting={selecting}
+                      selected={selected.has(it.key)}
+                      where={needle ? folderName(placementOf(it.key)) : null}
+                      onToggle={(range) => toggle(it, range)}
+                      onPickWithModifier={() => {
+                        if (!canDelete(it)) return;
+                        setSelecting(true);
+                        toggle(it, false);
+                      }}
+                      onContextMenu={(e) => itemMenu(e, it)}
+                      onDragStart={(e) => {
+                        const keys = dragKeys(it);
+                        setDragPayload(e, { keys }, keys.length > 1 ? `${keys.length} öğe` : it.title);
+                      }}
+                    />
+                    {!selecting && canDelete(it) && (
+                      <button type="button" className="gcard-x" title={`${KIND_WORD[it.kind]} sil`} aria-label={`${it.title} — sil`} onClick={() => remove([it])}>
+                        <Icon name="trash" size={14} />
+                      </button>
+                    )}
+                    {!selecting && it.kind === 'video' && it.status === 'busy' && (
+                      <button type="button" className="gcard-x" title="Hazırlamayı iptal et" aria-label={`${it.title} — iptal`} onClick={() => void api.post(`/api/jobs/${it.job!.id}/cancel`).then(() => toast('İptal edildi', 'ok'), toastError)}>
+                        <Icon name="x" size={14} />
+                      </button>
+                    )}
+                  </motion.li>
+                ))}
+              </ul>
+            )}
+          </>
+        )}
+      </div>
 
       <AnimatePresence>
         {selecting && (
           <motion.div className="action-bar" initial={{ y: 80, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 80, opacity: 0 }} role="toolbar" aria-label="Seçim işlemleri">
-            <b>{chosen.length ? `${chosen.length} öğe seçildi` : 'Silmek için kartlara tıkla'}</b>
+            <b>{chosen.length ? `${chosen.length} öğe seçildi` : 'Kartlara tıklayarak seç'}</b>
             {chosen.length < selectable.length && (
               <button type="button" className="btn btn-quiet btn-small" onClick={() => setSelected(new Set(selectable.map((i) => i.key)))}>
                 Tümünü seç{selectable.length < visible.length ? ` (${selectable.length})` : ''}
@@ -446,6 +727,17 @@ function Grid({ jobs, loaded, recordings, projects, progress, onDeleted }: { job
             <button type="button" className="btn btn-quiet btn-small" onClick={stopSelecting}>
               Vazgeç
             </button>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={!chosen.length}
+              onClick={(e) => {
+                const keys = chosen.map((i) => i.key);
+                openMenuAt(e.currentTarget, moveTargets(allFolders, { current: needle ? -1 : cwd, onPick: (id) => moveItems(keys, id), onNew: () => void newFolder(cwd, keys) }), 'Klasöre taşı');
+              }}
+            >
+              <Icon name="folder" size={16} /> Taşı
+            </button>
             <button type="button" className="btn btn-danger" disabled={!chosen.length} onClick={() => remove(chosen)}>
               <Icon name="trash" size={16} /> Sil{chosen.length ? ` (${chosen.length})` : ''}
             </button>
@@ -456,8 +748,32 @@ function Grid({ jobs, loaded, recordings, projects, progress, onDeleted }: { job
   );
 }
 
+const STATUS_WORD: Record<Status, string> = { all: 'Tümü', ready: 'Hazır', busy: 'Hazırlanan', failed: 'Hatalı' };
+const SORT_WORD: Record<Sort, string> = { new: 'En yeni', old: 'En eski', long: 'En uzun', short: 'En kısa' };
+
 /** YouTube benzeri kart: üstünde bekleyince kart büyür ve video sesli oynar; seçim modunda tıklamak seçer. */
-function GalleryCard({ item, progress, selecting, selected, onToggle }: { item: Item; progress?: number; selecting: boolean; selected: boolean; onToggle: (range: boolean) => void }) {
+function GalleryCard({
+  item,
+  progress,
+  selecting,
+  selected,
+  where,
+  onToggle,
+  onPickWithModifier,
+  onContextMenu,
+  onDragStart,
+}: {
+  item: Item;
+  progress?: number;
+  selecting: boolean;
+  selected: boolean;
+  /** Aramada: öğenin bulunduğu klasör. */
+  where?: string | null;
+  onToggle: (range: boolean) => void;
+  onPickWithModifier?: () => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
+  onDragStart?: (e: React.DragEvent) => void;
+}) {
   const [hover, setHover] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const enter = () => {
@@ -484,13 +800,23 @@ function GalleryCard({ item, progress, selecting, selected, onToggle }: { item: 
     <a
       href={item.href}
       className={cls}
+      draggable
       aria-selected={selecting ? selected : undefined}
       aria-disabled={selecting && !pickable ? true : undefined}
       onMouseEnter={enter}
       onMouseLeave={leave}
+      onContextMenu={(e) => {
+        leave();
+        onContextMenu?.(e);
+      }}
+      onDragStart={(e) => {
+        leave();
+        onDragStart?.(e);
+      }}
       onClick={(e) => {
         e.preventDefault();
         if (selecting) onToggle(e.shiftKey);
+        else if ((e.metaKey || e.ctrlKey) && onPickWithModifier) onPickWithModifier();
         else navigate(item.href);
       }}
     >
@@ -500,7 +826,7 @@ function GalleryCard({ item, progress, selecting, selected, onToggle }: { item: 
             <Icon name="check" size={14} />
           </span>
         )}
-        {item.thumb ? <img src={item.thumb} alt="" loading="lazy" /> : <Icon name={kindIcon} size={28} />}
+        {item.thumb ? <img src={item.thumb} alt="" loading="lazy" draggable={false} /> : <Icon name={kindIcon} size={28} />}
         {hover && item.previewUrl && <video className="gcard-preview" src={item.previewUrl} loop playsInline preload="none" ref={(v) => {
               if (v) playLoud(v);
             }} />}
@@ -520,6 +846,7 @@ function GalleryCard({ item, progress, selecting, selected, onToggle }: { item: 
         <span className="gcard-meta">
           <span className={`status status-${item.status === 'ready' ? 'ready' : item.status === 'failed' ? 'failed' : 'busy'}`}>{item.statusLabel}</span>
           {item.channel ? ` · ${item.channel}` : ''} · {relative(item.at)}
+          {where ? ` · ${where}` : ''}
         </span>
       </span>
     </a>
@@ -554,7 +881,7 @@ function VideoDetail({ job, progress, others }: { job: Job; progress?: number; o
   const [fixing, setFixing] = useState(false);
   const [compressing, setCompressing] = useState<string | null>(null);
   const canReprocess = !horizontal && (job.status === 'ready' || job.status === 'failed') && (!!job.raw_url || !!job.source_clip_id);
-  const savedLayout = parseJson<{ manualLayout?: { cam: { x: number; y: number; w: number; h: number }; content: { x: number; y: number; w: number; h: number } } | null }>(job.options, {}).manualLayout ?? null;
+  const savedLayout = normalizeLayout(parseJson<{ manualLayout?: unknown }>(job.options, {}).manualLayout);
   const videoRef = useRef<HTMLVideoElement>(null);
   const tags = parseJson<string[]>(job.gen_hashtags, []);
   const platforms = parseJson<{ platform: string; status: string; url?: string }[]>(job.publish_platforms, []);
@@ -596,7 +923,7 @@ function VideoDetail({ job, progress, others }: { job: Job; progress?: number; o
     act(
       'reprocess',
       async () => {
-        await api.post(`/api/jobs/${job.id}/reprocess`, { manualLayout });
+        await api.post(`/api/jobs/${job.id}/reprocess`, manualLayout ? { manualLayout } : {});
         setFixing(false);
         await refreshJobs();
       },
@@ -691,7 +1018,7 @@ function VideoDetail({ job, progress, others }: { job: Job; progress?: number; o
               </>
             )}
             {canReprocess && (
-              <button type="button" className="btn btn-secondary" disabled={!!busy} onClick={() => setFixing(true)} title="Kamera ve oyun alanını kendin çizip videoyu yeniden ürettir">
+              <button type="button" className="btn btn-secondary" disabled={!!busy} onClick={() => setFixing(true)} title="Yayın alanını ve kameraları (yok, bir ya da birkaç) kendin çizip videoyu yeniden ürettir">
                 <Icon name="crop" size={16} /> Kadrajı düzelt
               </button>
             )}
@@ -797,7 +1124,7 @@ function VideoDetail({ job, progress, others }: { job: Job; progress?: number; o
         submitLabel="Bu kadrajla yeniden üret"
         lead={
           <>
-            Ham kare üzerinde <b>Kamera</b> ve <b>Yayın alanı</b> kutularını yerleştir; video bu kadrajla baştan üretilir. Eski video üzerine yazılır.
+            Ham kare üzerinde <b>Yayın alanı</b>nı ve istediğin kadar <b>Kamera</b> kutusunu yerleştir: kamera yoksa tek kare, bir kamera üstte, birden çoğu üst bantta yan yana. Video bu kadrajla baştan üretilir; eski video üzerine yazılır.
           </>
         }
       />
@@ -932,7 +1259,7 @@ function OutputPanel({ rec, onChange }: { rec: Recording; onChange: () => void }
   return (
     <section className="panel">
       <h2 className="panel-title">Paylaşıma hazır video</h2>
-      <p className="panel-sub">Kaydın açılış/kapanış videosu ve logo eklenmiş, boyutu küçültülmüş hali. Ayarları "Logo ve görünüm" bölümünde.</p>
+      <p className="panel-sub">Kaydın açılış/kapanış videosu ve logo eklenmiş, boyutu küçültülmüş hali. Ayarları Ayarlar › Video ve marka'da.</p>
       <dl className="facts">
         <div>
           <dt>Ham kayıt</dt>

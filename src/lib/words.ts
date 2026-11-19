@@ -17,6 +17,7 @@ const STEPS: Record<string, string> = {
   'kontrol ediliyor': 'Son kontrol yapılıyor',
   'kalite denetimi': 'Son kontrol yapılıyor',
   'küfür bipleniyor': 'Küfürler sansürleniyor',
+  'abone kesiti ekleniyor': 'Abone kesiti ekleniyor',
   'açıklama üretiliyor': 'Açıklama yazılıyor',
   'viral skor': 'Beğenilme tahmini yapılıyor',
   kırpılıyor: 'Kırpılıyor',

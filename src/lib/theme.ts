@@ -1,34 +1,47 @@
-import { useEffect } from 'react';
-import type { Section } from './router.ts';
+import { createStore } from './store.ts';
 
-interface Theme {
-  g1: string;
-  g2: string;
+/**
+ * Açık / koyu tema. "Sistem" bilgisayarın ayarını izler (CSS'teki
+ * prefers-color-scheme); "Açık" ve "Koyu" html[data-theme] ile sabitlenir.
+ * Seçim bu tarayıcıda saklanır; index.html'deki küçük betik ilk boyamadan
+ * önce uygular ki açılışta yanlış tema yanıp sönmesin.
+ */
+export type ThemePref = 'system' | 'light' | 'dark';
+
+const KEY = 'kesit.tema';
+
+function read(): ThemePref {
+  try {
+    const v = localStorage.getItem(KEY);
+    return v === 'light' || v === 'dark' ? v : 'system';
+  } catch {
+    return 'system';
+  }
 }
 
-/** Her çalışma alanının kendi şerit gradyanı; geçiş CSS'te yumuşatılır. */
-export const THEMES: Record<Section | 'gate', Theme> = {
-  gate: { g1: '#f43f5e', g2: '#f97316' },
-  anasayfa: { g1: '#f43f5e', g2: '#f97316' },
-  canli: { g1: '#dc2626', g2: '#ea580c' },
-  kesitler: { g1: '#be123c', g2: '#f59e0b' },
-  galeri: { g1: '#e11d48', g2: '#f59e0b' },
-  klipler: { g1: '#7c3aed', g2: '#db2777' },
-  yayinlar: { g1: '#2563eb', g2: '#0891b2' },
-  nobet: { g1: '#4f46e5', g2: '#9333ea' },
-  editor: { g1: '#0ea5e9', g2: '#6366f1' },
-  gorevler: { g1: '#0f766e', g2: '#2563eb' },
-  paylasim: { g1: '#16a34a', g2: '#0891b2' },
-  arsiv: { g1: '#334155', g2: '#2563eb' },
-  marka: { g1: '#b45309', g2: '#e11d48' },
-  ayarlar: { g1: '#475569', g2: '#0d9488' },
-  kurulum: { g1: '#7c3aed', g2: '#ec4899' },
-};
+export const themeStore = createStore<ThemePref>(read());
 
-export function useTheme(id: keyof typeof THEMES) {
-  useEffect(() => {
-    const root = document.documentElement;
-    root.style.setProperty('--g1', THEMES[id].g1);
-    root.style.setProperty('--g2', THEMES[id].g2);
-  }, [id]);
+function apply(pref: ThemePref) {
+  const root = document.documentElement;
+  if (pref === 'system') root.removeAttribute('data-theme');
+  else root.setAttribute('data-theme', pref);
 }
+
+export function setThemePref(pref: ThemePref) {
+  themeStore.set(pref);
+  apply(pref);
+  try {
+    if (pref === 'system') localStorage.removeItem(KEY);
+    else localStorage.setItem(KEY, pref);
+  } catch {
+    /* depolama kapalı — yalnız bu oturum */
+  }
+}
+
+/** Şu an gerçekte görünen tema (sistem seçiliyse bilgisayarınki). */
+export function effectiveTheme(pref: ThemePref): 'light' | 'dark' {
+  if (pref !== 'system') return pref;
+  return typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+}
+
+export const THEME_LABELS: Record<ThemePref, string> = { system: 'Sistem', light: 'Açık', dark: 'Koyu' };

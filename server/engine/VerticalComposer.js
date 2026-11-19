@@ -9,6 +9,7 @@ const { execFile } = require('./ProcTracker');
 const fs = require('fs');
 const path = require('path');
 const CamFull = require('./CamFull');
+const VideoEncoder = require('./VideoEncoder');
 
 const OUT_W = 1080;
 const OUT_H = 1920;
@@ -77,7 +78,25 @@ class VerticalComposer {
         const camFull = VerticalComposer.camFullPlan(facecam, camFullRanges, even);
         const stackedLabel = camFull ? 'stacked0' : 'stacked';
 
-        if (VerticalComposer.isSplit(facecam, composition)) {
+        const cams = VerticalComposer.manualCams(facecam);
+        if (cams.length > 1) {
+            // === Çok kameralı bölünmüş düzen: kameralar üst bantta yan yana, içerik altta ===
+            const band = VerticalComposer.camBand(cams, even);
+            const contentH = OUT_H - band.camH;
+            const { cropW, cropH, cropX, cropY } = VerticalComposer.contentCrop(meta, contentH, contentRect, even);
+            seamY = band.camH;
+            subtitleMarginV = OUT_H - band.camH - 140;
+            const labels = band.tiles.map((_, i) => `[c${i}]`).join('');
+            filterGraph = `[0:v]split=${cams.length + 1 + (camFull ? 1 : 0)}${labels}[mainsrc]${camFull ? '[cfsrc]' : ''};`;
+            for (const [i, t] of band.tiles.entries()) {
+                const c = VerticalComposer.tileCrop(t.rect, t.w, band.camH, even);
+                filterGraph += `[c${i}]crop=${t.rect.w}:${t.rect.h}:${t.rect.x}:${t.rect.y},scale=${c.scaledW}:${c.scaledH}:flags=lanczos,crop=${t.w}:${band.camH}:${c.cropX}:${c.cropY},setsar=1[cam${i}];`;
+            }
+            filterGraph +=
+                `${band.tiles.map((_, i) => `[cam${i}]`).join('')}hstack=inputs=${cams.length}[cam];` +
+                `[mainsrc]crop=${cropW}:${cropH}:${cropX}:${cropY},scale=${OUT_W}:${contentH}:flags=lanczos,setsar=1[main];` +
+                `[cam][main]vstack=inputs=2[${stackedLabel}]`;
+        } else if (VerticalComposer.isSplit(facecam, composition)) {
             // === Bölünmüş düzen: facecam üstte, içerik altta ===
             // Tespit kutusunu her kenardan minik payla içe kırp — sınır
             // çizgisi/dış kalıntı üstte ince boşluk bırakmasın.
@@ -111,6 +130,7 @@ class VerticalComposer {
                 `[cam][main]vstack=inputs=2[${stackedLabel}]`;
         } else {
             // === Tek parça düzen: odak merkezli 9:16 kırpma ===
+            // Kullanıcı "yayın alanı" çizdiyse o bölge 9:16'ya cover sığdırılır.
             const aspect = OUT_W / OUT_H;
             let cropH = meta.height;
             let cropW = even(cropH * aspect);
@@ -118,8 +138,13 @@ class VerticalComposer {
                 cropW = meta.width;
                 cropH = even(cropW / aspect);
             }
-            const cropX = even(Math.max(0, Math.min(focus.focusX - cropW / 2, meta.width - cropW)));
-            const cropY = even(Math.max(0, Math.min(focus.focusY - cropH / 2, meta.height - cropH)));
+            let cropX = even(Math.max(0, Math.min(focus.focusX - cropW / 2, meta.width - cropW)));
+            let cropY = even(Math.max(0, Math.min(focus.focusY - cropH / 2, meta.height - cropH)));
+            if (contentRect) {
+                const c = VerticalComposer.contentCrop(meta, OUT_H, contentRect, even);
+                cropW = c.cropW; cropH = c.cropH; cropX = c.cropX; cropY = c.cropY;
+                faceTrack = null;
+            }
 
             subtitleMarginV = 320;
 
@@ -195,30 +220,58 @@ class VerticalComposer {
         }
         filterGraph += `;[${finalLabel}]format=yuv420p,setsar=1[out]`;
 
-        const inputs = ['-i', inputPath];
-        if (hasLogo) inputs.push('-i', logoPath);
-
         // Adaptif timeout: sabit süre uzun kliplerde meşru encode'u SIGTERM
         // ile kesiyordu — klip süresiyle ölçeklenir (10 dk taban)
         const composeTimeout = Math.max(600000, Math.round((meta.duration || 0) * 10000));
 
-        await this._run('ffmpeg', [
+        // Kodlama (ve kaynak çözme) GPU'da; GPU hata verirse işlemciyle yeniden denenir
+        await VideoEncoder.withFallback('h264', enc => this._run('ffmpeg', [
             '-y', '-loglevel', 'error',
-            ...inputs,
+            ...VideoEncoder.inputArgs(enc), '-i', inputPath,
+            ...(hasLogo ? ['-i', logoPath] : []),
             '-filter_complex', filterGraph,
             '-map', '[out]',
             '-map', '0:a?',
-            '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20',
+            ...VideoEncoder.videoArgs(enc, { width: OUT_W, height: OUT_H, fps: meta.fps }),
             '-c:a', 'aac', '-b:a', '160k',
             '-movflags', '+faststart',
             outputPath,
-        ], composeTimeout);
+        ], composeTimeout), { label: 'Dikey kompozisyon' });
 
         if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size < 10000) {
             throw new Error('Kompozisyon çıktısı boş veya bozuk');
         }
 
         return { outputPath, subtitleMarginV };
+    }
+
+    /** Elle çizilmiş kamera kutuları (piksel); tespit sonucunda ya da tek kutuda boş. */
+    static manualCams(facecam) {
+        return facecam && facecam.method === 'manual' && Array.isArray(facecam.cams) && facecam.cams.length > 1 ? facecam.cams : [];
+    }
+
+    /**
+     * Çok kameralı üst bant (saf): kameralar eşit sütunlara bölünür, bant
+     * yüksekliği sütun genişliğine göre kutuların oranından türetilir ve
+     * [MIN_CAM_H, MAX_CAM_H] bandına kıstırılır.
+     * @returns {{camH:number, tiles:Array<{rect:object,w:number}>}}
+     */
+    static camBand(cams, even = v => Math.max(2, Math.round(v / 2) * 2)) {
+        const n = cams.length;
+        const base = even(OUT_W / n);
+        const tiles = cams.map((rect, i) => ({ rect, w: i === n - 1 ? OUT_W - base * (n - 1) : base }));
+        const ideal = tiles.reduce((s, t) => s + t.w * (t.rect.h / t.rect.w), 0) / n;
+        const camH = even(Math.min(MAX_CAM_H, Math.max(MIN_CAM_H, ideal * (1 - MAX_CAM_V_CROP))));
+        return { camH, tiles };
+    }
+
+    /** Bir kamera kutusunu w×h kutusuna "cover" yerleştirmek için ölçek ve ortalı kırpma (saf). */
+    static tileCrop(rect, w, h, even = v => Math.max(2, Math.round(v / 2) * 2)) {
+        const evenFloor = v => Math.max(0, 2 * Math.floor(v / 2));
+        const scale = Math.max(w / rect.w, h / rect.h);
+        const scaledW = Math.max(w, even(rect.w * scale));
+        const scaledH = Math.max(h, even(rect.h * scale));
+        return { scaledW, scaledH, cropX: evenFloor((scaledW - w) / 2), cropY: evenFloor((scaledH - h) / 2) };
     }
 
     /**
@@ -299,8 +352,9 @@ class VerticalComposer {
 
         if (VerticalComposer.isSplit(facecam, composition)) {
             const even = v => Math.max(2, Math.round(v / 2) * 2);
-            const cam = this._insetRect(facecam.rect, 0.01, facecam.meta, even);
-            const { camH } = this._camLayout(facecam, cam, even);
+            const cams = VerticalComposer.manualCams(facecam);
+            const cam = facecam.method === 'manual' ? facecam.rect : this._insetRect(facecam.rect, 0.01, facecam.meta, even);
+            const camH = cams.length > 1 ? VerticalComposer.camBand(cams, even).camH : this._camLayout(facecam, cam, even).camH;
             return {
                 playResX: OUT_W,
                 playResY: OUT_H,
@@ -486,14 +540,15 @@ class VerticalComposer {
         const cropX = even(Math.max(0, Math.min(OUT_W - cropW, Math.round(cropLeft * OUT_W))));
         const timeout = Math.max(300000, Math.round(durationSec * 8000));
 
-        await this._run('ffmpeg', [
+        await VideoEncoder.withFallback('h264', enc => this._run('ffmpeg', [
             '-y', '-loglevel', 'error',
-            '-i', inputPath,
+            ...VideoEncoder.inputArgs(enc), '-i', inputPath,
             '-filter:v', `crop=${cropW}:${OUT_H}:${cropX}:0,scale=${OUT_W}:${OUT_H}:flags=lanczos,setsar=1`,
+            ...VideoEncoder.videoArgs(enc, { width: OUT_W, height: OUT_H }),
             '-c:a', 'copy',
             '-movflags', '+faststart',
             outputPath,
-        ], timeout);
+        ], timeout), { label: 'Yeniden kırpma' });
 
         if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size < 10000) {
             throw new Error('Kırpma çıktısı boş veya bozuk');
@@ -517,7 +572,7 @@ class VerticalComposer {
     _run(bin, args, timeout = 120000) {
         return new Promise((resolve, reject) => {
             execFile(bin, args, { timeout, maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
-                if (err) reject(new Error(`${bin} hatası: ${(stderr || err.message).slice(0, 400)}`));
+                if (err) reject(VideoEncoder.markAbort(new Error(`${bin} hatası: ${(stderr || err.message).slice(0, 400)}`), err));
                 else resolve(stdout);
             });
         });

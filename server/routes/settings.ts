@@ -40,7 +40,7 @@ export function publicKickRoutes() {
 }
 
 /** Kanal sekmeleri, sistem bilgisi ve altyazı motoru ayarları. */
-export function settingsRoutes({ store, captions, exporter, storage, kickChat }: AppContext) {
+export function settingsRoutes({ store, captions, exporter, storage, kickChat, moments }: AppContext) {
   const r = express.Router();
 
   r.get('/me/channels', async (req, res) => {
@@ -119,6 +119,20 @@ export function settingsRoutes({ store, captions, exporter, storage, kickChat }:
 
   r.post('/storage/videos/clear', async (req, res) => {
     res.json(await storage.clearVideos(req.user!.id));
+  });
+
+  /* ── Yayın an taraması için Claude ─────────────────────────────────── */
+
+  r.get('/ai', (_req, res) => {
+    res.json(moments.aiStatus());
+  });
+
+  r.put('/ai/claude', requireLocal, async (req, res) => {
+    res.json(await moments.setClaudeKey(String(req.body?.apiKey || '')));
+  });
+
+  r.delete('/ai/claude', requireLocal, async (_req, res) => {
+    res.json(await moments.setClaudeKey(null));
   });
 
   r.get('/captions', (_req, res) => {

@@ -189,6 +189,13 @@ export interface ChannelInfo {
   startedAt: string | null;
 }
 
+export interface StudioFrame {
+  exists: boolean;
+  url: string | null;
+  window: { x: number; y: number; w: number; h: number } | null;
+  chat: { x: number; y: number; w: number; h: number } | null;
+}
+
 export interface BrandMedia {
   exists: boolean;
   url: string | null;
@@ -217,9 +224,13 @@ export interface ClipOptions {
   intro: boolean;
   introAsk: boolean;
   outro: boolean;
+  /** Abone çağrısı otomatik yerleşim: animasyon başta ve sonda, abone kesiti tam ortada (Stüdyo'daki zamanlama/biçim seçimi yerine). */
+  ctaAuto: boolean;
   camFullRanges: { start: number; end: number }[];
-  /** Elle çizilmiş kamera/yayın alanı kadrajı (0-1 oranlı); "Kamera + oyun" seçiliyse tespit yerine bu kullanılır. */
-  manualLayout: { cam: { x: number; y: number; w: number; h: number }; content: { x: number; y: number; w: number; h: number } } | null;
+  /** Elle çizilmiş kadraj (0-1 oranlı): yayın alanı + 0…4 kamera. "Kamera + oyun" seçiliyse tespit yerine bu kullanılır. */
+  manualLayout: { cams: { x: number; y: number; w: number; h: number }[]; cam?: { x: number; y: number; w: number; h: number } | null; content: { x: number; y: number; w: number; h: number } } | null;
+  /** Tek kare düzeninin kendi logo ayarı; null ise ortak (kamera + oyun) ayar kullanılır. */
+  logoSingle: { logoPosition: 'seam' | 'top-center' | 'custom'; logoScale: number; logoOpacity: number; logoX: number | null; logoY: number | null } | null;
 }
 
 export interface RecordingOutput {
@@ -234,16 +245,52 @@ export interface RecordingOutput {
   speed: 'fast' | 'balanced' | 'quality';
 }
 
+/** Abone çağrısının videoda görüneceği/dikileceği yer. */
+export type CtaPlace = 'start' | 'middle' | 'end';
+export type CtaAction = 'subscribe' | 'like' | 'comment';
+export type CtaStyle = 'pill' | 'bar' | 'card' | 'cursor' | 'icons' | 'side';
+export type CtaPosition = 'top' | 'center' | 'bottom';
+/** Boyut yüzde: 30–200, 100 = tasarım ölçüsü. */
+export type CtaSize = number;
+export type CtaColorKey = 'primary' | 'accent' | 'text' | 'dark';
+export type CtaFormat = 'vertical' | 'horizontal';
+/** Biçim başına (dikey/yatay) animasyon ayarı. */
+export interface CtaFormatConfig {
+  enabled: boolean;
+  place: CtaPosition;
+  size: CtaSize;
+}
+export interface CtaConfig {
+  /** Marka renginde çizilen "Abone ol" animasyonu. */
+  overlay: {
+    enabled: boolean;
+    at: CtaPlace[];
+    seconds: number;
+    labels: Record<CtaAction, string>;
+    style: CtaStyle;
+    formats: Record<CtaFormat, CtaFormatConfig>;
+    /** Özel renkler; null → marka rengi / vurgu rengi / beyaz / koyu. */
+    colors: Record<CtaColorKey, string | null>;
+  };
+  /** Yüklenen kısa videonun klibin içine dikilmesi. */
+  insert: { enabled: boolean; at: CtaPlace[]; formats: Record<CtaFormat, boolean> };
+}
+
 export interface Studio {
   styles: { key: string; label: string; hint: string }[];
   /** Hangi sekme için okundu; custom ise o sekmenin kendi profili var. */
   scope: { channel: string | null; custom: boolean };
+  /** Özel ayarı (logo/renk/abone çağrısı) olan sekmeler. */
+  customTabs?: string[];
   brand: { subtitleStyle: string; brandColor: string; accentColor: string; language: 'tr' | 'en' };
   defaults: Record<'vertical' | 'horizontal', ClipOptions>;
   logo: { exists: boolean; url: string | null };
   intro: BrandMedia;
   outro: BrandMedia;
-  limits: { mediaMaxSeconds: number; mediaMaxBytes: number; logoMaxBytes: number };
+  cta: { config: CtaConfig; clip: BrandMedia };
+  /** Yayın çerçevesi: saydam pencereli PNG ve bölgeleri (karenin oranı). */
+  frame: StudioFrame;
+  limits: { mediaMaxSeconds: number; mediaMaxBytes: number; logoMaxBytes: number; ctaMaxSeconds: number; ctaMaxBytes: number; frameMaxBytes: number };
   recordingOutput: RecordingOutput;
   hevcAvailable: boolean;
 }
@@ -254,7 +301,11 @@ export interface Snippet {
   channel: string;
   title: string;
   seconds: number;
+  /** live: yayın kaydından; file: yüklenen dosya; drive: Google Drive; url: doğrudan bağlantı. */
+  source: 'live' | 'file' | 'drive' | 'url';
   status: 'downloading' | 'ready' | 'failed';
+  /** Dışarıdan alınırken: indirme/çevirme ilerlemesi. */
+  progress: { bytes: number; total: number | null; percent: number | null; stage: 'indiriliyor' | 'hazirlaniyor' } | null;
   error: string | null;
   sizeBytes: number | null;
   durationSec: number | null;
@@ -359,6 +410,23 @@ export interface SystemReport {
   memory: { total: number; used: number; percent: number };
   disk: { total: number; free: number; used: number; percent: number } | null;
   kesit: { pid: number; uptimeSec: number; memBytes: number; queue: QueueStatus };
+  /** Video kodlayıcı: GPU (VideoToolbox, NVENC…) ya da işlemci; tespit sürerken null */
+  video: { hw: boolean; label: string; encoder: string; decode: string | null } | null;
   processes: SystemProcess[];
   sampledAt: number;
+}
+
+/** Galeri klasörü (dosya yöneticisi katmanı). */
+export interface GalleryFolder {
+  id: number;
+  parentId: number | null;
+  name: string;
+  color: string | null;
+  createdAt: string;
+}
+
+export interface GalleryLayout {
+  folders: GalleryFolder[];
+  /** Öğe anahtarı (v12, k3, p5) → klasör kimliği. Olmayan öğe köktedir. */
+  placements: Record<string, number>;
 }
